@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Configurador de Video Interactivo - Hub Education</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://player.vimeo.com/api/player.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --primary: #062E60;
+  --accent: #0162F5;
+  --green: #84F4BE;
+  --bg: #F4F6F9;
+  --white: #FFFFFF;
+  --gray-100: #F0F2F5;
+  --gray-200: #E2E6EC;
+  --gray-300: #C8CDD6;
+  --gray-400: #9BA3B0;
+  --gray-500: #6B7280;
+  --gray-700: #374151;
+  --danger: #EF4444;
+  --danger-hover: #DC2626;
+  --note-color: #8B5CF6;
+  --mc-color: #0162F5;
+  --tf-color: #F59E0B;
+  --hotspot-color: #10B981;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+}
+
+body {
+  font-family: 'Work Sans', sans-serif;
+  background: var(--bg);
+  color: var(--gray-700);
+  min-height: 100vh;
+}
+
+/* ===== HEADER ===== */
+.header {
+  background: var(--primary);
+  color: var(--white);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.header-left { display: flex; align-items: center; gap: 12px; }
+.header-logo {
+  width: 36px; height: 36px;
+  background: var(--green);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; color: var(--primary);
+}
+.header h1 { font-size: 18px; font-weight: 600; }
+.header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ===== BUTTONS ===== */
+.btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.btn-primary { background: var(--accent); color: var(--white); }
+.btn-primary:hover { background: #0150D0; }
+.btn-green { background: var(--green); color: var(--primary); font-weight: 600; }
+.btn-green:hover { background: #6DE0A8; }
+.btn-outline {
+  background: transparent;
+  color: var(--white);
+  border: 1px solid rgba(255,255,255,0.3);
+}
+.btn-outline:hover { background: rgba(255,255,255,0.1); }
+.btn-ghost {
+  background: transparent;
+  color: var(--accent);
+  padding: 6px 10px;
+}
+.btn-ghost:hover { background: var(--gray-100); }
+.btn-danger { background: transparent; color: var(--danger); padding: 4px 8px; font-size: 12px; }
+.btn-danger:hover { background: #FEE2E2; }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+
+/* ===== LAYOUT ===== */
+.app {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: calc(100vh - 62px);
+}
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--gray-200); max-height: 300px; overflow-y: auto; }
+}
+
+/* ===== SIDEBAR ===== */
+.sidebar {
+  background: var(--white);
+  border-right: 1px solid var(--gray-200);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--gray-200);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sidebar-header h2 { font-size: 15px; font-weight: 600; color: var(--primary); }
+.sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+.sidebar-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--gray-400);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Interaction card in sidebar */
+.interaction-card {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  transition: background 0.1s;
+  position: relative;
+  margin-bottom: 4px;
+}
+.interaction-card:hover { background: var(--gray-100); }
+.interaction-card.active { background: #EBF2FF; border: 1px solid var(--accent); }
+.interaction-card .type-badge {
+  width: 32px; height: 32px; min-width: 32px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--white); font-weight: 600;
+}
+.type-badge.note { background: var(--note-color); }
+.type-badge.multiple-choice { background: var(--mc-color); }
+.type-badge.true-false { background: var(--tf-color); }
+.type-badge.hotspot { background: var(--hotspot-color); }
+.interaction-card .card-content { flex: 1; min-width: 0; }
+.interaction-card .card-time { font-size: 11px; color: var(--gray-400); font-weight: 500; }
+.interaction-card .card-title {
+  font-size: 13px; font-weight: 500; color: var(--gray-700);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.interaction-card .card-delete {
+  position: absolute; top: 6px; right: 6px;
+  background: none; border: none; cursor: pointer;
+  color: var(--gray-400); font-size: 16px; line-height: 1;
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 4px;
+  opacity: 0; transition: opacity 0.1s;
+}
+.interaction-card:hover .card-delete { opacity: 1; }
+.interaction-card .card-delete:hover { color: var(--danger); background: #FEE2E2; }
+
+/* Add button dropdown */
+.add-dropdown-wrap { position: relative; }
+.add-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  min-width: 200px;
+  z-index: 50;
+  display: none;
+  overflow: hidden;
+}
+.add-dropdown.open { display: block; }
+.add-dropdown button {
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.1s;
+}
+.add-dropdown button:hover { background: var(--gray-100); }
+.add-dropdown .dot {
+  width: 10px; height: 10px; border-radius: 50%;
+}
+
+/* ===== MAIN PANEL ===== */
+.main {
+  padding: 24px;
+  overflow-y: auto;
+}
+.section {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--gray-100);
+}
+
+/* ===== FORMS ===== */
+.form-group { margin-bottom: 16px; }
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-700);
+  margin-bottom: 5px;
+}
+.form-hint { font-size: 11px; color: var(--gray-400); font-weight: 400; margin-left: 4px; }
+.form-input, .form-textarea, .form-select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--gray-700);
+  transition: border-color 0.15s;
+  background: var(--white);
+}
+.form-input:focus, .form-textarea:focus, .form-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(1, 98, 245, 0.1);
+}
+.form-textarea { resize: vertical; min-height: 80px; }
+.form-row { display: flex; gap: 12px; align-items: flex-end; }
+.form-row > * { flex: 1; }
+
+/* Video preview */
+.video-preview {
+  margin-top: 16px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 16/9;
+  max-width: 640px;
+}
+.video-preview iframe { width: 100%; height: 100%; border: none; }
+#video-placeholder {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--gray-400); font-size: 14px;
+  aspect-ratio: 16/9;
+  background: var(--gray-100);
+  border-radius: var(--radius);
+  max-width: 640px;
+}
+
+/* Hotspot click overlay on video */
+.video-hotspot-wrap {
+  position: relative;
+  max-width: 640px;
+  margin-top: 16px;
+}
+.video-hotspot-wrap .video-preview {
+  margin-top: 0;
+}
+.hotspot-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  z-index: 10;
+}
+.hotspot-overlay-hint {
+  position: absolute;
+  top: 8px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 11;
+}
+.hotspot-dot-preview {
+  position: absolute;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: rgba(245,158,11,0.9);
+  border: 2px solid #fff;
+  transform: translate(-50%, -50%);
+  z-index: 11;
+  pointer-events: none;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.4);
+}
+.hotspot-dot-preview .dot-label {
+  position: absolute;
+  top: -22px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  font-family: 'Work Sans', sans-serif;
+}
+
+/* Radio group */
+.radio-group { display: flex; gap: 16px; margin-top: 4px; }
+.radio-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 14px; cursor: pointer;
+}
+.radio-label input[type="radio"] { accent-color: var(--accent); }
+
+/* Options list (MC) */
+.options-list { display: flex; flex-direction: column; gap: 8px; }
+.option-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.option-row .option-id {
+  width: 28px; height: 28px; min-width: 28px;
+  border-radius: 50%;
+  background: var(--gray-100);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; color: var(--gray-500);
+  text-transform: uppercase;
+}
+.option-row input[type="text"] { flex: 1; }
+.option-row input[type="radio"] { accent-color: var(--accent); }
+.option-row .btn-remove-option {
+  background: none; border: none; cursor: pointer;
+  color: var(--gray-400); font-size: 18px; padding: 2px;
+}
+.option-row .btn-remove-option:hover { color: var(--danger); }
+
+/* Spots list (Hotspot) */
+.spots-list { display: flex; flex-direction: column; gap: 10px; }
+.spot-row {
+  background: var(--gray-100);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 70px 70px 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+@media (max-width: 700px) {
+  .spot-row { grid-template-columns: 1fr 1fr; }
+}
+.spot-row .btn-remove-spot {
+  background: none; border: none; cursor: pointer;
+  color: var(--gray-400); font-size: 18px;
+}
+.spot-row .btn-remove-spot:hover { color: var(--danger); }
+
+/* Empty state for form */
+.editor-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--gray-400);
+}
+.editor-empty svg { margin-bottom: 16px; }
+.editor-empty p { font-size: 14px; line-height: 1.6; }
+
+/* Hidden file input */
+.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header class="header">
+  <div class="header-left">
+    <div class="header-logo">HE</div>
+    <h1>Configurador de Video Interactivo</h1>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-outline" onclick="importJSON()" title="Importar JSON">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Importar JSON
+    </button>
+    <button class="btn btn-outline" onclick="exportJSON()" title="Exportar JSON">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Exportar JSON
+    </button>
+    <button class="btn btn-outline" onclick="downloadSCORM()" title="Descargar SCORM">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>
+      SCORM .zip
+    </button>
+    <button class="btn btn-green" onclick="preview()" title="Previsualizar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Previsualizar
+    </button>
+  </div>
+</header>
+
+<input type="file" id="jsonFileInput" accept=".json" class="hidden" onchange="handleFileImport(event)">
+
+<!-- ===== APP LAYOUT ===== -->
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2>Interacciones</h2>
+      <div class="add-dropdown-wrap">
+        <button class="btn btn-primary btn-sm" onclick="toggleAddMenu()">+ Agregar</button>
+        <div class="add-dropdown" id="addDropdown">
+          <button onclick="addInteraction('note')">
+            <span class="dot" style="background:var(--note-color)"></span> Nota
+          </button>
+          <button onclick="addInteraction('multiple-choice')">
+            <span class="dot" style="background:var(--mc-color)"></span> Multiple Choice
+          </button>
+          <button onclick="addInteraction('true-false')">
+            <span class="dot" style="background:var(--tf-color)"></span> Verdadero / Falso
+          </button>
+          <button onclick="addInteraction('hotspot')">
+            <span class="dot" style="background:var(--hotspot-color)"></span> Hotspot
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-list" id="sidebarList">
+      <div class="sidebar-empty" id="sidebarEmpty">
+        No hay interacciones.<br>
+        Usa el boton "+ Agregar" para crear una.
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main panel -->
+  <main class="main" id="mainPanel">
+
+    <!-- Section: Video Setup -->
+    <div class="section">
+      <h3 class="section-title">Configuracion del Video</h3>
+      <div class="form-group">
+        <label class="form-label">Titulo del curso</label>
+        <input type="text" class="form-input" id="courseTitle" placeholder="Ej: Introduccion a la fotografia aerea">
+      </div>
+      <div class="form-group">
+        <label class="form-label">URL o ID de Vimeo</label>
+        <div class="form-row">
+          <input type="text" class="form-input" id="vimeoInput" placeholder="Ej: https://vimeo.com/1171751497/415649d0b1">
+          <button class="btn btn-primary" onclick="loadVideo()" style="flex:none">Cargar video</button>
+        </div>
+      </div>
+      <div id="videoContainer">
+        <div id="video-placeholder">Ingresa una URL de Vimeo y haz clic en "Cargar video"</div>
+      </div>
+    </div>
+
+    <!-- Section: Interaction Editor (dynamic) -->
+    <div id="editorPanel">
+      <div class="editor-empty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#C8CDD6" stroke-width="1.5">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="12" y1="8" x2="12" y2="16"/>
+          <line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        <p>Selecciona una interaccion del panel izquierdo<br>o agrega una nueva para comenzar a editar.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let interactions = [];
+let selectedId = null;
+let counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0 };
+let vimeoPlayer = null;
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function parseTime(str) {
+  if (!str) return 0;
+  str = str.trim();
+  const parts = str.split(':');
+  if (parts.length === 2) {
+    return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+  }
+  return parseInt(str, 10) || 0;
+}
+
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function parseVimeoUrl(input) {
+  input = input.trim();
+  // Strip query params and anchors for parsing
+  var clean = input.split('?')[0].split('#')[0];
+  // Just a numeric ID
+  if (/^\d+$/.test(clean)) {
+    return { vimeoId: clean, vimeoHash: null };
+  }
+  // URL: vimeo.com/ID/HASH or vimeo.com/video/ID/HASH
+  var match = clean.match(/vimeo\.com\/(?:video\/)?(\d+)(?:\/([a-f0-9]+))?/);
+  if (match) {
+    return { vimeoId: match[1], vimeoHash: match[2] || null };
+  }
+  // Player URL: player.vimeo.com/video/ID?h=HASH
+  var playerMatch = input.match(/player\.vimeo\.com\/video\/(\d+)/);
+  if (playerMatch) {
+    var hMatch = input.match(/[?&]h=([a-f0-9]+)/);
+    return { vimeoId: playerMatch[1], vimeoHash: hMatch ? hMatch[1] : null };
+  }
+  return { vimeoId: clean, vimeoHash: null };
+}
+
+function generateId(type) {
+  const prefix = type === 'multiple-choice' ? 'mc' : type === 'true-false' ? 'tf' : type;
+  counters[type]++;
+  return `${prefix}-${counters[type]}`;
+}
+
+function typeLabel(type) {
+  const labels = {
+    'note': 'Nota',
+    'multiple-choice': 'MC',
+    'true-false': 'V/F',
+    'hotspot': 'HS'
+  };
+  return labels[type] || type;
+}
+
+function typeIcon(type) {
+  const icons = {
+    'note': '\u270E',
+    'multiple-choice': 'A',
+    'true-false': '\u2713',
+    'hotspot': '\u25CE'
+  };
+  return icons[type] || '?';
+}
+
+function getSummary(interaction) {
+  const d = interaction.data;
+  switch (interaction.type) {
+    case 'note': return d.title || d.text || 'Nota sin titulo';
+    case 'multiple-choice': return d.question || 'Pregunta sin definir';
+    case 'true-false': return d.statement || 'Enunciado sin definir';
+    case 'hotspot': return `${(d.spots || []).length} punto(s)`;
+    default: return '';
+  }
+}
+
+// ============================================================
+// VIDEO LOADING
+// ============================================================
+function loadVideo() {
+  const input = document.getElementById('vimeoInput').value;
+  if (!input.trim()) return;
+
+  const { vimeoId, vimeoHash } = parseVimeoUrl(input);
+  const container = document.getElementById('videoContainer');
+
+  // Remove old content
+  container.innerHTML = '';
+
+  // Create wrapper div
+  const wrapper = document.createElement('div');
+  wrapper.className = 'video-preview';
+  wrapper.id = 'vimeoPlayerDiv';
+  container.appendChild(wrapper);
+
+  // Build options — use URL for private videos, ID for public
+  const opts = { width: 640, responsive: true };
+  if (vimeoHash) {
+    opts.url = 'https://vimeo.com/' + vimeoId + '/' + vimeoHash;
+  } else {
+    opts.id = parseInt(vimeoId);
+  }
+
+  try {
+    vimeoPlayer = new Vimeo.Player('vimeoPlayerDiv', opts);
+    vimeoPlayer.ready().catch(function() {
+      container.innerHTML = '<div id="video-placeholder" style="color:var(--danger)">Error al cargar el video. Verifica la URL y que el video permita embedding.</div>';
+    });
+  } catch (e) {
+    container.innerHTML = '<div id="video-placeholder" style="color:var(--danger)">Error al cargar el video. Verifica la URL.</div>';
+  }
+}
+
+// ============================================================
+// INTERACTIONS CRUD
+// ============================================================
+function addInteraction(type) {
+  closeAddMenu();
+  const id = generateId(type);
+  let interaction = { id, type, time: 0 };
+
+  switch (type) {
+    case 'note':
+      interaction.data = { title: '', text: '' };
+      break;
+    case 'multiple-choice':
+      interaction.data = {
+        question: '',
+        options: [{ id: 'a', text: '' }, { id: 'b', text: '' }],
+        correctId: 'a',
+        explanation: ''
+      };
+      break;
+    case 'true-false':
+      interaction.data = { statement: '', correct: true, explanation: '' };
+      break;
+    case 'hotspot':
+      interaction.time = 0;
+      interaction.duration = 8;
+      interaction.data = { spots: [] };
+      break;
+  }
+
+  interactions.push(interaction);
+  selectedId = id;
+  sortAndRender();
+}
+
+function deleteInteraction(id, e) {
+  e.stopPropagation();
+  interactions = interactions.filter(i => i.id !== id);
+  if (selectedId === id) selectedId = null;
+  sortAndRender();
+}
+
+function selectInteraction(id) {
+  // Save current before switching
+  saveCurrentForm();
+  selectedId = id;
+  renderSidebar();
+  renderEditor();
+}
+
+function sortAndRender() {
+  interactions.sort((a, b) => a.time - b.time);
+  renderSidebar();
+  renderEditor();
+}
+
+// ============================================================
+// SAVE FORM DATA
+// ============================================================
+function saveCurrentForm() {
+  if (!selectedId) return;
+  const inter = interactions.find(i => i.id === selectedId);
+  if (!inter) return;
+
+  const timeEl = document.getElementById('edit-time');
+  if (timeEl) inter.time = parseTime(timeEl.value);
+
+  switch (inter.type) {
+    case 'note': {
+      const t = document.getElementById('edit-title');
+      const tx = document.getElementById('edit-text');
+      if (t) inter.data.title = t.value;
+      if (tx) inter.data.text = tx.value;
+      break;
+    }
+    case 'multiple-choice': {
+      const q = document.getElementById('edit-question');
+      const exp = document.getElementById('edit-explanation');
+      if (q) inter.data.question = q.value;
+      if (exp) inter.data.explanation = exp.value;
+      // Options
+      const optEls = document.querySelectorAll('.option-text-input');
+      optEls.forEach((el, idx) => {
+        if (inter.data.options[idx]) inter.data.options[idx].text = el.value;
+      });
+      // Correct
+      const checked = document.querySelector('input[name="correct-option"]:checked');
+      if (checked) inter.data.correctId = checked.value;
+      break;
+    }
+    case 'true-false': {
+      const st = document.getElementById('edit-statement');
+      const exp = document.getElementById('edit-explanation');
+      if (st) inter.data.statement = st.value;
+      if (exp) inter.data.explanation = exp.value;
+      const checked = document.querySelector('input[name="tf-correct"]:checked');
+      if (checked) inter.data.correct = checked.value === 'true';
+      break;
+    }
+    case 'hotspot': {
+      const dur = document.getElementById('edit-duration');
+      if (dur) inter.duration = parseInt(dur.value, 10) || 8;
+      // Spots
+      const spotRows = document.querySelectorAll('.spot-data-row');
+      inter.data.spots = [];
+      spotRows.forEach((row, idx) => {
+        const x = row.querySelector('.spot-x');
+        const y = row.querySelector('.spot-y');
+        const label = row.querySelector('.spot-label');
+        const info = row.querySelector('.spot-info');
+        inter.data.spots.push({
+          id: `h${idx + 1}`,
+          x: parseFloat(x?.value) || 0,
+          y: parseFloat(y?.value) || 0,
+          label: label?.value || '',
+          info: info?.value || ''
+        });
+      });
+      break;
+    }
+  }
+}
+
+// ============================================================
+// RENDER SIDEBAR
+// ============================================================
+function renderSidebar() {
+  const list = document.getElementById('sidebarList');
+  const empty = document.getElementById('sidebarEmpty');
+
+  if (interactions.length === 0) {
+    list.innerHTML = '';
+    list.appendChild(createEmptyMsg());
+    return;
+  }
+
+  list.innerHTML = interactions.map(inter => `
+    <div class="interaction-card ${inter.id === selectedId ? 'active' : ''}"
+         onclick="selectInteraction('${inter.id}')">
+      <div class="type-badge ${inter.type}">${typeIcon(inter.type)}</div>
+      <div class="card-content">
+        <div class="card-time">${formatTime(inter.time)} &middot; ${typeLabel(inter.type)}</div>
+        <div class="card-title">${escapeHtml(getSummary(inter))}</div>
+      </div>
+      <button class="card-delete" onclick="deleteInteraction('${inter.id}', event)" title="Eliminar">&times;</button>
+    </div>
+  `).join('');
+}
+
+function createEmptyMsg() {
+  const div = document.createElement('div');
+  div.className = 'sidebar-empty';
+  div.id = 'sidebarEmpty';
+  div.innerHTML = 'No hay interacciones.<br>Usa el boton "+ Agregar" para crear una.';
+  return div;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ============================================================
+// RENDER EDITOR
+// ============================================================
+function renderEditor() {
+  const panel = document.getElementById('editorPanel');
+
+  if (!selectedId) {
+    panel.innerHTML = `
+      <div class="editor-empty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#C8CDD6" stroke-width="1.5">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="12" y1="8" x2="12" y2="16"/>
+          <line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        <p>Selecciona una interaccion del panel izquierdo<br>o agrega una nueva para comenzar a editar.</p>
+      </div>`;
+    return;
+  }
+
+  const inter = interactions.find(i => i.id === selectedId);
+  if (!inter) return;
+
+  let html = `<div class="section">
+    <h3 class="section-title">Editar: ${typeLabel(inter.type)} (${inter.id})</h3>
+    <div class="form-group">
+      <label class="form-label">Tiempo <span class="form-hint">mm:ss</span></label>
+      <input type="text" class="form-input" id="edit-time" value="${formatTime(inter.time)}" placeholder="0:00" style="max-width:120px" onchange="onTimeChange()">
+    </div>`;
+
+  switch (inter.type) {
+    case 'note':
+      html += `
+        <div class="form-group">
+          <label class="form-label">Titulo</label>
+          <input type="text" class="form-input" id="edit-title" value="${escapeAttr(inter.data.title)}" placeholder="Titulo de la nota">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Texto</label>
+          <textarea class="form-textarea" id="edit-text" placeholder="Contenido de la nota">${escapeHtml(inter.data.text)}</textarea>
+        </div>`;
+      break;
+
+    case 'multiple-choice':
+      html += `
+        <div class="form-group">
+          <label class="form-label">Pregunta</label>
+          <textarea class="form-textarea" id="edit-question" placeholder="Escribe la pregunta">${escapeHtml(inter.data.question)}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Opciones <span class="form-hint">(marca la correcta)</span></label>
+          <div class="options-list" id="optionsList">
+            ${inter.data.options.map((opt, idx) => `
+              <div class="option-row">
+                <div class="option-id">${opt.id}</div>
+                <input type="radio" name="correct-option" value="${opt.id}" ${opt.id === inter.data.correctId ? 'checked' : ''}>
+                <input type="text" class="form-input option-text-input" value="${escapeAttr(opt.text)}" placeholder="Opcion ${opt.id.toUpperCase()}">
+                ${inter.data.options.length > 2 ? `<button class="btn-remove-option" onclick="removeOption(${idx})">&times;</button>` : ''}
+              </div>
+            `).join('')}
+          </div>
+          ${inter.data.options.length < 4 ? `<button class="btn btn-ghost btn-sm" onclick="addOption()" style="margin-top:8px">+ Agregar opcion</button>` : ''}
+        </div>
+        <div class="form-group">
+          <label class="form-label">Explicacion</label>
+          <textarea class="form-textarea" id="edit-explanation" placeholder="Explicacion del resultado">${escapeHtml(inter.data.explanation)}</textarea>
+        </div>`;
+      break;
+
+    case 'true-false':
+      html += `
+        <div class="form-group">
+          <label class="form-label">Enunciado</label>
+          <textarea class="form-textarea" id="edit-statement" placeholder="Escribe el enunciado">${escapeHtml(inter.data.statement)}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Respuesta correcta</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="tf-correct" value="true" ${inter.data.correct ? 'checked' : ''}> Verdadero
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="tf-correct" value="false" ${!inter.data.correct ? 'checked' : ''}> Falso
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Explicacion</label>
+          <textarea class="form-textarea" id="edit-explanation" placeholder="Explicacion del resultado">${escapeHtml(inter.data.explanation)}</textarea>
+        </div>`;
+      break;
+
+    case 'hotspot':
+      html += `
+        <div class="form-group">
+          <label class="form-label">Duracion en segundos</label>
+          <input type="number" class="form-input" id="edit-duration" value="${inter.duration || 8}" min="1" style="max-width:120px">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Puntos</label>
+          <div class="spots-list" id="spotsList">
+            ${(inter.data.spots || []).map((spot, idx) => `
+              <div class="spot-row spot-data-row">
+                <input type="number" class="form-input spot-x" value="${spot.x}" min="0" max="100" placeholder="X%">
+                <input type="number" class="form-input spot-y" value="${spot.y}" min="0" max="100" placeholder="Y%">
+                <input type="text" class="form-input spot-label" value="${escapeAttr(spot.label)}" placeholder="Label">
+                <input type="text" class="form-input spot-info" value="${escapeAttr(spot.info)}" placeholder="Info">
+                <button class="btn-remove-spot" onclick="removeSpot(${idx})">&times;</button>
+              </div>
+            `).join('')}
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="addSpot()" style="margin-top:8px">+ Agregar punto</button>
+        </div>`;
+      break;
+  }
+
+  html += '</div>';
+  panel.innerHTML = html;
+  // Show hotspot overlay when editing a hotspot
+  renderHotspotOverlay();
+}
+
+function escapeAttr(str) {
+  return (str || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ============================================================
+// EDITOR ACTIONS
+// ============================================================
+function onTimeChange() {
+  saveCurrentForm();
+  sortAndRender();
+}
+
+function addOption() {
+  saveCurrentForm();
+  const inter = interactions.find(i => i.id === selectedId);
+  if (!inter || inter.type !== 'multiple-choice') return;
+  if (inter.data.options.length >= 4) return;
+  const nextId = String.fromCharCode(97 + inter.data.options.length); // a,b,c,d
+  inter.data.options.push({ id: nextId, text: '' });
+  renderEditor();
+}
+
+function removeOption(idx) {
+  saveCurrentForm();
+  const inter = interactions.find(i => i.id === selectedId);
+  if (!inter || inter.type !== 'multiple-choice') return;
+  if (inter.data.options.length <= 2) return;
+  const removedId = inter.data.options[idx].id;
+  inter.data.options.splice(idx, 1);
+  // Re-assign IDs
+  inter.data.options.forEach((opt, i) => { opt.id = String.fromCharCode(97 + i); });
+  // Fix correctId if removed
+  if (inter.data.correctId === removedId) inter.data.correctId = inter.data.options[0].id;
+  renderEditor();
+}
+
+function addSpot(x, y) {
+  saveCurrentForm();
+  const inter = interactions.find(i => i.id === selectedId);
+  if (!inter || inter.type !== 'hotspot') return;
+  inter.data.spots.push({
+    id: `h${inter.data.spots.length + 1}`,
+    x: Math.round(x !== undefined ? x : 50),
+    y: Math.round(y !== undefined ? y : 50),
+    label: '',
+    info: ''
+  });
+  renderEditor();
+  renderHotspotOverlay();
+}
+
+// Click on video to add hotspot
+function onVideoClick(e) {
+  const inter = interactions.find(i => i.id === selectedId);
+  if (!inter || inter.type !== 'hotspot') return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * 100;
+  const y = ((e.clientY - rect.top) / rect.height) * 100;
+  addSpot(x, y);
+}
+
+// Render hotspot dots over video preview
+function renderHotspotOverlay() {
+  const container = document.getElementById('videoContainer');
+  // Remove old overlay
+  const old = container.querySelector('.hotspot-overlay');
+  if (old) old.remove();
+  const oldDots = container.querySelectorAll('.hotspot-dot-preview');
+  oldDots.forEach(d => d.remove());
+  const oldHint = container.querySelector('.hotspot-overlay-hint');
+  if (oldHint) oldHint.remove();
+
+  const inter = interactions.find(i => i.id === selectedId);
+  if (!inter || inter.type !== 'hotspot') return;
+
+  // Need a relative wrapper
+  const videoWrap = container.querySelector('.video-preview');
+  if (!videoWrap) return;
+
+  // Make container relative if not already
+  if (!container.style.position) container.style.position = 'relative';
+  container.style.maxWidth = '640px';
+
+  // Add hint
+  const hint = document.createElement('div');
+  hint.className = 'hotspot-overlay-hint';
+  hint.textContent = 'Hacé click en el video para agregar puntos';
+  container.appendChild(hint);
+
+  // Add click overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'hotspot-overlay';
+  overlay.onclick = onVideoClick;
+  container.appendChild(overlay);
+
+  // Render existing dots
+  (inter.data.spots || []).forEach((spot, idx) => {
+    const dot = document.createElement('div');
+    dot.className = 'hotspot-dot-preview';
+    dot.style.left = spot.x + '%';
+    dot.style.top = spot.y + '%';
+    if (spot.label) {
+      dot.innerHTML = '<span class="dot-label">' + escapeHtml(spot.label) + '</span>';
+    }
+    container.appendChild(dot);
+  });
+}
+
+function removeSpot(idx) {
+  saveCurrentForm();
+  const inter = interactions.find(i => i.id === selectedId);
+  if (!inter || inter.type !== 'hotspot') return;
+  inter.data.spots.splice(idx, 1);
+  inter.data.spots.forEach((s, i) => { s.id = `h${i + 1}`; });
+  renderEditor();
+  renderHotspotOverlay();
+}
+
+// ============================================================
+// ADD DROPDOWN
+// ============================================================
+function toggleAddMenu() {
+  document.getElementById('addDropdown').classList.toggle('open');
+}
+function closeAddMenu() {
+  document.getElementById('addDropdown').classList.remove('open');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.add-dropdown-wrap')) closeAddMenu();
+});
+
+// ============================================================
+// BUILD CONFIG
+// ============================================================
+function buildConfig() {
+  saveCurrentForm();
+  const { vimeoId, vimeoHash } = parseVimeoUrl(document.getElementById('vimeoInput').value || '');
+  return {
+    title: document.getElementById('courseTitle').value || 'Sin titulo',
+    vimeoId: vimeoId || '',
+    vimeoHash: vimeoHash || null,
+    interactions: interactions.map(inter => {
+      const out = {
+        id: inter.id,
+        type: inter.type,
+        time: inter.time,
+        data: { ...inter.data }
+      };
+      if (inter.type === 'hotspot') {
+        out.duration = inter.duration || 8;
+      }
+      return out;
+    })
+  };
+}
+
+// ============================================================
+// EXPORT JSON
+// ============================================================
+function exportJSON() {
+  const config = buildConfig();
+  const json = JSON.stringify(config, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (config.title || 'config').replace(/[^a-zA-Z0-9_\-\s]/g, '').replace(/\s+/g, '_') + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// IMPORT JSON
+// ============================================================
+function importJSON() {
+  document.getElementById('jsonFileInput').click();
+}
+
+function handleFileImport(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const config = JSON.parse(e.target.result);
+      loadConfig(config);
+    } catch (err) {
+      alert('Error al leer el archivo JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function loadConfig(config) {
+  document.getElementById('courseTitle').value = config.title || '';
+
+  // Build vimeo URL for input
+  let vimeoStr = config.vimeoId || '';
+  if (config.vimeoHash) vimeoStr = `https://vimeo.com/${config.vimeoId}/${config.vimeoHash}`;
+  document.getElementById('vimeoInput').value = vimeoStr;
+
+  if (config.vimeoId) loadVideo();
+
+  // Reset counters
+  counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0 };
+
+  interactions = (config.interactions || []).map(inter => {
+    // Track counters for future IDs
+    const prefix = inter.type === 'multiple-choice' ? 'mc' : inter.type === 'true-false' ? 'tf' : inter.type;
+    const numMatch = inter.id.match(/\d+$/);
+    const num = numMatch ? parseInt(numMatch[0], 10) : 0;
+    if (num > counters[inter.type]) counters[inter.type] = num;
+
+    const result = {
+      id: inter.id,
+      type: inter.type,
+      time: inter.time || 0,
+      data: inter.data || {}
+    };
+    if (inter.type === 'hotspot') {
+      result.duration = inter.duration || 8;
+    }
+    return result;
+  });
+
+  selectedId = null;
+  sortAndRender();
+}
+
+// Expose buildConfig globally for build script injection
+window.generateConfig = function() { return buildConfig(); };
+
+// ============================================================
+// SCORM DOWNLOAD
+// ============================================================
+function downloadSCORM() {
+  if (window.downloadScormReal) {
+    window.downloadScormReal();
+  } else {
+    alert(
+      'Para descargar SCORM, ejecuta:\n\n' +
+      '  npm run build:configurator\n\n' +
+      'Este comando genera el paquete .zip con el reproductor compilado.\n' +
+      'Mientras tanto, podes exportar el JSON de configuracion.'
+    );
+  }
+}
+
+// ============================================================
+// PREVIEW
+// ============================================================
+function preview() {
+  if (window.previewWithPlayer) { window.previewWithPlayer(); return; }
+  const config = buildConfig();
+
+  if (!config.vimeoId) {
+    alert('Primero carga un video de Vimeo.');
+    return;
+  }
+
+  const interactionsHtml = config.interactions.map(inter => {
+    let detail = '';
+    switch (inter.type) {
+      case 'note':
+        detail = `<strong>${esc(inter.data.title)}</strong><br>${esc(inter.data.text)}`;
+        break;
+      case 'multiple-choice':
+        detail = `<strong>Pregunta:</strong> ${esc(inter.data.question)}<br>` +
+          inter.data.options.map(o => `${o.id === inter.data.correctId ? '&#10003; ' : '&nbsp;&nbsp;&nbsp;'} <strong>${o.id.toUpperCase()})</strong> ${esc(o.text)}`).join('<br>') +
+          `<br><em>Explicacion: ${esc(inter.data.explanation)}</em>`;
+        break;
+      case 'true-false':
+        detail = `<strong>Enunciado:</strong> ${esc(inter.data.statement)}<br>` +
+          `Respuesta: ${inter.data.correct ? 'Verdadero' : 'Falso'}<br>` +
+          `<em>Explicacion: ${esc(inter.data.explanation)}</em>`;
+        break;
+      case 'hotspot':
+        detail = `<strong>Duracion:</strong> ${inter.duration}s<br>` +
+          `<strong>Puntos:</strong><br>` +
+          (inter.data.spots || []).map(s => `&nbsp;&nbsp;(${s.x}%, ${s.y}%) - ${esc(s.label)}: ${esc(s.info)}`).join('<br>');
+        break;
+    }
+    const typeColors = {
+      'note': '#8B5CF6', 'multiple-choice': '#0162F5',
+      'true-false': '#F59E0B', 'hotspot': '#10B981'
+    };
+    const typeNames = {
+      'note': 'Nota', 'multiple-choice': 'Multiple Choice',
+      'true-false': 'Verdadero/Falso', 'hotspot': 'Hotspot'
+    };
+    return `<div style="background:#fff;border-radius:8px;padding:16px;margin-bottom:12px;border-left:4px solid ${typeColors[inter.type]}">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+        <span style="font-weight:600;color:${typeColors[inter.type]}">${typeNames[inter.type]}</span>
+        <span style="color:#6B7280;font-size:13px">${formatTimePreview(inter.time)}</span>
+      </div>
+      <div style="font-size:14px;line-height:1.6">${detail}</div>
+    </div>`;
+  }).join('');
+
+  const hashParam = config.vimeoHash ? `?h=${config.vimeoHash}` : '';
+
+  const previewHtml = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Preview: ${esc(config.title)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://player.vimeo.com/api/player.js"><\/script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Work Sans', sans-serif; background: #F4F6F9; color: #374151; }
+  .header { background: #062E60; color: #fff; padding: 16px 24px; }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .header p { font-size: 13px; opacity: 0.7; margin-top: 4px; }
+  .container { max-width: 900px; margin: 0 auto; padding: 24px; }
+  .video-wrap { border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 24px; }
+  .video-wrap div { width: 100%; }
+  h2 { font-size: 18px; font-weight: 600; color: #062E60; margin-bottom: 16px; }
+  .config-json { background: #1E293B; color: #84F4BE; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 12px; overflow-x: auto; max-height: 300px; overflow-y: auto; white-space: pre; margin-top: 24px; }
+  .badge { display: inline-block; background: #062E60; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>${esc(config.title)}</h1>
+  <p>Vista previa de configuracion - ${config.interactions.length} interaccion(es)</p>
+</div>
+<div class="container">
+  <div class="video-wrap">
+    <div id="vimeoPlayer"></div>
+  </div>
+  <script>
+    new Vimeo.Player('vimeoPlayer', {
+      id: ${parseInt(config.vimeoId)},
+      ${config.vimeoHash ? `h: '${config.vimeoHash}',` : ''}
+      width: 854,
+      responsive: true
+    });
+  <\/script>
+
+  <h2>Interacciones configuradas</h2>
+  <div class="badge">${config.interactions.length} interacciones</div>
+  ${interactionsHtml}
+
+  <h2>Configuracion JSON</h2>
+  <div class="config-json">${esc(JSON.stringify(config, null, 2))}</div>
+</div>
+</body>
+</html>`;
+
+  const win = window.open('', '_blank');
+  if (win) {
+    win.document.write(previewHtml);
+    win.document.close();
+  } else {
+    alert('No se pudo abrir la ventana de preview. Verifica que los pop-ups no esten bloqueados.');
+  }
+}
+
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatTimePreview(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+// ============================================================
+// INIT
+// ============================================================
+renderSidebar();
+</script>
+</body>
+</html>

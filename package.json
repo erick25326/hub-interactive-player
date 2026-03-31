@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:scorm": "node scripts/build-scorm.js",
+    "build:configurator": "node scripts/build-configurator.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
