@@ -219,13 +219,22 @@ export default function InteractiveVideoPlayer() {
   const [volume, setVolume] = useState(1);
   const [showVolSlider, setShowVolSlider] = useState(false);
   const [isFS, setIsFS] = useState(false);
+  const [fakeFS, setFakeFS] = useState(false);
   const [activeIA, setActiveIA] = useState(null);
   const [completed, setCompleted] = useState(new Set());
   const [showCtrl, setShowCtrl] = useState(true);
   const [subsOn, setSubsOn] = useState(true);
   const [cues, setCues] = useState(subtitlesCues || []);
+  const [hasVimeoSubs, setHasVimeoSubs] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [skipFeedback, setSkipFeedback] = useState(null);
   const ctrlTimer = useRef(null);
   const triggered = useRef(new Set());
+  const lastTapRef = useRef({ time: 0, x: 0 });
+  const singleTapTimer = useRef(null);
+  const lastSaveRef = useRef(0);
+  const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
   // Parse Vimeo ID and hash from various URL formats
   const vimeoData = useMemo(()=>{
@@ -242,12 +251,11 @@ export default function InteractiveVideoPlayer() {
   },[subtitlesUrl]);
 
   useEffect(()=>{
-    if(!vimeoRef.current) return;
+    if(!vimeoRef.current||playerRef.current) return;
     const opts = {
       controls: false, responsive: true,
       loop: false, muted: false, pip: false, title: false, byline: false, portrait: false, dnt: true,
     };
-    // For private/unlisted videos, use URL approach (more reliable)
     if(vimeoData.hash) {
       opts.url = `https://vimeo.com/${vimeoData.id}/${vimeoData.hash}`;
     } else {
@@ -255,12 +263,23 @@ export default function InteractiveVideoPlayer() {
     }
     const p = new Player(vimeoRef.current, opts);
     playerRef.current = p;
-    p.ready().then(()=>{ setReady(true); p.getDuration().then(setDuration); });
+    p.ready().then(()=>{
+      setReady(true);
+      p.getDuration().then(setDuration);
+      p.getTextTracks().then(tracks=>{
+        if(tracks&&tracks.length>0){
+          const esTrack=tracks.find(t=>t.language==='es');
+          const track=esTrack||tracks[0];
+          p.enableTextTrack(track.language,track.kind).catch(()=>{});
+          setHasVimeoSubs(true);
+        }
+      }).catch(()=>{});
+    });
     p.on("timeupdate", d=>setCurrent(d.seconds));
     p.on("play", ()=>setPlaying(true));
     p.on("pause", ()=>setPlaying(false));
     p.on("ended", ()=>setPlaying(false));
-    return ()=>{ p.destroy().catch(()=>{}); };
+    // No cleanup — Vimeo Player does not survive StrictMode destroy/recreate cycle
   },[vimeoData]);
 
   useEffect(()=>{
@@ -279,16 +298,23 @@ export default function InteractiveVideoPlayer() {
 
   const toggleFS = useCallback(async()=>{
     const el=containerRef.current; if(!el) return;
+    // Try native Fullscreen API on the container (desktop)
     try{
-      if(!document.fullscreenElement&&!document.webkitFullscreenElement){
-        if(el.requestFullscreen) await el.requestFullscreen();
-        else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-      } else {
-        if(document.exitFullscreen) await document.exitFullscreen();
-        else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+      if(!document.fullscreenElement&&!document.webkitFullscreenElement&&!fakeFS){
+        if(el.requestFullscreen) { await el.requestFullscreen(); return; }
+        if(el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); return; }
+      } else if(document.fullscreenElement||document.webkitFullscreenElement){
+        if(document.exitFullscreen) { await document.exitFullscreen(); return; }
+        if(document.webkitExitFullscreen) { document.webkitExitFullscreen(); return; }
       }
     }catch(e){}
-  },[]);
+    // Fallback: CSS fake-fullscreen (mobile) — keeps interactions visible
+    const entering=!fakeFS;
+    setFakeFS(entering);
+    setIsFS(entering);
+    // Try to lock orientation to landscape on mobile
+    try{ if(entering) await screen.orientation?.lock('landscape'); else screen.orientation?.unlock(); }catch(e){}
+  },[fakeFS]);
 
   useEffect(()=>{
     const h=()=>setIsFS(!!(document.fullscreenElement||document.webkitFullscreenElement));
@@ -297,39 +323,148 @@ export default function InteractiveVideoPlayer() {
     return()=>{document.removeEventListener("fullscreenchange",h);document.removeEventListener("webkitfullscreenchange",h);};
   },[]);
 
+  // Keyboard shortcuts
+  useEffect(()=>{
+    const handleKey=(e)=>{
+      if(activeIA) return;
+      switch(e.key){
+        case ' ': e.preventDefault(); togglePlay(); break;
+        case 'ArrowLeft': e.preventDefault(); skip(-10); break;
+        case 'ArrowRight': e.preventDefault(); skip(10); break;
+        case 'ArrowUp': e.preventDefault(); changeVolume(Math.min(1,volume+0.1)); break;
+        case 'ArrowDown': e.preventDefault(); changeVolume(Math.max(0,volume-0.1)); break;
+        case 'f': case 'F': toggleFS(); break;
+        case 'm': case 'M': toggleMute(); break;
+        case 'c': case 'C': toggleSubs(); break;
+      }
+    };
+    document.addEventListener('keydown',handleKey);
+    return()=>document.removeEventListener('keydown',handleKey);
+  },[activeIA,playing,volume,muted,subsOn]);
+
+  // Load progress from localStorage
+  useEffect(()=>{
+    if(!ready) return;
+    try{
+      const saved=localStorage.getItem(`iv_progress_${vimeoData.id}`);
+      if(saved){
+        const data=JSON.parse(saved);
+        if(data.completed){setCompleted(new Set(data.completed));data.completed.forEach(id=>triggered.current.add(id));}
+        if(data.currentTime&&playerRef.current) playerRef.current.setCurrentTime(data.currentTime);
+      }
+    }catch(e){}
+  },[ready]);
+
+  // Save progress to localStorage (throttled)
+  useEffect(()=>{
+    if(!ready) return;
+    if(Date.now()-lastSaveRef.current<5000) return;
+    lastSaveRef.current=Date.now();
+    try{
+      localStorage.setItem(`iv_progress_${vimeoData.id}`,JSON.stringify({
+        completed:[...completed],currentTime,updatedAt:Date.now()
+      }));
+    }catch(e){}
+  },[completed,currentTime,ready,vimeoData.id]);
+
   const resetCtrl = useCallback(()=>{
     setShowCtrl(true); clearTimeout(ctrlTimer.current);
-    if(playing&&!activeIA) ctrlTimer.current=setTimeout(()=>setShowCtrl(false),3000);
-  },[playing,activeIA]);
+    if(playing&&!activeIA) ctrlTimer.current=setTimeout(()=>setShowCtrl(false), fakeFS?2500:3000);
+  },[playing,activeIA,fakeFS]);
 
   const togglePlay=()=>{const p=playerRef.current;if(!p||!ready)return;playing?p.pause():p.play();};
-  const skip=s=>{const p=playerRef.current;if(!p||!ready)return;p.setCurrentTime(Math.max(0,Math.min(duration,currentTime+s)));};
+  const skip=(seconds)=>{
+    const p=playerRef.current;if(!p||!ready)return;
+    let targetTime=Math.max(0,Math.min(duration,currentTime+seconds));
+    if(seconds>0){
+      const next=interactions.filter(ia=>!completed.has(ia.id)&&ia.time>currentTime&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
+      if(next) targetTime=next.time;
+    }
+    p.setCurrentTime(targetTime);
+  };
   const toggleMute=()=>{const p=playerRef.current;if(!p)return;const m=!muted;p.setVolume(m?0:volume);setMuted(m);};
   const changeVolume=(v)=>{const p=playerRef.current;if(!p)return;setVolume(v);p.setVolume(v);setMuted(v===0);};
-  const seek=e=>{const r=e.currentTarget.getBoundingClientRect();const pct=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));playerRef.current?.setCurrentTime(pct*duration);};
+  const seek=(e)=>{
+    const r=e.currentTarget.getBoundingClientRect();
+    const pct=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
+    let targetTime=pct*duration;
+    const next=interactions.filter(ia=>!completed.has(ia.id)&&ia.time>currentTime&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
+    if(next) targetTime=next.time;
+    playerRef.current?.setCurrentTime(targetTime);
+  };
+  const changeSpeed=(rate)=>{playerRef.current?.setPlaybackRate(rate);setSpeed(rate);setShowSpeedMenu(false);};
+  const toggleSubs=()=>{
+    const next=!subsOn;
+    setSubsOn(next);
+    if(hasVimeoSubs){
+      const p=playerRef.current;
+      if(!next) p?.disableTextTrack().catch(()=>{});
+      else p?.getTextTracks().then(tracks=>{
+        if(tracks.length){const t=tracks.find(t=>t.language==='es')||tracks[0];p.enableTextTrack(t.language,t.kind).catch(()=>{});}
+      });
+    }
+  };
+
+  // Touch double-tap handler (mobile only, separate from click)
+  const handleTouchEnd=(e)=>{
+    if(activeIA) return;
+    const now=Date.now();
+    const rect=containerRef.current.getBoundingClientRect();
+    const touch=e.changedTouches?.[0];
+    if(!touch) return;
+    const x=touch.clientX;
+    const isLeft=(x-rect.left)<rect.width/2;
+    if(now-lastTapRef.current.time<300){
+      // Double tap — skip ±10s and cancel the pending single-tap play/pause
+      e.preventDefault();
+      clearTimeout(singleTapTimer.current);
+      skip(isLeft?-10:10);
+      setSkipFeedback(isLeft?'left':'right');
+      setTimeout(()=>setSkipFeedback(null),600);
+      lastTapRef.current={time:0,x};
+    } else {
+      // First tap — wait to see if a second tap comes; if not, toggle play
+      singleTapTimer.current=setTimeout(()=>togglePlay(),300);
+      lastTapRef.current={time:now,x};
+    }
+  };
+  // Desktop click — immediate play/pause
+  const handleClickLayer=()=>{
+    // On mobile, touchEnd already handles it; skip if recently touched
+    if(Date.now()-lastTapRef.current.time<400) return;
+    togglePlay();
+  };
 
   const dismiss=()=>{
     if(activeIA){setCompleted(p=>new Set([...p,activeIA.id]));setActiveIA(null);playerRef.current?.play();}
+  };
+
+  const resetProgress=()=>{
+    localStorage.removeItem(`iv_progress_${vimeoData.id}`);
+    setCompleted(new Set());
+    triggered.current=new Set();
+    playerRef.current?.setCurrentTime(0);
   };
 
   const progress=duration?(currentTime/duration)*100:0;
   const hasCues=cues&&cues.length>0;
 
   return (
-    <div className="iv-wrapper">
+    <div className={`iv-wrapper ${fakeFS?"fake-fs":""}`}>
       <div className="iv-top-bar">
         <span className="iv-top-title">{title}</span>
         <span className="iv-top-progress">{completed.size}/{interactions.length} actividades</span>
       </div>
-      <div ref={containerRef} className={`iv-container ${isFS?"fullscreen":""}`}
+      <div ref={containerRef} className={`iv-container ${isFS&&!fakeFS?"fullscreen":""}`}
         onMouseMove={resetCtrl} onTouchStart={resetCtrl}>
 
         <div ref={vimeoRef} className="iv-vimeo-wrap"/>
-        {ready&&!activeIA&&<div className="iv-click-layer" onClick={togglePlay}/>}
+        {ready&&!activeIA&&<div className="iv-click-layer" onClick={handleClickLayer} onTouchStart={resetCtrl} onTouchEnd={handleTouchEnd}/>}
+        {skipFeedback&&<div className={`iv-skip-feedback ${skipFeedback}`}>{skipFeedback==='left'?'⟲ 10s':'10s ⟳'}</div>}
         {!ready&&<div className="iv-loading"><div className="iv-spinner"/><span>Cargando video...</span></div>}
         {ready&&!playing&&!activeIA&&<button className="iv-big-play" onClick={togglePlay}><PlayIcon/></button>}
 
-        <SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA}/>
+        {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA}/>}
 
         {activeIA?.type==="note"&&<NoteOverlay data={activeIA.data} onDismiss={dismiss}/>}
         {activeIA?.type==="multiple-choice"&&<MCOverlay data={activeIA.data} onDismiss={dismiss}/>}
@@ -357,7 +492,13 @@ export default function InteractiveVideoPlayer() {
             </div>
             <span className="iv-time">{fmt(currentTime)} / {fmt(duration)}</span>
             <div style={{flex:1}}/>
-            {hasCues&&<button className="iv-ctrl-btn" onClick={()=>setSubsOn(!subsOn)}><SubsIcon on={subsOn}/></button>}
+            {(hasCues||hasVimeoSubs)&&<button className="iv-ctrl-btn" onClick={toggleSubs}><SubsIcon on={subsOn}/></button>}
+            <div className="iv-speed-group">
+              <button className="iv-ctrl-btn iv-speed-btn" onClick={()=>setShowSpeedMenu(!showSpeedMenu)}>{speed}x</button>
+              {showSpeedMenu&&<div className="iv-speed-menu">
+                {SPEEDS.map(s=><button key={s} className={`iv-speed-option ${s===speed?'active':''}`} onClick={()=>changeSpeed(s)}>{s}x</button>)}
+              </div>}
+            </div>
             <button className="iv-ctrl-btn" onClick={toggleFS}>{isFS?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>
           </div>
         </div>
@@ -367,6 +508,7 @@ export default function InteractiveVideoPlayer() {
         {Object.entries(TYPE_COLORS).map(([t,c])=><span key={t} className="iv-legend-item">
           <span className="iv-legend-dot" style={{background:c}}/>{t==="multiple-choice"?"MC":t==="true-false"?"V/F":t==="hotspot"?"Hotspot":"Nota"}
         </span>)}
+        {completed.size>0&&<button className="iv-reset-btn" onClick={resetProgress}>Reiniciar progreso</button>}
       </div>
     </div>
   );

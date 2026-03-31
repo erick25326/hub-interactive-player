@@ -1,6 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&family=Changa:wght@600;700&display=swap');
 
 /* ─── RESET & BASE ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #000; }
 .iv-wrapper {
   font-family: 'Work Sans', 'Segoe UI', system-ui, sans-serif;
   max-width: 900px;
@@ -44,6 +46,30 @@
   width: 100vw;
   height: 100vh;
   aspect-ratio: unset;
+}
+/* Fake fullscreen: wrapper becomes the fullscreen container */
+.iv-wrapper.fake-fs {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000;
+  /* Cover safe-area gaps (notched phones) */
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  max-width: none;
+  padding: 0 !important;
+}
+.iv-wrapper.fake-fs .iv-top-bar { display: none; }
+.iv-wrapper.fake-fs .iv-legend { display: none; }
+.iv-wrapper.fake-fs .iv-container {
+  border-radius: 0;
+  aspect-ratio: 16/9;
+  width: min(100vw, calc(100dvh * 16 / 9));
+  height: min(100dvh, calc(100vw * 9 / 16));
 }
 .iv-video {
   width: 100%;
@@ -430,12 +456,37 @@
 
 /* ─── MOBILE ───────────────────────────────────────────────── */
 @media (max-width: 600px) {
+  .iv-wrapper {
+    padding-top: max(0px, calc((100dvh - 56.25vw - 80px) / 2));
+  }
   .iv-card { padding: 18px; border-radius: 12px; }
   .iv-question { font-size: 14px; }
   .iv-option { padding: 10px 12px; font-size: 13px; }
   .iv-note-text { font-size: 13px; }
   .iv-hotspot-info { width: 200px; padding: 10px; }
   .iv-big-play { width: 52px; height: 52px; }
+}
+
+/* ─── LANDSCAPE MOBILE ────────────────────────────────────── */
+@media (orientation: landscape) and (max-height: 600px) {
+  .iv-wrapper {
+    padding-top: 0;
+  }
+  .iv-top-bar {
+    display: none;
+  }
+  .iv-container {
+    aspect-ratio: unset;
+    height: calc(100dvh - 30px);
+    height: calc(100vh - 30px);
+    border-radius: 0;
+  }
+  .iv-legend {
+    padding: 4px 14px;
+  }
+  .iv-subtitle-container {
+    bottom: 55px;
+  }
 }
 
 /* ─── VIMEO WRAPPER ────────────────────────────────────────── */
@@ -566,3 +617,74 @@
   .iv-subtitle-text { font-size: 13px; padding: 3px 10px; }
   .iv-subtitle-container { bottom: 58px; max-width: 92%; }
 }
+
+/* ─── SPEED CONTROL ───────────────────────────────────────── */
+.iv-speed-group {
+  position: relative;
+}
+.iv-speed-btn {
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 36px;
+}
+.iv-speed-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(6, 46, 96, 0.95);
+  border-radius: 8px;
+  padding: 4px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: ivFadeIn 0.15s ease;
+}
+.iv-speed-option {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.iv-speed-option:hover { background: rgba(255,255,255,0.1); }
+.iv-speed-option.active { color: #84F4BE; font-weight: 600; }
+
+/* ─── SKIP FEEDBACK (double-tap) ──────────────────────────── */
+.iv-skip-feedback {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255,255,255,0.9);
+  font-size: 28px;
+  font-weight: 700;
+  z-index: 7;
+  animation: ivFadeIn 0.15s ease, ivFadeOut 0.3s ease 0.3s forwards;
+  pointer-events: none;
+}
+.iv-skip-feedback.left { left: 20%; }
+.iv-skip-feedback.right { right: 20%; }
+
+@keyframes ivFadeOut {
+  to { opacity: 0; }
+}
+
+/* ─── RESET BUTTON ────────────────────────────────────────── */
+.iv-reset-btn {
+  background: none;
+  border: 1px solid #475569;
+  color: #94A3B8;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-left: auto;
+  transition: all 0.2s;
+}
+.iv-reset-btn:hover { border-color: #94A3B8; color: #CBD5E1; }
