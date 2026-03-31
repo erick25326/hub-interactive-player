@@ -2,8 +2,12 @@
   "name": "interactive-player",
   "version": "1.0.0",
   "description": "",
+  "type": "module",
   "main": "index.js",
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:scorm": "node scripts/build-scorm.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -16,5 +20,8 @@
     "react-dom": "^19.2.4",
     "vite": "^8.0.3",
     "vite-plugin-singlefile": "^2.3.2"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
   }
 }

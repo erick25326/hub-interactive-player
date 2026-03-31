@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Player from "@vimeo/player";
+import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction } from "./scorm.js";
 
 const DEFAULT_CONFIG = {
   title: "Hub Education — Video Interactivo",
@@ -135,7 +136,7 @@ function MCOverlay({ data, onDismiss }) {
         {done&&<div className={`iv-explanation ${ok?"correct":"wrong"}`}><strong>{ok?"✓ ¡Correcto!":"✗ Incorrecto"}</strong><p>{data.explanation}</p></div>}
         {!done
           ? <button className="iv-btn-primary" style={{opacity:sel?1:0.4}} onClick={()=>sel&&setDone(true)} disabled={!sel}>Confirmar respuesta</button>
-          : <button className="iv-btn-primary" onClick={onDismiss}>Continuar ▸</button>}
+          : <button className="iv-btn-primary" onClick={()=>onDismiss({answer:sel,correct:ok})}>Continuar ▸</button>}
       </div>
     </div>
   );
@@ -158,7 +159,7 @@ function TFOverlay({ data, onDismiss }) {
         {done&&<div className={`iv-explanation ${ok?"correct":"wrong"}`}><strong>{ok?"✓ ¡Correcto!":"✗ Incorrecto"}</strong><p>{data.explanation}</p></div>}
         {!done
           ? <button className="iv-btn-primary" style={{opacity:ans!==null?1:0.4}} onClick={()=>ans!==null&&setDone(true)} disabled={ans===null}>Confirmar</button>
-          : <button className="iv-btn-primary" onClick={onDismiss}>Continuar ▸</button>}
+          : <button className="iv-btn-primary" onClick={()=>onDismiss({answer:String(ans),correct:ok})}>Continuar ▸</button>}
       </div>
     </div>
   );
@@ -342,6 +343,15 @@ export default function InteractiveVideoPlayer() {
     return()=>document.removeEventListener('keydown',handleKey);
   },[activeIA,playing,volume,muted,subsOn]);
 
+  // Initialize SCORM when ready
+  useEffect(()=>{
+    if(!ready) return;
+    scormInit();
+    const handleUnload=()=>scormFinish();
+    window.addEventListener("beforeunload",handleUnload);
+    return()=>window.removeEventListener("beforeunload",handleUnload);
+  },[ready]);
+
   // Load progress from localStorage
   useEffect(()=>{
     if(!ready) return;
@@ -355,7 +365,7 @@ export default function InteractiveVideoPlayer() {
     }catch(e){}
   },[ready]);
 
-  // Save progress to localStorage (throttled)
+  // Save progress to localStorage + SCORM (throttled)
   useEffect(()=>{
     if(!ready) return;
     if(Date.now()-lastSaveRef.current<5000) return;
@@ -365,11 +375,24 @@ export default function InteractiveVideoPlayer() {
         completed:[...completed],currentTime,updatedAt:Date.now()
       }));
     }catch(e){}
+    scormSetTime(currentTime);
   },[completed,currentTime,ready,vimeoData.id]);
 
   const resetCtrl = useCallback(()=>{
     setShowCtrl(true); clearTimeout(ctrlTimer.current);
     if(playing&&!activeIA) ctrlTimer.current=setTimeout(()=>setShowCtrl(false), fakeFS?2500:3000);
+  },[playing,activeIA,fakeFS]);
+
+  // Auto-hide controls when playing starts or fullscreen changes
+  useEffect(()=>{
+    if(playing&&!activeIA){
+      clearTimeout(ctrlTimer.current);
+      ctrlTimer.current=setTimeout(()=>setShowCtrl(false), fakeFS?2500:3000);
+    } else {
+      setShowCtrl(true);
+      clearTimeout(ctrlTimer.current);
+    }
+    return()=>clearTimeout(ctrlTimer.current);
   },[playing,activeIA,fakeFS]);
 
   const togglePlay=()=>{const p=playerRef.current;if(!p||!ready)return;playing?p.pause():p.play();};
@@ -384,13 +407,25 @@ export default function InteractiveVideoPlayer() {
   };
   const toggleMute=()=>{const p=playerRef.current;if(!p)return;const m=!muted;p.setVolume(m?0:volume);setMuted(m);};
   const changeVolume=(v)=>{const p=playerRef.current;if(!p)return;setVolume(v);p.setVolume(v);setMuted(v===0);};
-  const seek=(e)=>{
-    const r=e.currentTarget.getBoundingClientRect();
-    const pct=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
+  const progressRef=useRef(null);
+  const lastSeekRef=useRef(0);
+  const seekToX=(clientX,force)=>{
+    const r=progressRef.current?.getBoundingClientRect();
+    if(!r) return;
+    const now=Date.now();
+    if(!force&&now-lastSeekRef.current<80) return; // throttle drag to ~12fps
+    lastSeekRef.current=now;
+    const pct=Math.max(0,Math.min(1,(clientX-r.left)/r.width));
     let targetTime=pct*duration;
     const next=interactions.filter(ia=>!completed.has(ia.id)&&ia.time>currentTime&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
     if(next) targetTime=next.time;
     playerRef.current?.setCurrentTime(targetTime);
+  };
+  const seek=(e)=>seekToX(e.clientX,true);
+  const onProgressTouch=(e)=>{
+    e.stopPropagation();
+    e.preventDefault();
+    seekToX(e.touches[0].clientX,e.type==='touchstart');
   };
   const changeSpeed=(rate)=>{playerRef.current?.setPlaybackRate(rate);setSpeed(rate);setShowSpeedMenu(false);};
   const toggleSubs=()=>{
@@ -406,8 +441,10 @@ export default function InteractiveVideoPlayer() {
   };
 
   // Touch double-tap handler (mobile only, separate from click)
+  const lastTouchAction=useRef(0);
   const handleTouchEnd=(e)=>{
     if(activeIA) return;
+    lastTouchAction.current=Date.now();
     const now=Date.now();
     const rect=containerRef.current.getBoundingClientRect();
     const touch=e.changedTouches?.[0];
@@ -415,7 +452,7 @@ export default function InteractiveVideoPlayer() {
     const x=touch.clientX;
     const isLeft=(x-rect.left)<rect.width/2;
     if(now-lastTapRef.current.time<300){
-      // Double tap — skip ±10s and cancel the pending single-tap play/pause
+      // Double tap — skip ±10s, cancel pending play/pause, keep playing
       e.preventDefault();
       clearTimeout(singleTapTimer.current);
       skip(isLeft?-10:10);
@@ -430,13 +467,27 @@ export default function InteractiveVideoPlayer() {
   };
   // Desktop click — immediate play/pause
   const handleClickLayer=()=>{
-    // On mobile, touchEnd already handles it; skip if recently touched
-    if(Date.now()-lastTapRef.current.time<400) return;
+    // On mobile, touchEnd already handles it; block click for 500ms after any touch
+    if(Date.now()-lastTouchAction.current<500) return;
     togglePlay();
   };
 
-  const dismiss=()=>{
-    if(activeIA){setCompleted(p=>new Set([...p,activeIA.id]));setActiveIA(null);playerRef.current?.play();}
+  const dismiss=(result)=>{
+    if(activeIA){
+      const ia=activeIA;
+      const next=new Set([...completed,ia.id]);
+      setCompleted(next);
+      setActiveIA(null);
+      playerRef.current?.play();
+      // Report individual interaction to SCORM
+      if(result&&(ia.type==="multiple-choice"||ia.type==="true-false")){
+        const scormType=ia.type==="multiple-choice"?"choice":"true-false";
+        const correctResp=ia.type==="multiple-choice"?ia.data.correctId:String(ia.data.correct);
+        scormReportInteraction(ia.id,scormType,result.answer,correctResp,result.correct?"correct":"wrong");
+      }
+      // Report completion to SCORM if all interactions done
+      if(next.size===interactions.length) scormSetComplete();
+    }
   };
 
   const resetProgress=()=>{
@@ -472,7 +523,8 @@ export default function InteractiveVideoPlayer() {
         {activeIA?.type==="hotspot"&&<HotspotOverlay data={activeIA.data} onDismiss={dismiss}/>}
 
         <div className={`iv-controls ${showCtrl||!playing||activeIA?"visible":""}`}>
-          <div className="iv-progress-container" onClick={seek}>
+          <div ref={progressRef} className="iv-progress-container" onClick={seek}
+            onTouchStart={onProgressTouch} onTouchMove={onProgressTouch}>
             <div className="iv-progress-track">
               <TimelineMarkers interactions={interactions} duration={duration}/>
               <div className="iv-progress-fill" style={{width:`${progress}%`}}/>

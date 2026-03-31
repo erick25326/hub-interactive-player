@@ -64,6 +64,11 @@ html, body { margin: 0; padding: 0; background: #000; }
   padding: 0 !important;
 }
 .iv-wrapper.fake-fs .iv-top-bar { display: none; }
+/* Hide cursor when controls are hidden in fullscreen */
+.iv-wrapper.fake-fs .iv-container:not(:hover) .iv-controls:not(.visible) ~ .iv-click-layer,
+.iv-wrapper.fake-fs .iv-click-layer { cursor: none; }
+.iv-wrapper.fake-fs .iv-controls.visible ~ .iv-click-layer,
+.iv-wrapper.fake-fs:hover .iv-click-layer { cursor: pointer; }
 .iv-wrapper.fake-fs .iv-legend { display: none; }
 .iv-wrapper.fake-fs .iv-container {
   border-radius: 0;
@@ -593,7 +598,7 @@ html, body { margin: 0; padding: 0; background: #000; }
 /* ─── SUBTITLES ────────────────────────────────────────────── */
 .iv-subtitle-container {
   position: absolute;
-  bottom: 70px;
+  bottom: 25%;
   left: 50%;
   transform: translateX(-50%);
   z-index: 6;
@@ -615,7 +620,7 @@ html, body { margin: 0; padding: 0; background: #000; }
 
 @media (max-width: 600px) {
   .iv-subtitle-text { font-size: 13px; padding: 3px 10px; }
-  .iv-subtitle-container { bottom: 58px; max-width: 92%; }
+  .iv-subtitle-container { bottom: 22%; max-width: 92%; }
 }
 
 /* ─── SPEED CONTROL ───────────────────────────────────────── */
