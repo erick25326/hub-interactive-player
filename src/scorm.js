@@ -48,6 +48,15 @@ export function scormInit() {
 }
 
 export function scormSetComplete() {
+  // Moodle native completion (plugin mode).
+  if (window.MOODLE_CONTEXT) {
+    const data = new FormData();
+    data.append('cmid', window.MOODLE_CONTEXT.cmid);
+    data.append('sesskey', window.MOODLE_CONTEXT.sesskey);
+    fetch(window.MOODLE_CONTEXT.completeUrl, { method: 'POST', body: data })
+      .catch(() => {});
+  }
+  // SCORM completion.
   if (!API) return;
   API.LMSSetValue("cmi.core.lesson_status", "completed");
   API.LMSCommit("");

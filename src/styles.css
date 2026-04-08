@@ -9,6 +9,28 @@ html, body { margin: 0; padding: 0; background: #000; }
   margin: 0 auto;
   width: 100%;
 }
+/* When embedded in an iframe (SCORM/Moodle) */
+.iv-wrapper.embedded {
+  max-width: 100%;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  padding: 0 !important;
+  margin: 0;
+  overflow: hidden;
+}
+.iv-wrapper.embedded .iv-top-bar { display: none; }
+.iv-wrapper.embedded .iv-legend { display: none; }
+.iv-wrapper.embedded .iv-container {
+  border-radius: 0;
+  aspect-ratio: unset;
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: min(100vh, calc(100vw * 9 / 16));
+}
 
 /* ─── TOP BAR ──────────────────────────────────────────────── */
 .iv-top-bar {
@@ -470,6 +492,16 @@ html, body { margin: 0; padding: 0; background: #000; }
   .iv-note-text { font-size: 13px; }
   .iv-hotspot-info { width: 200px; padding: 10px; }
   .iv-big-play { width: 52px; height: 52px; }
+  /* Compact controls for mobile */
+  .iv-controls { padding: 20px 8px 6px; }
+  .iv-controls-row { gap: 2px; }
+  .iv-ctrl-btn { padding: 4px; }
+  .iv-ctrl-btn svg { width: 18px; height: 18px; }
+  .iv-time { font-size: 11px; white-space: nowrap; }
+  .iv-volume-group { display: none; }
+  .iv-speed-btn { font-size: 11px; min-width: 24px; }
+  .iv-ctrl-progress { font-size: 10px; }
+  .iv-reset-ctrl { font-size: 14px; }
 }
 
 /* ─── LANDSCAPE MOBILE ────────────────────────────────────── */
@@ -693,3 +725,31 @@ html, body { margin: 0; padding: 0; background: #000; }
   transition: all 0.2s;
 }
 .iv-reset-btn:hover { border-color: #94A3B8; color: #CBD5E1; }
+
+/* Reset button in top-bar */
+.iv-reset-btn-top {
+  background: none;
+  border: 1px solid rgba(132, 244, 190, 0.4);
+  color: #84F4BE;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 8px;
+  transition: all 0.2s;
+}
+.iv-reset-btn-top:hover { border-color: #84F4BE; }
+
+/* Embedded controls extras */
+.iv-ctrl-progress {
+  color: #84F4BE;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 4px;
+}
+.iv-reset-ctrl {
+  font-size: 16px;
+  opacity: 0.6;
+}
+.iv-reset-ctrl:hover { opacity: 1; }

@@ -1285,6 +1285,64 @@ function formatTimePreview(seconds) {
 }
 
 // ============================================================
+// MOODLE PLUGIN INTEGRATION (postMessage)
+// ============================================================
+var isMoodlePopup = false;
+
+// Listen for config from Moodle plugin form.
+window.addEventListener('message', function(e) {
+  if (!e.data || e.data.type !== 'ivplayer-load-config') return;
+  isMoodlePopup = true;
+  var config = e.data.config;
+  if (config) {
+    // Load the config into the editor.
+    if (config.vimeoId) {
+      document.getElementById('vimeoInput').value = config.vimeoId;
+      loadVideo();
+    }
+    if (config.interactions && config.interactions.length > 0) {
+      loadConfig({ interactions: config.interactions });
+    }
+    // Show "Save to Moodle" button.
+    showMoodleSaveBtn();
+  }
+});
+
+function showMoodleSaveBtn() {
+  if (document.getElementById('moodleSaveBtn')) return;
+  var header = document.querySelector('.header-actions');
+  if (!header) return;
+  var btn = document.createElement('button');
+  btn.id = 'moodleSaveBtn';
+  btn.className = 'btn btn-green';
+  btn.style.cssText = 'background:#22C55E; animation: pulse 2s infinite;';
+  btn.innerHTML = 'Guardar en Moodle';
+  btn.onclick = function() {
+    var config = buildConfig();
+    if (window.opener) {
+      window.opener.postMessage({ type: 'ivplayer-save-config', config: config }, '*');
+      // Visual feedback.
+      btn.textContent = 'Guardado!';
+      btn.style.background = '#84F4BE';
+      btn.style.color = '#062E60';
+      setTimeout(function() { window.close(); }, 1000);
+    }
+  };
+  header.insertBefore(btn, header.firstChild);
+}
+
+// Auto-detect if opened from Moodle (check opener).
+if (window.opener) {
+  try {
+    // If we have an opener, assume Moodle context — show save button.
+    setTimeout(function() {
+      if (isMoodlePopup) return; // Already handled via postMessage.
+      showMoodleSaveBtn();
+    }, 2000);
+  } catch(e) {}
+}
+
+// ============================================================
 // INIT
 // ============================================================
 renderSidebar();

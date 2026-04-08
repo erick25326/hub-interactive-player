@@ -7,6 +7,7 @@ const DEFAULT_CONFIG = {
   // Acepta: ID numérico, URL pública, o URL con hash para videos privados
   vimeoId: "1171751497",
   vimeoHash: "415649d0b1",  // Hash para videos privados/no listados
+  loop: false,              // true = repetir video al terminar
   subtitlesUrl: null,
   subtitlesCues: [],
   interactions: [
@@ -279,7 +280,15 @@ export default function InteractiveVideoPlayer() {
     p.on("timeupdate", d=>setCurrent(d.seconds));
     p.on("play", ()=>setPlaying(true));
     p.on("pause", ()=>setPlaying(false));
-    p.on("ended", ()=>setPlaying(false));
+    p.on("ended", ()=>{
+      setPlaying(false);
+      if(config.loop){
+        p.setCurrentTime(0).then(()=>p.play());
+      } else {
+        // Reset to beginning so play button works after video ends
+        p.setCurrentTime(0);
+      }
+    });
     // No cleanup — Vimeo Player does not survive StrictMode destroy/recreate cycle
   },[vimeoData]);
 
@@ -299,7 +308,8 @@ export default function InteractiveVideoPlayer() {
 
   const toggleFS = useCallback(async()=>{
     const el=containerRef.current; if(!el) return;
-    // Try native Fullscreen API on the container (desktop)
+    const inIframe=window!==window.parent;
+    // Try native Fullscreen API on the container (desktop/standalone)
     try{
       if(!document.fullscreenElement&&!document.webkitFullscreenElement&&!fakeFS){
         if(el.requestFullscreen) { await el.requestFullscreen(); return; }
@@ -309,13 +319,34 @@ export default function InteractiveVideoPlayer() {
         if(document.webkitExitFullscreen) { document.webkitExitFullscreen(); return; }
       }
     }catch(e){}
-    // Fallback: CSS fake-fullscreen (mobile) — keeps interactions visible
+    // If in iframe (Moodle plugin), ask parent to fullscreen the iframe
+    if(inIframe){
+      try{
+        const action=fakeFS?'exit':'enter';
+        window.parent.postMessage({type:'ivplayer-fullscreen',action},'*');
+        setFakeFS(!fakeFS);
+        setIsFS(!fakeFS);
+        return;
+      }catch(e){}
+    }
+    // Last fallback: CSS fake-fullscreen
     const entering=!fakeFS;
     setFakeFS(entering);
     setIsFS(entering);
-    // Try to lock orientation to landscape on mobile
     try{ if(entering) await screen.orientation?.lock('landscape'); else screen.orientation?.unlock(); }catch(e){}
   },[fakeFS]);
+
+  // Listen for fullscreen state changes from parent (Moodle plugin)
+  useEffect(()=>{
+    const handler=(e)=>{
+      if(e.data?.type==='ivplayer-fullscreen-state'){
+        setIsFS(e.data.isFS);
+        setFakeFS(e.data.isFS);
+      }
+    };
+    window.addEventListener('message',handler);
+    return()=>window.removeEventListener('message',handler);
+  },[]);
 
   useEffect(()=>{
     const h=()=>setIsFS(!!(document.fullscreenElement||document.webkitFullscreenElement));
@@ -499,12 +530,16 @@ export default function InteractiveVideoPlayer() {
 
   const progress=duration?(currentTime/duration)*100:0;
   const hasCues=cues&&cues.length>0;
+  const isEmbedded=window!==window.parent;
 
   return (
-    <div className={`iv-wrapper ${fakeFS?"fake-fs":""}`}>
+    <div className={`iv-wrapper ${fakeFS?"fake-fs":""} ${isEmbedded?"embedded":""}`}>
       <div className="iv-top-bar">
         <span className="iv-top-title">{title}</span>
-        <span className="iv-top-progress">{completed.size}/{interactions.length} actividades</span>
+        <span className="iv-top-progress">
+          {completed.size}/{interactions.length} actividades
+          {completed.size>0&&<button className="iv-reset-btn-top" onClick={resetProgress}>Reiniciar</button>}
+        </span>
       </div>
       <div ref={containerRef} className={`iv-container ${isFS&&!fakeFS?"fullscreen":""}`}
         onMouseMove={resetCtrl} onTouchStart={resetCtrl}>
@@ -542,8 +577,10 @@ export default function InteractiveVideoPlayer() {
                   value={muted?0:volume} onChange={e=>changeVolume(parseFloat(e.target.value))}/>
               </div>}
             </div>
-            <span className="iv-time">{fmt(currentTime)} / {fmt(duration)}</span>
+            <span className="iv-time">{fmt(currentTime)}/{fmt(duration)}</span>
+            {isEmbedded&&<span className="iv-ctrl-progress">{completed.size}/{interactions.length}</span>}
             <div style={{flex:1}}/>
+            {isEmbedded&&completed.size>0&&<button className="iv-ctrl-btn iv-reset-ctrl" onClick={resetProgress} title="Reiniciar progreso">↺</button>}
             {(hasCues||hasVimeoSubs)&&<button className="iv-ctrl-btn" onClick={toggleSubs}><SubsIcon on={subsOn}/></button>}
             <div className="iv-speed-group">
               <button className="iv-ctrl-btn iv-speed-btn" onClick={()=>setShowSpeedMenu(!showSpeedMenu)}>{speed}x</button>
@@ -555,13 +592,12 @@ export default function InteractiveVideoPlayer() {
           </div>
         </div>
       </div>
-      <div className="iv-legend">
+      {!isEmbedded&&<div className="iv-legend">
         <span className="iv-legend-title">Marcadores:</span>
         {Object.entries(TYPE_COLORS).map(([t,c])=><span key={t} className="iv-legend-item">
           <span className="iv-legend-dot" style={{background:c}}/>{t==="multiple-choice"?"MC":t==="true-false"?"V/F":t==="hotspot"?"Hotspot":"Nota"}
         </span>)}
-        {completed.size>0&&<button className="iv-reset-btn" onClick={resetProgress}>Reiniciar progreso</button>}
-      </div>
+      </div>}
     </div>
   );
 }
