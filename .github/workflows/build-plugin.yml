@@ -3,7 +3,10 @@ name: Build Moodle Plugin
 on:
   push:
     branches: [master]
-  workflow_dispatch:  # Permite ejecutarlo manualmente desde GitHub
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -25,15 +28,15 @@ jobs:
       - name: Build plugin ZIP
         run: node scripts/build-plugin.js
 
-      - name: Get version from package.json
+      - name: Generate version tag
         id: version
-        run: echo "version=$(node -p 'require(\"./package.json\").version')" >> $GITHUB_OUTPUT
+        run: echo "tag=v$(date +'%Y.%m.%d')-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
 
       - name: Create or update Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Plugin v${{ steps.version.outputs.version }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Plugin ${{ steps.version.outputs.tag }}
           body: |
             ## mod_ivplayer para Moodle
 
@@ -48,5 +51,3 @@ jobs:
             3. Subí el ZIP — Moodle detecta que es una actualización y la aplica
           files: dist/mod_ivplayer.zip
           make_latest: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
