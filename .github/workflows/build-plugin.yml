@@ -1,0 +1,52 @@
+name: Build Moodle Plugin
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Permite ejecutarlo manualmente desde GitHub
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin ZIP
+        run: node scripts/build-plugin.js
+
+      - name: Get version from package.json
+        id: version
+        run: echo "version=$(node -p 'require(\"./package.json\").version')" >> $GITHUB_OUTPUT
+
+      - name: Create or update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Plugin v${{ steps.version.outputs.version }}
+          body: |
+            ## mod_ivplayer para Moodle
+
+            **Instalación:**
+            1. Descargá `mod_ivplayer.zip`
+            2. En Moodle: Administración del Sitio → Plugins → Instalar plugins
+            3. Subí el ZIP y confirmá la instalación
+
+            **Actualización:**
+            1. Descargá `mod_ivplayer.zip`
+            2. En Moodle: Administración del Sitio → Plugins → Instalar plugins
+            3. Subí el ZIP — Moodle detecta que es una actualización y la aplica
+          files: dist/mod_ivplayer.zip
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
