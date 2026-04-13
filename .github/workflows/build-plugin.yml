@@ -2,7 +2,7 @@ name: Build Moodle Plugin
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:  # Permite ejecutarlo manualmente desde GitHub
 
 jobs:
