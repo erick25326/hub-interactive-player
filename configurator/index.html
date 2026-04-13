@@ -456,6 +456,9 @@ body {
           <button onclick="addInteraction('hotspot')">
             <span class="dot" style="background:var(--hotspot-color)"></span> Hotspot
           </button>
+          <button onclick="addInteraction('label')">
+            <span class="dot" style="background:#E879F9"></span> Etiqueta
+          </button>
         </div>
       </div>
     </div>
@@ -510,7 +513,7 @@ body {
 // ============================================================
 let interactions = [];
 let selectedId = null;
-let counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0 };
+let counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0, label: 0 };
 let vimeoPlayer = null;
 
 // ============================================================
@@ -565,7 +568,8 @@ function typeLabel(type) {
     'note': 'Nota',
     'multiple-choice': 'MC',
     'true-false': 'V/F',
-    'hotspot': 'HS'
+    'hotspot': 'HS',
+    'label': 'Etiq'
   };
   return labels[type] || type;
 }
@@ -575,7 +579,8 @@ function typeIcon(type) {
     'note': '\u270E',
     'multiple-choice': 'A',
     'true-false': '\u2713',
-    'hotspot': '\u25CE'
+    'hotspot': '\u25CE',
+    'label': 'T'
   };
   return icons[type] || '?';
 }
@@ -587,6 +592,7 @@ function getSummary(interaction) {
     case 'multiple-choice': return d.question || 'Pregunta sin definir';
     case 'true-false': return d.statement || 'Enunciado sin definir';
     case 'hotspot': return `${(d.spots || []).length} punto(s)`;
+    case 'label': return d.text || 'Etiqueta sin texto';
     default: return '';
   }
 }
@@ -655,6 +661,10 @@ function addInteraction(type) {
       interaction.time = 0;
       interaction.duration = 8;
       interaction.data = { spots: [] };
+      break;
+    case 'label':
+      interaction.duration = 5;
+      interaction.data = { text: '', definition: '', x: 50, y: 30 };
       break;
   }
 
@@ -725,6 +735,19 @@ function saveCurrentForm() {
       if (exp) inter.data.explanation = exp.value;
       const checked = document.querySelector('input[name="tf-correct"]:checked');
       if (checked) inter.data.correct = checked.value === 'true';
+      break;
+    }
+    case 'label': {
+      const dur = document.getElementById('edit-duration');
+      const txt = document.getElementById('edit-label-text');
+      const def = document.getElementById('edit-label-def');
+      const lx = document.getElementById('edit-label-x');
+      const ly = document.getElementById('edit-label-y');
+      if (dur) inter.duration = parseInt(dur.value, 10) || 5;
+      if (txt) inter.data.text = txt.value;
+      if (def) inter.data.definition = def.value;
+      if (lx) inter.data.x = parseFloat(lx.value) || 50;
+      if (ly) inter.data.y = parseFloat(ly.value) || 30;
       break;
     }
     case 'hotspot': {
@@ -882,6 +905,35 @@ function renderEditor() {
         </div>`;
       break;
 
+    case 'label':
+      html += `
+        <div class="form-group">
+          <label class="form-label">Duracion en segundos</label>
+          <input type="number" class="form-input" id="edit-duration" value="${inter.duration || 5}" min="1" style="max-width:120px">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Texto de la etiqueta</label>
+          <input type="text" class="form-input" id="edit-label-text" value="${escapeAttr(inter.data.text)}" placeholder="Ej: Control PID">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Definicion</label>
+          <textarea class="form-textarea" id="edit-label-def" placeholder="Definicion que ve el alumno al hacer click">${escapeHtml(inter.data.definition)}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Posicion <span class="form-hint">(click en el video para ubicar)</span></label>
+          <div class="form-row">
+            <div>
+              <label class="form-label">X%</label>
+              <input type="number" class="form-input" id="edit-label-x" value="${inter.data.x || 50}" min="0" max="100">
+            </div>
+            <div>
+              <label class="form-label">Y%</label>
+              <input type="number" class="form-input" id="edit-label-y" value="${inter.data.y || 30}" min="0" max="100">
+            </div>
+          </div>
+        </div>`;
+      break;
+
     case 'hotspot':
       html += `
         <div class="form-group">
@@ -963,10 +1015,22 @@ function addSpot(x, y) {
   renderHotspotOverlay();
 }
 
-// Click on video to add hotspot
+// Click on video to place hotspot or label
 function onVideoClick(e) {
   const inter = interactions.find(i => i.id === selectedId);
-  if (!inter || inter.type !== 'hotspot') return;
+  if (!inter) return;
+  if (inter.type === 'label') {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    saveCurrentForm();
+    inter.data.x = Math.round(x);
+    inter.data.y = Math.round(y);
+    renderEditor();
+    renderHotspotOverlay();
+    return;
+  }
+  if (inter.type !== 'hotspot') return;
   const rect = e.currentTarget.getBoundingClientRect();
   const x = ((e.clientX - rect.left) / rect.width) * 100;
   const y = ((e.clientY - rect.top) / rect.height) * 100;
@@ -983,9 +1047,11 @@ function renderHotspotOverlay() {
   oldDots.forEach(d => d.remove());
   const oldHint = container.querySelector('.hotspot-overlay-hint');
   if (oldHint) oldHint.remove();
+  const oldLabels = container.querySelectorAll('.label-dot-preview');
+  oldLabels.forEach(d => d.remove());
 
   const inter = interactions.find(i => i.id === selectedId);
-  if (!inter || inter.type !== 'hotspot') return;
+  if (!inter || (inter.type !== 'hotspot' && inter.type !== 'label')) return;
 
   // Need a relative wrapper
   const videoWrap = container.querySelector('.video-preview');
@@ -998,7 +1064,9 @@ function renderHotspotOverlay() {
   // Add hint
   const hint = document.createElement('div');
   hint.className = 'hotspot-overlay-hint';
-  hint.textContent = 'Hacé click en el video para agregar puntos';
+  hint.textContent = inter.type === 'label'
+    ? 'Hacé click en el video para ubicar la etiqueta'
+    : 'Hacé click en el video para agregar puntos';
   container.appendChild(hint);
 
   // Add click overlay
@@ -1006,6 +1074,15 @@ function renderHotspotOverlay() {
   overlay.className = 'hotspot-overlay';
   overlay.onclick = onVideoClick;
   container.appendChild(overlay);
+
+  // Render label position
+  if (inter.type === 'label' && inter.data.x !== undefined) {
+    const lbl = document.createElement('div');
+    lbl.className = 'label-dot-preview';
+    lbl.style.cssText = 'position:absolute;left:' + inter.data.x + '%;top:' + inter.data.y + '%;transform:translate(-50%,-50%);background:rgba(232,121,249,0.9);color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;font-family:Work Sans,sans-serif;pointer-events:none;z-index:11;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+    lbl.textContent = inter.data.text || 'Etiqueta';
+    container.appendChild(lbl);
+  }
 
   // Render existing dots
   (inter.data.spots || []).forEach((spot, idx) => {
@@ -1060,8 +1137,8 @@ function buildConfig() {
         time: inter.time,
         data: { ...inter.data }
       };
-      if (inter.type === 'hotspot') {
-        out.duration = inter.duration || 8;
+      if (inter.type === 'hotspot' || inter.type === 'label') {
+        out.duration = inter.duration || (inter.type === 'label' ? 5 : 8);
       }
       return out;
     })
@@ -1117,7 +1194,7 @@ function loadConfig(config) {
   if (config.vimeoId) loadVideo();
 
   // Reset counters
-  counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0 };
+  counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0, label: 0 };
 
   interactions = (config.interactions || []).map(inter => {
     // Track counters for future IDs
@@ -1132,8 +1209,8 @@ function loadConfig(config) {
       time: inter.time || 0,
       data: inter.data || {}
     };
-    if (inter.type === 'hotspot') {
-      result.duration = inter.duration || 8;
+    if (inter.type === 'hotspot' || inter.type === 'label') {
+      result.duration = inter.duration || (inter.type === 'label' ? 5 : 8);
     }
     return result;
   });

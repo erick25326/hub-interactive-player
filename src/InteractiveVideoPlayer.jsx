@@ -192,7 +192,26 @@ function HotspotOverlay({ data, onDismiss }) {
   );
 }
 
-const TYPE_COLORS = { note:"#84F4BE", "multiple-choice":"#0162F5", "true-false":"#14CCF7", hotspot:"#F59E0B" };
+function LabelOverlay({ interactions, currentTime }) {
+  const [openId, setOpenId] = useState(null);
+  const visible = interactions.filter(ia=>
+    ia.type==="label"&&currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||5)
+  );
+  if(!visible.length) return null;
+  return <>{visible.map(ia=>(
+    <div key={ia.id} className="iv-label-pin" style={{left:`${ia.data.x}%`,top:`${ia.data.y}%`}}>
+      <button className="iv-label-btn" onClick={(e)=>{e.stopPropagation();setOpenId(openId===ia.id?null:ia.id);}}>
+        {ia.data.text}
+      </button>
+      {openId===ia.id&&<div className="iv-label-popup" onClick={e=>e.stopPropagation()}>
+        <div className="iv-label-popup-title">{ia.data.text}</div>
+        <div className="iv-label-popup-def">{ia.data.definition}</div>
+      </div>}
+    </div>
+  ))}</>;
+}
+
+const TYPE_COLORS = { note:"#84F4BE", "multiple-choice":"#0162F5", "true-false":"#14CCF7", hotspot:"#F59E0B", label:"#E879F9" };
 
 function TimelineMarkers({ interactions, duration }) {
   if(!duration) return null;
@@ -295,6 +314,7 @@ export default function InteractiveVideoPlayer() {
   useEffect(()=>{
     if(!ready||activeIA) return;
     for(const ia of interactions){
+      if(ia.type==="label") continue; // Labels don't pause the video.
       if(completed.has(ia.id)||triggered.current.has(ia.id)) continue;
       if(ia.type==="hotspot"){
         if(currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||8)){
@@ -517,7 +537,7 @@ export default function InteractiveVideoPlayer() {
         scormReportInteraction(ia.id,scormType,result.answer,correctResp,result.correct?"correct":"wrong");
       }
       // Report completion to SCORM if all interactions done
-      if(next.size===interactions.length) scormSetComplete();
+      if(next.size===interactions.filter(i=>i.type!=="label").length) scormSetComplete();
     }
   };
 
@@ -531,13 +551,14 @@ export default function InteractiveVideoPlayer() {
   const progress=duration?(currentTime/duration)*100:0;
   const hasCues=cues&&cues.length>0;
   const isEmbedded=window!==window.parent;
+  const completableInteractions=interactions.filter(ia=>ia.type!=="label");
 
   return (
     <div className={`iv-wrapper ${fakeFS?"fake-fs":""} ${isEmbedded?"embedded":""}`}>
       <div className="iv-top-bar">
         <span className="iv-top-title">{title}</span>
         <span className="iv-top-progress">
-          {completed.size}/{interactions.length} actividades
+          {completed.size}/{completableInteractions.length} actividades
           {completed.size>0&&<button className="iv-reset-btn-top" onClick={resetProgress}>Reiniciar</button>}
         </span>
       </div>
@@ -551,6 +572,8 @@ export default function InteractiveVideoPlayer() {
         {ready&&!playing&&!activeIA&&<button className="iv-big-play" onClick={togglePlay}><PlayIcon/></button>}
 
         {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA}/>}
+
+        {ready&&!activeIA&&<LabelOverlay interactions={interactions} currentTime={currentTime}/>}
 
         {activeIA?.type==="note"&&<NoteOverlay data={activeIA.data} onDismiss={dismiss}/>}
         {activeIA?.type==="multiple-choice"&&<MCOverlay data={activeIA.data} onDismiss={dismiss}/>}
@@ -578,7 +601,7 @@ export default function InteractiveVideoPlayer() {
               </div>}
             </div>
             <span className="iv-time">{fmt(currentTime)}/{fmt(duration)}</span>
-            {isEmbedded&&<span className="iv-ctrl-progress">{completed.size}/{interactions.length}</span>}
+            {isEmbedded&&<span className="iv-ctrl-progress">{completed.size}/{completableInteractions.length}</span>}
             <div style={{flex:1}}/>
             {isEmbedded&&completed.size>0&&<button className="iv-ctrl-btn iv-reset-ctrl" onClick={resetProgress} title="Reiniciar progreso">↺</button>}
             {(hasCues||hasVimeoSubs)&&<button className="iv-ctrl-btn" onClick={toggleSubs}><SubsIcon on={subsOn}/></button>}
