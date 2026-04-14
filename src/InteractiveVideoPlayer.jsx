@@ -105,6 +105,7 @@ function NoteOverlay({ data, onDismiss }) {
     <div className="iv-overlay-backdrop">
       <div className="iv-card iv-note-card">
         <div className="iv-note-header"><InfoIcon /><span className="iv-note-title">{data.title}</span></div>
+        {data.image && <img className="iv-interaction-image" src={data.image} alt="" />}
         <p className="iv-note-text">{data.text}</p>
         <button className="iv-btn-primary" onClick={onDismiss}>Continuar ▸</button>
       </div>
@@ -120,6 +121,7 @@ function MCOverlay({ data, onDismiss }) {
     <div className="iv-overlay-backdrop">
       <div className="iv-card iv-quiz-card">
         <div className="iv-badge">PREGUNTA</div>
+        {data.image && <img className="iv-interaction-image" src={data.image} alt="" />}
         <p className="iv-question">{data.question}</p>
         <div className="iv-options">
           {data.options.map(o => {
@@ -152,6 +154,7 @@ function TFOverlay({ data, onDismiss }) {
     <div className="iv-overlay-backdrop">
       <div className="iv-card iv-quiz-card iv-tf-card">
         <div className="iv-badge tf">VERDADERO O FALSO</div>
+        {data.image && <img className="iv-interaction-image" src={data.image} alt="" />}
         <p className="iv-question">{data.statement}</p>
         <div className="iv-tf-row">
           <button className={bc(true)} onClick={()=>!done&&setAns(true)} disabled={done}>Verdadero</button>
@@ -198,20 +201,29 @@ function LabelOverlay({ interactions, currentTime }) {
     ia.type==="label"&&currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||5)
   );
   if(!visible.length) return null;
-  return <>{visible.map(ia=>(
-    <div key={ia.id} className="iv-label-pin" style={{left:`${ia.data.x}%`,top:`${ia.data.y}%`}}>
-      <button className="iv-label-btn" onClick={(e)=>{e.stopPropagation();setOpenId(openId===ia.id?null:ia.id);}}>
-        {ia.data.text}
-      </button>
-      {openId===ia.id&&<div className="iv-label-popup" onClick={e=>e.stopPropagation()}>
-        <div className="iv-label-popup-title">{ia.data.text}</div>
-        <div className="iv-label-popup-def">{ia.data.definition}</div>
-      </div>}
-    </div>
-  ))}</>;
+  return <>{visible.map(ia=>{
+    const x = ia.data.x, y = ia.data.y;
+    // Edge-aware pin anchoring: near left edge → anchor button's left edge to x;
+    // near right edge → anchor right edge; else centered.
+    const hAlign = x < 20 ? "left" : x > 80 ? "right" : "center";
+    const vAlign = y > 65 ? "above" : "below";
+    const pinCls = `iv-label-pin iv-label-pin-${hAlign}`;
+    const popupCls = `iv-label-popup iv-label-popup-h-${hAlign} iv-label-popup-v-${vAlign}`;
+    return (
+      <div key={ia.id} className={pinCls} style={{left:`${x}%`,top:`${y}%`}}>
+        <button className="iv-label-btn" onClick={(e)=>{e.stopPropagation();setOpenId(openId===ia.id?null:ia.id);}}>
+          {ia.data.text}
+        </button>
+        {openId===ia.id&&<div className={popupCls} onClick={e=>e.stopPropagation()}>
+          <div className="iv-label-popup-title">{ia.data.text}</div>
+          <div className="iv-label-popup-def">{ia.data.definition}</div>
+        </div>}
+      </div>
+    );
+  })}</>;
 }
 
-const TYPE_COLORS = { note:"#84F4BE", "multiple-choice":"#0162F5", "true-false":"#14CCF7", hotspot:"#F59E0B", label:"#E879F9" };
+const TYPE_COLORS = { note:"#84F4BE", "multiple-choice":"#0162F5", "true-false":"#14CCF7", hotspot:"#F59E0B", label:"#14CCF7" };
 
 function TimelineMarkers({ interactions, duration }) {
   if(!duration) return null;

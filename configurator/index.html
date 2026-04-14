@@ -175,13 +175,13 @@ body {
   position: absolute; top: 6px; right: 6px;
   background: none; border: none; cursor: pointer;
   color: var(--gray-400); font-size: 16px; line-height: 1;
-  width: 20px; height: 20px;
+  width: 22px; height: 22px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 4px;
-  opacity: 0; transition: opacity 0.1s;
+  opacity: 0.7; transition: opacity 0.1s, color 0.1s, background 0.1s;
 }
 .interaction-card:hover .card-delete { opacity: 1; }
-.interaction-card .card-delete:hover { color: var(--danger); background: #FEE2E2; }
+.interaction-card .card-delete:hover { color: var(--danger); background: #FEE2E2; opacity: 1; }
 
 /* Add button dropdown */
 .add-dropdown-wrap { position: relative; }
@@ -309,15 +309,29 @@ body {
   position: absolute;
   top: 8px; left: 50%;
   transform: translateX(-50%);
-  background: rgba(0,0,0,0.7);
+  background: rgba(0,0,0,0.75);
   color: #fff;
   font-size: 12px;
-  padding: 4px 12px;
+  padding: 4px 10px;
   border-radius: 20px;
-  pointer-events: none;
   white-space: nowrap;
-  z-index: 11;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+.hotspot-overlay-hint button {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+  border: none;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  cursor: pointer;
+  font-weight: 500;
+  font-family: inherit;
+}
+.hotspot-overlay-hint button:hover { background: rgba(255,255,255,0.35); }
 .hotspot-dot-preview {
   position: absolute;
   width: 24px; height: 24px;
@@ -341,6 +355,114 @@ body {
   white-space: nowrap;
   font-family: 'Work Sans', sans-serif;
 }
+
+/* Preview timeline with interaction markers */
+.preview-timeline-wrap {
+  max-width: 640px;
+  margin-top: 12px;
+}
+.preview-timeline-label {
+  font-size: 12px;
+  color: var(--gray-500);
+  margin-bottom: 6px;
+}
+.preview-timeline {
+  position: relative;
+  height: 32px;
+  background: var(--gray-100);
+  border-radius: 16px;
+  border: 1px solid var(--gray-200);
+}
+.preview-timeline-marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  z-index: 2;
+}
+.preview-timeline-dot {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  transition: transform 0.1s;
+}
+.preview-timeline-dot:hover { transform: scale(1.2); }
+.preview-timeline-marker.selected .preview-timeline-dot {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.preview-timeline-delete {
+  background: #fff;
+  border: 1px solid var(--gray-300);
+  color: var(--gray-500);
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px; line-height: 1;
+  display: none;
+  align-items: center; justify-content: center;
+  padding: 0;
+  margin-left: 2px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.preview-timeline-marker:hover .preview-timeline-delete,
+.preview-timeline-marker.selected .preview-timeline-delete {
+  display: flex;
+}
+.preview-timeline-delete:hover {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+.preview-timeline-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px); left: 50%;
+  transform: translateX(-50%);
+  background: var(--gray-700);
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s;
+}
+.preview-timeline-marker:hover .preview-timeline-tooltip { opacity: 1; }
+
+/* Image field */
+.image-field {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.image-field-preview {
+  position: relative;
+  max-width: 240px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--gray-100);
+  border: 1px solid var(--gray-200);
+}
+.image-field-preview img {
+  display: block; width: 100%; height: auto; max-height: 160px; object-fit: contain;
+}
+.image-field-preview .image-remove-btn {
+  position: absolute; top: 6px; right: 6px;
+  background: rgba(0,0,0,0.7); color: #fff;
+  border: none; cursor: pointer;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1;
+}
+.image-field-preview .image-remove-btn:hover { background: var(--danger); }
+.image-field-input {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--gray-500);
+}
+.image-field-input input[type="file"] { font-size: 12px; }
 
 /* Radio group */
 .radio-group { display: flex; gap: 16px; margin-top: 4px; }
@@ -457,7 +579,7 @@ body {
             <span class="dot" style="background:var(--hotspot-color)"></span> Hotspot
           </button>
           <button onclick="addInteraction('label')">
-            <span class="dot" style="background:#E879F9"></span> Etiqueta
+            <span class="dot" style="background:#14CCF7"></span> Etiqueta
           </button>
         </div>
       </div>
@@ -490,6 +612,10 @@ body {
       <div id="videoContainer">
         <div id="video-placeholder">Ingresa una URL de Vimeo y haz clic en "Cargar video"</div>
       </div>
+      <div id="previewTimelineWrap" class="preview-timeline-wrap" style="display:none">
+        <div class="preview-timeline-label">Línea de tiempo <span class="form-hint">(clic en la X para eliminar)</span></div>
+        <div class="preview-timeline" id="previewTimeline"></div>
+      </div>
     </div>
 
     <!-- Section: Interaction Editor (dynamic) -->
@@ -515,6 +641,16 @@ let interactions = [];
 let selectedId = null;
 let counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0, label: 0 };
 let vimeoPlayer = null;
+let videoDuration = 0;
+let placementMode = true;  // true = click-to-place active; false = video controls accessible
+
+const TYPE_COLOR = {
+  'note': '#84F4BE',
+  'multiple-choice': '#0162F5',
+  'true-false': '#14CCF7',
+  'hotspot': '#F59E0B',
+  'label': '#14CCF7'
+};
 
 // ============================================================
 // UTILITIES
@@ -626,7 +762,12 @@ function loadVideo() {
 
   try {
     vimeoPlayer = new Vimeo.Player('vimeoPlayerDiv', opts);
-    vimeoPlayer.ready().catch(function() {
+    vimeoPlayer.ready().then(function() {
+      return vimeoPlayer.getDuration();
+    }).then(function(d) {
+      videoDuration = d || 0;
+      renderPreviewTimeline();
+    }).catch(function() {
       container.innerHTML = '<div id="video-placeholder" style="color:var(--danger)">Error al cargar el video. Verifica la URL y que el video permita embedding.</div>';
     });
   } catch (e) {
@@ -644,18 +785,19 @@ function addInteraction(type) {
 
   switch (type) {
     case 'note':
-      interaction.data = { title: '', text: '' };
+      interaction.data = { title: '', text: '', image: null };
       break;
     case 'multiple-choice':
       interaction.data = {
         question: '',
         options: [{ id: 'a', text: '' }, { id: 'b', text: '' }],
         correctId: 'a',
-        explanation: ''
+        explanation: '',
+        image: null
       };
       break;
     case 'true-false':
-      interaction.data = { statement: '', correct: true, explanation: '' };
+      interaction.data = { statement: '', correct: true, explanation: '', image: null };
       break;
     case 'hotspot':
       interaction.time = 0;
@@ -684,6 +826,7 @@ function selectInteraction(id) {
   // Save current before switching
   saveCurrentForm();
   selectedId = id;
+  placementMode = true;  // Reset placement mode on new selection
   renderSidebar();
   renderEditor();
 }
@@ -692,6 +835,45 @@ function sortAndRender() {
   interactions.sort((a, b) => a.time - b.time);
   renderSidebar();
   renderEditor();
+  renderPreviewTimeline();
+}
+
+function renderPreviewTimeline() {
+  const wrap = document.getElementById('previewTimelineWrap');
+  const bar = document.getElementById('previewTimeline');
+  if (!wrap || !bar) return;
+
+  if (!videoDuration || videoDuration <= 0 || interactions.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+
+  bar.innerHTML = interactions.map(inter => {
+    const pct = Math.min(100, Math.max(0, (inter.time / videoDuration) * 100));
+    const color = TYPE_COLOR[inter.type] || '#777';
+    const selected = inter.id === selectedId ? ' selected' : '';
+    const summary = escapeAttr(getSummary(inter) || typeLabel(inter.type));
+    const timeStr = formatTime(inter.time);
+    return '<div class="preview-timeline-marker' + selected + '" style="left:' + pct + '%">'
+      + '<div class="preview-timeline-tooltip">' + timeStr + ' · ' + summary + '</div>'
+      + '<button class="preview-timeline-dot" style="background:' + color + '" onclick="selectInteractionFromTimeline(\'' + inter.id + '\')" title="Seleccionar"></button>'
+      + '<button class="preview-timeline-delete" onclick="deleteFromTimeline(\'' + inter.id + '\', event)" title="Eliminar">&times;</button>'
+      + '</div>';
+  }).join('');
+}
+
+function selectInteractionFromTimeline(id) {
+  selectedId = id;
+  sortAndRender();
+}
+
+function deleteFromTimeline(id, e) {
+  e.stopPropagation();
+  if (!confirm('¿Eliminar esta interacción?')) return;
+  interactions = interactions.filter(i => i.id !== id);
+  if (selectedId === id) selectedId = null;
+  sortAndRender();
 }
 
 // ============================================================
@@ -840,7 +1022,12 @@ function renderEditor() {
     <h3 class="section-title">Editar: ${typeLabel(inter.type)} (${inter.id})</h3>
     <div class="form-group">
       <label class="form-label">Tiempo <span class="form-hint">mm:ss</span></label>
-      <input type="text" class="form-input" id="edit-time" value="${formatTime(inter.time)}" placeholder="0:00" style="max-width:120px" onchange="onTimeChange()">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="text" class="form-input" id="edit-time" value="${formatTime(inter.time)}" placeholder="0:00" style="max-width:120px" onchange="onTimeChange()">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="useCurrentTime()" title="Tomar el tiempo actual del video">
+          ⏱ Usar tiempo actual
+        </button>
+      </div>
     </div>`;
 
   switch (inter.type) {
@@ -853,7 +1040,8 @@ function renderEditor() {
         <div class="form-group">
           <label class="form-label">Texto</label>
           <textarea class="form-textarea" id="edit-text" placeholder="Contenido de la nota">${escapeHtml(inter.data.text)}</textarea>
-        </div>`;
+        </div>
+        ${imageFieldHtml(inter.data.image)}`;
       break;
 
     case 'multiple-choice':
@@ -879,7 +1067,8 @@ function renderEditor() {
         <div class="form-group">
           <label class="form-label">Explicacion</label>
           <textarea class="form-textarea" id="edit-explanation" placeholder="Explicacion del resultado">${escapeHtml(inter.data.explanation)}</textarea>
-        </div>`;
+        </div>
+        ${imageFieldHtml(inter.data.image)}`;
       break;
 
     case 'true-false':
@@ -902,7 +1091,8 @@ function renderEditor() {
         <div class="form-group">
           <label class="form-label">Explicacion</label>
           <textarea class="form-textarea" id="edit-explanation" placeholder="Explicacion del resultado">${escapeHtml(inter.data.explanation)}</textarea>
-        </div>`;
+        </div>
+        ${imageFieldHtml(inter.data.image)}`;
       break;
 
     case 'label':
@@ -976,6 +1166,71 @@ function onTimeChange() {
   sortAndRender();
 }
 
+function imageFieldHtml(currentImage) {
+  const hasImage = !!currentImage;
+  return `
+    <div class="form-group">
+      <label class="form-label">Imagen <span class="form-hint">opcional, máx 500 KB</span></label>
+      <div class="image-field">
+        ${hasImage ? `
+          <div class="image-field-preview">
+            <img src="${currentImage}" alt="Imagen">
+            <button type="button" class="image-remove-btn" onclick="removeImage()" title="Quitar imagen">&times;</button>
+          </div>
+        ` : ''}
+        <div class="image-field-input">
+          <input type="file" accept="image/*" id="edit-image-input" onchange="onImageChange(event)">
+        </div>
+      </div>
+    </div>`;
+}
+
+function onImageChange(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    alert('El archivo debe ser una imagen.');
+    event.target.value = '';
+    return;
+  }
+  if (file.size > 500 * 1024) {
+    alert('La imagen supera los 500 KB. Reducila antes de subirla.\nTamaño actual: ' + Math.round(file.size / 1024) + ' KB');
+    event.target.value = '';
+    return;
+  }
+  const inter = interactions.find(i => i.id === selectedId);
+  if (!inter) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    inter.data.image = e.target.result;
+    renderEditor();
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeImage() {
+  const inter = interactions.find(i => i.id === selectedId);
+  if (!inter || !inter.data) return;
+  inter.data.image = null;
+  renderEditor();
+}
+
+function useCurrentTime() {
+  if (!vimeoPlayer) {
+    alert('Primero cargá un video.');
+    return;
+  }
+  vimeoPlayer.getCurrentTime().then(function(t) {
+    const timeEl = document.getElementById('edit-time');
+    if (timeEl) {
+      timeEl.value = formatTime(Math.floor(t));
+      onTimeChange();
+    }
+  }).catch(function() {
+    alert('No se pudo obtener el tiempo actual del video.');
+  });
+}
+
 function addOption() {
   saveCurrentForm();
   const inter = interactions.find(i => i.id === selectedId);
@@ -1026,6 +1281,7 @@ function onVideoClick(e) {
     saveCurrentForm();
     inter.data.x = Math.round(x);
     inter.data.y = Math.round(y);
+    placementMode = false;  // Label only needs one position — release controls after placing
     renderEditor();
     renderHotspotOverlay();
     return;
@@ -1061,26 +1317,45 @@ function renderHotspotOverlay() {
   if (!container.style.position) container.style.position = 'relative';
   container.style.maxWidth = '640px';
 
-  // Add hint
+  // Add hint (with toggle button to release video controls)
   const hint = document.createElement('div');
   hint.className = 'hotspot-overlay-hint';
-  hint.textContent = inter.type === 'label'
-    ? 'Hacé click en el video para ubicar la etiqueta'
-    : 'Hacé click en el video para agregar puntos';
+  const hintText = document.createElement('span');
+  hintText.textContent = placementMode
+    ? (inter.type === 'label'
+        ? 'Click en el video para ubicar la etiqueta'
+        : 'Click en el video para agregar puntos')
+    : 'Modo reproducción — podés usar los controles del video';
+  hint.appendChild(hintText);
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.type = 'button';
+  toggleBtn.textContent = placementMode ? '⏸ Pausar colocación' : '▸ Reanudar colocación';
+  toggleBtn.onclick = togglePlacementMode;
+  hint.appendChild(toggleBtn);
   container.appendChild(hint);
 
-  // Add click overlay
-  const overlay = document.createElement('div');
-  overlay.className = 'hotspot-overlay';
-  overlay.onclick = onVideoClick;
-  container.appendChild(overlay);
+  // Add click overlay only when placement mode is active
+  if (placementMode) {
+    const overlay = document.createElement('div');
+    overlay.className = 'hotspot-overlay';
+    overlay.onclick = onVideoClick;
+    container.appendChild(overlay);
+  }
 
   // Render label position
   if (inter.type === 'label' && inter.data.x !== undefined) {
     const lbl = document.createElement('div');
     lbl.className = 'label-dot-preview';
-    lbl.style.cssText = 'position:absolute;left:' + inter.data.x + '%;top:' + inter.data.y + '%;transform:translate(-50%,-50%);background:rgba(232,121,249,0.9);color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;font-family:Work Sans,sans-serif;pointer-events:none;z-index:11;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-    lbl.textContent = inter.data.text || 'Etiqueta';
+    lbl.style.cssText = 'position:absolute;left:' + inter.data.x + '%;top:' + inter.data.y + '%;transform:translate(-50%,-50%);background:rgba(6,46,96,0.92);color:#fff;padding:6px 14px 6px 30px;border-radius:999px;font-size:12px;font-weight:600;font-family:Work Sans,sans-serif;pointer-events:none;z-index:11;box-shadow:0 4px 14px rgba(0,0,0,0.35);letter-spacing:0.2px;display:inline-flex;align-items:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);';
+    // Icon circle (separate element to mimic ::before)
+    const icon = document.createElement('span');
+    icon.style.cssText = 'position:absolute;left:-2px;top:50%;transform:translateY(-50%);width:24px;height:24px;border-radius:50%;background:#0162F5;box-shadow:0 2px 6px rgba(1,98,245,0.5),inset 0 0 0 2px rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:center;';
+    icon.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10"><line x1="5" y1="1" x2="5" y2="9" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="5" x2="9" y2="5" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>';
+    lbl.appendChild(icon);
+    const textNode = document.createElement('span');
+    textNode.textContent = inter.data.text || 'Etiqueta';
+    lbl.appendChild(textNode);
     container.appendChild(lbl);
   }
 
@@ -1104,6 +1379,11 @@ function removeSpot(idx) {
   inter.data.spots.splice(idx, 1);
   inter.data.spots.forEach((s, i) => { s.id = `h${i + 1}`; });
   renderEditor();
+  renderHotspotOverlay();
+}
+
+function togglePlacementMode() {
+  placementMode = !placementMode;
   renderHotspotOverlay();
 }
 
