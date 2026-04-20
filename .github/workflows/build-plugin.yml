@@ -59,6 +59,7 @@ jobs:
         run: |
           mkdir -p gh-pages-deploy
           cp dist/configurator.html gh-pages-deploy/index.html
+          cp dist/configurator.html gh-pages-deploy/configurator.html
 
       - name: Deploy configurator to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
