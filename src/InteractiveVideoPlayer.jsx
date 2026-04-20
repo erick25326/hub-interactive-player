@@ -195,11 +195,38 @@ function HotspotOverlay({ data, onDismiss }) {
   );
 }
 
-function LabelOverlay({ interactions, currentTime }) {
+function LabelOverlay({ interactions, currentTime, playerRef }) {
   const [openId, setOpenId] = useState(null);
+  const wasPlayingRef = useRef(false);
   const visible = interactions.filter(ia=>
     ia.type==="label"&&currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||5)
   );
+  // Close popup automatically when the label's time window ends
+  useEffect(()=>{
+    if(openId && !visible.find(ia=>ia.id===openId)) {
+      setOpenId(null);
+      if(wasPlayingRef.current){ wasPlayingRef.current=false; }
+    }
+  }, [visible, openId]);
+  const toggleOpen = async (ia) => {
+    const p = playerRef?.current;
+    if(openId === ia.id) {
+      // Closing: resume if we paused it
+      setOpenId(null);
+      if(wasPlayingRef.current && p) { p.play().catch(()=>{}); }
+      wasPlayingRef.current = false;
+    } else {
+      // Opening: pause if playing, remember state
+      if(p){
+        try {
+          const paused = await p.getPaused();
+          wasPlayingRef.current = !paused;
+          if(!paused) p.pause();
+        } catch(e){}
+      }
+      setOpenId(ia.id);
+    }
+  };
   if(!visible.length) return null;
   return <>{visible.map(ia=>{
     const x = ia.data.x, y = ia.data.y;
@@ -211,7 +238,7 @@ function LabelOverlay({ interactions, currentTime }) {
     const popupCls = `iv-label-popup iv-label-popup-h-${hAlign} iv-label-popup-v-${vAlign}`;
     return (
       <div key={ia.id} className={pinCls} style={{left:`${x}%`,top:`${y}%`}}>
-        <button className="iv-label-btn" onClick={(e)=>{e.stopPropagation();setOpenId(openId===ia.id?null:ia.id);}}>
+        <button className="iv-label-btn" onClick={(e)=>{e.stopPropagation();toggleOpen(ia);}}>
           {ia.data.text}
         </button>
         {openId===ia.id&&<div className={popupCls} onClick={e=>e.stopPropagation()}>
@@ -585,7 +612,7 @@ export default function InteractiveVideoPlayer() {
 
         {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA}/>}
 
-        {ready&&!activeIA&&<LabelOverlay interactions={interactions} currentTime={currentTime}/>}
+        {ready&&!activeIA&&<LabelOverlay interactions={interactions} currentTime={currentTime} playerRef={playerRef}/>}
 
         {activeIA?.type==="note"&&<NoteOverlay data={activeIA.data} onDismiss={dismiss}/>}
         {activeIA?.type==="multiple-choice"&&<MCOverlay data={activeIA.data} onDismiss={dismiss}/>}
