@@ -1,4 +1,4 @@
-name: Build Moodle Plugin
+name: Build & Deploy
 
 on:
   push:
@@ -25,8 +25,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build plugin ZIP
+      - name: Build plugin ZIP (rebuilds player from src)
         run: node scripts/build-plugin.js
+
+      - name: Build configurator (embeds fresh player)
+        run: node scripts/build-configurator.js
 
       - name: Generate version tag
         id: version
@@ -51,3 +54,17 @@ jobs:
             3. Subí el ZIP — Moodle detecta que es una actualización y la aplica
           files: dist/mod_ivplayer.zip
           make_latest: true
+
+      - name: Prepare configurator for gh-pages
+        run: |
+          mkdir -p gh-pages-deploy
+          cp dist/configurator.html gh-pages-deploy/index.html
+
+      - name: Deploy configurator to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gh-pages-deploy
+          publish_branch: gh-pages
+          force_orphan: true
+          commit_message: "deploy: configurator ${{ steps.version.outputs.tag }}"
