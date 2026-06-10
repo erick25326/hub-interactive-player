@@ -68,9 +68,15 @@ class mod_ivplayer_mod_form extends moodleform_mod {
             var btn = document.getElementById("ivplayer-edit-btn");
             var status = document.getElementById("ivplayer-edit-status");
             var vimeoField = document.getElementById("id_vimeoid");
-            var loopField = document.getElementById("id_loop");
 
             var CONFIGURATOR_URL = "https://erick25326.github.io/hub-interactive-player/configurator.html";
+            var CONFIGURATOR_ORIGIN = new URL(CONFIGURATOR_URL).origin;
+
+            function escapeHtml(str) {
+                var div = document.createElement("div");
+                div.appendChild(document.createTextNode(String(str)));
+                return div.innerHTML;
+            }
 
             function renderPreview() {
                 if (!jsonField) return;
@@ -85,8 +91,8 @@ class mod_ivplayer_mod_form extends moodleform_mod {
                         preview.innerHTML = "<em>Sin interacciones configuradas.</em>";
                         return;
                     }
-                    var typeNames = {"note":"Nota","multiple-choice":"MC","true-false":"V/F","hotspot":"Hotspot"};
-                    var typeColors = {"note":"#84F4BE","multiple-choice":"#0162F5","true-false":"#14CCF7","hotspot":"#F59E0B"};
+                    var typeNames = {"note":"Nota","multiple-choice":"MC","true-false":"V/F","hotspot":"Hotspot","label":"Etiqueta"};
+                    var typeColors = {"note":"#84F4BE","multiple-choice":"#0162F5","true-false":"#14CCF7","hotspot":"#F59E0B","label":"#14CCF7"};
                     var html = "<strong>" + items.length + " interaccion(es):</strong><br><br>";
                     items.forEach(function(ia) {
                         var m = Math.floor(ia.time/60);
@@ -95,11 +101,13 @@ class mod_ivplayer_mod_form extends moodleform_mod {
                         var label = typeNames[ia.type] || ia.type;
                         var color = typeColors[ia.type] || "#fff";
                         var summary = "";
-                        if (ia.type==="note") summary = ia.data.title || ia.data.text || "";
-                        else if (ia.type==="multiple-choice") summary = ia.data.question || "";
-                        else if (ia.type==="true-false") summary = ia.data.statement || "";
-                        else if (ia.type==="hotspot") summary = (ia.data.spots||[]).length + " punto(s)";
-                        summary = summary.substring(0, 60);
+                        var d = ia.data || {};
+                        if (ia.type==="note") summary = d.title || d.text || "";
+                        else if (ia.type==="multiple-choice") summary = d.question || "";
+                        else if (ia.type==="true-false") summary = d.statement || "";
+                        else if (ia.type==="hotspot") summary = (d.spots||[]).length + " punto(s)";
+                        else if (ia.type==="label") summary = d.text || "";
+                        summary = escapeHtml(summary.substring(0, 60));
                         html += "<span style=\"display:inline-block;background:" + color + ";color:#000;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-right:6px;\">" + label + "</span>";
                         html += "<span style=\"color:#aaa;font-size:12px;margin-right:8px;\">" + time + "</span>";
                         html += "<span style=\"color:#eee;font-size:13px;\">" + summary + "</span><br style=\"margin-bottom:6px;\">";
@@ -136,6 +144,7 @@ class mod_ivplayer_mod_form extends moodleform_mod {
 
             // Listen for config coming back from configurator.
             window.addEventListener("message", function(e) {
+                if (e.origin !== CONFIGURATOR_ORIGIN) return;
                 if (!e.data || e.data.type !== "ivplayer-save-config") return;
                 var config = e.data.config;
                 if (config && config.interactions) {
@@ -158,6 +167,27 @@ class mod_ivplayer_mod_form extends moodleform_mod {
         // Standard elements.
         $this->standard_coursemodule_elements();
         $this->add_action_buttons();
+    }
+
+    /**
+     * Custom completion rule: require all interactions completed.
+     * get_suffix() exists from Moodle 4.3 (default completion forms).
+     */
+    public function add_completion_rules() {
+        $mform = $this->_form;
+        $suffix = method_exists($this, 'get_suffix') ? $this->get_suffix() : '';
+        $name = 'completioninteractions' . $suffix;
+
+        $mform->addElement('advcheckbox', $name, '', get_string('completioninteractions', 'ivplayer'));
+        $mform->setType($name, PARAM_BOOL);
+        $mform->setDefault($name, 0);
+
+        return [$name];
+    }
+
+    public function completion_rule_enabled($data) {
+        $suffix = method_exists($this, 'get_suffix') ? $this->get_suffix() : '';
+        return !empty($data['completioninteractions' . $suffix]);
     }
 
     public function data_preprocessing(&$defaultvalues) {

@@ -7,10 +7,12 @@ function ivplayer_supports($feature) {
             return true;
         case FEATURE_COMPLETION_TRACKS_VIEWS:
             return true;
+        case FEATURE_COMPLETION_HAS_RULES:
+            return true;
         case FEATURE_SHOW_DESCRIPTION:
             return true;
         case FEATURE_BACKUP_MOODLE2:
-            return false;
+            return true;
         default:
             return null;
     }
@@ -49,8 +51,37 @@ function ivplayer_delete_instance($id) {
     if (!$DB->get_record('ivplayer', ['id' => $id])) {
         return false;
     }
+    $DB->delete_records('ivplayer_progress', ['ivplayerid' => $id]);
     $DB->delete_records('ivplayer', ['id' => $id]);
     return true;
+}
+
+/**
+ * Course module info: show description on course page and expose
+ * custom completion rules to the completion API.
+ */
+function ivplayer_get_coursemodule_info($coursemodule) {
+    global $DB;
+
+    $ivplayer = $DB->get_record('ivplayer', ['id' => $coursemodule->instance],
+        'id, name, intro, introformat, completioninteractions');
+    if (!$ivplayer) {
+        return false;
+    }
+
+    $info = new cached_cm_info();
+    $info->name = $ivplayer->name;
+
+    if ($coursemodule->showdescription) {
+        $info->content = format_module_intro('ivplayer', $ivplayer, $coursemodule->id, false);
+    }
+
+    if ($coursemodule->completion == COMPLETION_TRACKING_AUTOMATIC) {
+        $info->customdata['customcompletionrules']['completioninteractions'] =
+            $ivplayer->completioninteractions;
+    }
+
+    return $info;
 }
 
 /**

@@ -1,4 +1,9 @@
 <?php
+/**
+ * AJAX endpoint: the player reports that the current user finished
+ * the video and all interactions. Stores a completion record and
+ * triggers Moodle completion recalculation.
+ */
 define('AJAX_SCRIPT', true);
 require_once(__DIR__ . '/../../config.php');
 
@@ -13,11 +18,30 @@ require_login($course, true, $cm);
 $context = context_module::instance($cm->id);
 require_capability('mod/ivplayer:view', $context);
 
-// Mark activity as complete.
+// Record completion for this user.
+$record = $DB->get_record('ivplayer_progress', [
+    'ivplayerid' => $cm->instance,
+    'userid' => $USER->id,
+]);
+if ($record) {
+    $record->completed = 1;
+    $record->timemodified = time();
+    $DB->update_record('ivplayer_progress', $record);
+} else {
+    $DB->insert_record('ivplayer_progress', (object)[
+        'ivplayerid' => $cm->instance,
+        'userid' => $USER->id,
+        'completed' => 1,
+        'progress' => null,
+        'timemodified' => time(),
+    ]);
+}
+
+// Recalculate activity completion state.
 $completion = new completion_info($course);
 if ($completion->is_enabled($cm)) {
     $completion->update_state($cm, COMPLETION_COMPLETE);
-    echo json_encode(['success' => true]);
-} else {
-    echo json_encode(['success' => false, 'error' => 'Completion not enabled']);
 }
+
+header('Content-Type: application/json; charset=utf-8');
+echo json_encode(['success' => true]);

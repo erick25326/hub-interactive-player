@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Player from "@vimeo/player";
-import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction } from "./scorm.js";
+import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress } from "./scorm.js";
 
 const DEFAULT_CONFIG = {
   title: "Hub Education — Video Interactivo",
@@ -289,6 +289,7 @@ export default function InteractiveVideoPlayer() {
   const [speed, setSpeed] = useState(1);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [skipFeedback, setSkipFeedback] = useState(null);
+  const [videoEnded, setVideoEnded] = useState(false);
   const ctrlTimer = useRef(null);
   const triggered = useRef(new Set());
   const lastTapRef = useRef({ time: 0, x: 0 });
@@ -340,6 +341,7 @@ export default function InteractiveVideoPlayer() {
     p.on("pause", ()=>setPlaying(false));
     p.on("ended", ()=>{
       setPlaying(false);
+      setVideoEnded(true);
       if(config.loop){
         p.setCurrentTime(0).then(()=>p.play());
       } else {
@@ -442,31 +444,51 @@ export default function InteractiveVideoPlayer() {
     return()=>window.removeEventListener("beforeunload",handleUnload);
   },[ready]);
 
-  // Load progress from localStorage
+  // Load progress: prefer server-saved (Moodle, cross-device), fall back to localStorage
   useEffect(()=>{
     if(!ready) return;
     try{
-      const saved=localStorage.getItem(`iv_progress_${vimeoData.id}`);
-      if(saved){
-        const data=JSON.parse(saved);
+      let data=moodleGetSavedProgress();
+      if(!data){
+        const saved=localStorage.getItem(`iv_progress_${vimeoData.id}`);
+        if(saved) data=JSON.parse(saved);
+      }
+      if(data){
         if(data.completed){setCompleted(new Set(data.completed));data.completed.forEach(id=>triggered.current.add(id));}
         if(data.currentTime&&playerRef.current) playerRef.current.setCurrentTime(data.currentTime);
       }
     }catch(e){}
   },[ready]);
 
-  // Save progress to localStorage + SCORM (throttled)
+  // Save progress to localStorage + Moodle + SCORM (throttled)
   useEffect(()=>{
     if(!ready) return;
     if(Date.now()-lastSaveRef.current<5000) return;
     lastSaveRef.current=Date.now();
+    const snapshot={completed:[...completed],currentTime,updatedAt:Date.now()};
     try{
-      localStorage.setItem(`iv_progress_${vimeoData.id}`,JSON.stringify({
-        completed:[...completed],currentTime,updatedAt:Date.now()
-      }));
+      localStorage.setItem(`iv_progress_${vimeoData.id}`,JSON.stringify(snapshot));
     }catch(e){}
+    moodleSaveProgress({completed:snapshot.completed,currentTime});
     scormSetTime(currentTime);
   },[completed,currentTime,ready,vimeoData.id]);
+
+  // Final progress save when leaving the page (sendBeacon survives unload)
+  useEffect(()=>{
+    if(!ready) return;
+    const onUnload=()=>moodleSaveProgress({completed:[...completed],currentTime},true);
+    window.addEventListener("pagehide",onUnload);
+    return()=>window.removeEventListener("pagehide",onUnload);
+  },[ready,completed,currentTime]);
+
+  // Report completion when the video ends with every interaction done
+  // (covers videos with zero interactions and progress restored from a
+  // previous session, where dismiss() never fires).
+  useEffect(()=>{
+    if(!videoEnded) return;
+    const pending=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id));
+    if(pending.length===0) scormSetComplete();
+  },[videoEnded,completed,interactions]);
 
   const resetCtrl = useCallback(()=>{
     setShowCtrl(true); clearTimeout(ctrlTimer.current);
@@ -575,8 +597,9 @@ export default function InteractiveVideoPlayer() {
         const correctResp=ia.type==="multiple-choice"?ia.data.correctId:String(ia.data.correct);
         scormReportInteraction(ia.id,scormType,result.answer,correctResp,result.correct?"correct":"wrong");
       }
-      // Report completion to SCORM if all interactions done
-      if(next.size===interactions.filter(i=>i.type!=="label").length) scormSetComplete();
+      // Report completion if all interactions done and the video was watched
+      // to the end (otherwise the videoEnded effect reports it later).
+      if(videoEnded&&next.size===interactions.filter(i=>i.type!=="label").length) scormSetComplete();
     }
   };
 
@@ -584,6 +607,8 @@ export default function InteractiveVideoPlayer() {
     localStorage.removeItem(`iv_progress_${vimeoData.id}`);
     setCompleted(new Set());
     triggered.current=new Set();
+    setVideoEnded(false);
+    moodleSaveProgress({completed:[],currentTime:0});
     playerRef.current?.setCurrentTime(0);
   };
 

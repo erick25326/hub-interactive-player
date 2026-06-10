@@ -62,6 +62,33 @@ export function scormSetComplete() {
   API.LMSCommit("");
 }
 
+/**
+ * Save per-user progress to Moodle (plugin mode). No-op outside Moodle.
+ * @param {{completed: string[], currentTime: number}} progress
+ * @param {boolean} useBeacon - use sendBeacon (page is unloading)
+ */
+export function moodleSaveProgress(progress, useBeacon = false) {
+  const ctx = window.MOODLE_CONTEXT;
+  if (!ctx || !ctx.progressUrl) return;
+  const data = new FormData();
+  data.append('cmid', ctx.cmid);
+  data.append('sesskey', ctx.sesskey);
+  data.append('data', JSON.stringify(progress));
+  if (useBeacon && navigator.sendBeacon) {
+    navigator.sendBeacon(ctx.progressUrl, data);
+  } else {
+    fetch(ctx.progressUrl, { method: 'POST', body: data }).catch(() => {});
+  }
+}
+
+/**
+ * Returns the saved progress injected by Moodle, or null.
+ */
+export function moodleGetSavedProgress() {
+  const ctx = window.MOODLE_CONTEXT;
+  return (ctx && ctx.savedProgress) || null;
+}
+
 export function scormSetIncomplete() {
   if (!API) return;
   API.LMSSetValue("cmi.core.lesson_status", "incomplete");

@@ -16,7 +16,9 @@ require_login($course, true, $cm);
 $context = context_module::instance($cm->id);
 require_capability('mod/ivplayer:view', $context);
 
-// Build config.
+// Build config. JSON_HEX_TAG prevents "</script>" inside interaction
+// content from breaking out of the injected <script> block.
+$jsonflags = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
 $interactions = !empty($ivplayer->interactions) ? $ivplayer->interactions : '[]';
 $config = json_encode([
     'title' => $ivplayer->name,
@@ -24,13 +26,26 @@ $config = json_encode([
     'vimeoHash' => $ivplayer->vimeohash ?: null,
     'loop' => !empty($ivplayer->videoloop),
     'interactions' => json_decode($interactions, true) ?: [],
-], JSON_UNESCAPED_UNICODE);
+], $jsonflags);
+
+// Per-user saved progress (cross-device resume).
+$progressrec = $DB->get_record('ivplayer_progress', [
+    'ivplayerid' => $ivplayer->id,
+    'userid' => $USER->id,
+]);
+$savedprogress = null;
+if ($progressrec && !empty($progressrec->progress)) {
+    $savedprogress = json_decode($progressrec->progress, true);
+}
 
 $moodlecontext = json_encode([
     'cmid' => $cm->id,
     'sesskey' => sesskey(),
     'completeUrl' => (new moodle_url('/mod/ivplayer/complete.php'))->out(false),
-]);
+    'progressUrl' => (new moodle_url('/mod/ivplayer/progress.php'))->out(false),
+    'savedProgress' => $savedprogress,
+    'alreadyCompleted' => $progressrec ? (bool)$progressrec->completed : false,
+], $jsonflags);
 
 // Load player HTML.
 $playerpath = __DIR__ . '/player.html';

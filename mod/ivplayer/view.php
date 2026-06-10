@@ -89,6 +89,7 @@ echo $OUTPUT->header();
 <div class="ivplayer-frame-wrap" id="ivplayerWrap">
     <iframe class="ivplayer-frame" id="ivplayerFrame"
             src="<?php echo $playerurl->out(true); ?>"
+            title="<?php echo s($ivplayer->name); ?>"
             allow="autoplay; fullscreen; encrypted-media"
             allowfullscreen></iframe>
 </div>
@@ -106,18 +107,29 @@ echo $OUTPUT->header();
 
         if (e.data.action === 'enter' && !isFSNow) {
             // Try native Fullscreen API first (works on Android/desktop).
-            var ok = false;
-            try {
-                if (wrap.requestFullscreen) { wrap.requestFullscreen(); ok = true; }
-                else if (wrap.webkitRequestFullscreen) { wrap.webkitRequestFullscreen(); ok = true; }
-            } catch(e) {}
-            // Fallback: CSS fullscreen (iOS — no Fullscreen API).
-            if (!ok) {
+            // It may throw OR return a rejected promise (e.g. no user
+            // activation in this frame) — fall back to CSS fullscreen.
+            var fallbackCssFS = function() {
+                if (isFSNow) return;
                 wrap.classList.add('ivplayer-css-fs');
                 document.body.style.overflow = 'hidden';
                 isFSNow = true;
                 notifyIframe(true);
-            }
+            };
+            try {
+                if (wrap.requestFullscreen) {
+                    var p = wrap.requestFullscreen();
+                    if (p && p.catch) { p.catch(fallbackCssFS); }
+                } else if (wrap.webkitRequestFullscreen) {
+                    wrap.webkitRequestFullscreen();
+                    // No promise in webkit — verify shortly after.
+                    setTimeout(function() {
+                        if (!document.webkitFullscreenElement && !document.fullscreenElement) fallbackCssFS();
+                    }, 300);
+                } else {
+                    fallbackCssFS();
+                }
+            } catch(err) { fallbackCssFS(); }
         } else if (e.data.action === 'exit') {
             // Exit native fullscreen if active.
             if (document.fullscreenElement || document.webkitFullscreenElement) {

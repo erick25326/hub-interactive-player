@@ -10,4 +10,5 @@ $string['vimeoid'] = 'URL o ID de Vimeo';
 $string['vimeoid_help'] = 'Ingresa la URL del video en Vimeo (ej: https://vimeo.com/123456789/abcdef) o solo el ID numerico.';
 $string['interactions'] = 'Interacciones (JSON)';
 $string['interactions_help'] = 'Pega la configuracion JSON generada por el configurador visual. Usa el configurador en la URL proporcionada para crear este JSON facilmente.';
-$string['completioninteractions'] = 'El estudiante debe completar todas las interacciones';
+$string['completioninteractions'] = 'El estudiante debe ver el video y completar todas las interacciones';
+$string['completiondetail:interactions'] = 'Ver el video y completar todas las interacciones';
