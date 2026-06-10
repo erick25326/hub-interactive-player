@@ -416,6 +416,26 @@ export default function InteractiveVideoPlayer() {
     return()=>{document.removeEventListener("fullscreenchange",h);document.removeEventListener("webkitfullscreenchange",h);};
   },[]);
 
+  // Fullscreen quality boost: Vimeo picks the stream rendition from the
+  // player's CSS size, so on mobile it serves a low quality (~360/540p)
+  // and keeps it when going fullscreen. Force the best rendition (capped
+  // at 1080p) while in fullscreen; back to auto on exit. setQuality is
+  // unavailable on some Vimeo plans — failures are silently ignored.
+  useEffect(()=>{
+    const p=playerRef.current;
+    if(!p||!ready) return;
+    if(isFS||fakeFS){
+      p.getQualities().then(qs=>{
+        if(!Array.isArray(qs)||!qs.length) return;
+        const order=['1080p','720p','540p'];
+        const best=order.find(q=>qs.some(x=>x.id===q));
+        if(best) p.setQuality(best).catch(()=>{});
+      }).catch(()=>{});
+    } else {
+      p.setQuality('auto').catch(()=>{});
+    }
+  },[isFS,fakeFS,ready]);
+
   // Keyboard shortcuts
   useEffect(()=>{
     const handleKey=(e)=>{
