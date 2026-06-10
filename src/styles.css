@@ -145,6 +145,9 @@ html, body { margin: 0; padding: 0; background: #000; }
 .iv-progress-container {
   padding: 6px 0;
   cursor: pointer;
+  /* Reserve the gesture for scrubbing — otherwise mobile browsers
+     treat the drag as page scroll and the bar fights the finger. */
+  touch-action: none;
 }
 .iv-progress-track {
   position: relative;
@@ -506,6 +509,9 @@ html, body { margin: 0; padding: 0; background: #000; }
   .iv-big-play { width: 52px; height: 52px; }
   /* Compact controls for mobile */
   .iv-controls { padding: 20px 8px 6px; }
+  /* Bigger touch target for scrubbing */
+  .iv-progress-container { padding: 10px 0; }
+  .iv-progress-thumb { width: 16px; height: 16px; }
   .iv-controls-row { gap: 2px; }
   .iv-ctrl-btn { padding: 4px; }
   .iv-ctrl-btn svg { width: 18px; height: 18px; }

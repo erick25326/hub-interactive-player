@@ -520,24 +520,39 @@ export default function InteractiveVideoPlayer() {
   const toggleMute=()=>{const p=playerRef.current;if(!p)return;const m=!muted;p.setVolume(m?0:volume);setMuted(m);};
   const changeVolume=(v)=>{const p=playerRef.current;if(!p)return;setVolume(v);p.setVolume(v);setMuted(v===0);};
   const progressRef=useRef(null);
-  const lastSeekRef=useRef(0);
-  const seekToX=(clientX,force)=>{
+  // Scrubbing: while dragging, the bar follows the pointer locally;
+  // the actual (expensive, async) Vimeo seek runs once on release.
+  const [scrubPct,setScrubPct]=useState(null);
+  const scrubbingRef=useRef(false);
+  const pctFromX=(clientX)=>{
     const r=progressRef.current?.getBoundingClientRect();
-    if(!r) return;
-    const now=Date.now();
-    if(!force&&now-lastSeekRef.current<80) return; // throttle drag to ~12fps
-    lastSeekRef.current=now;
-    const pct=Math.max(0,Math.min(1,(clientX-r.left)/r.width));
-    let targetTime=pct*duration;
+    if(!r) return 0;
+    return Math.max(0,Math.min(1,(clientX-r.left)/r.width));
+  };
+  const onScrubStart=(e)=>{
+    if(!duration) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    scrubbingRef.current=true;
+    setScrubPct(pctFromX(e.clientX));
+  };
+  const onScrubMove=(e)=>{
+    if(!scrubbingRef.current) return;
+    setScrubPct(pctFromX(e.clientX));
+  };
+  const onScrubEnd=(e)=>{
+    if(!scrubbingRef.current) return;
+    scrubbingRef.current=false;
+    setScrubPct(null);
+    let targetTime=pctFromX(e.clientX)*duration;
+    // Forward seeks can't skip past pending interactions.
     const next=interactions.filter(ia=>!completed.has(ia.id)&&ia.time>currentTime&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
     if(next) targetTime=next.time;
+    setCurrent(targetTime); // optimistic — avoids the bar jumping back while Vimeo buffers
     playerRef.current?.setCurrentTime(targetTime);
   };
-  const seek=(e)=>seekToX(e.clientX,true);
-  const onProgressTouch=(e)=>{
-    e.stopPropagation();
-    e.preventDefault();
-    seekToX(e.touches[0].clientX,e.type==='touchstart');
+  const onScrubCancel=()=>{
+    scrubbingRef.current=false;
+    setScrubPct(null);
   };
   const changeSpeed=(rate)=>{playerRef.current?.setPlaybackRate(rate);setSpeed(rate);setShowSpeedMenu(false);};
   const toggleSubs=()=>{
@@ -612,7 +627,8 @@ export default function InteractiveVideoPlayer() {
     playerRef.current?.setCurrentTime(0);
   };
 
-  const progress=duration?(currentTime/duration)*100:0;
+  const progress=scrubPct!=null?scrubPct*100:(duration?(currentTime/duration)*100:0);
+  const displayTime=scrubPct!=null?scrubPct*duration:currentTime;
   const hasCues=cues&&cues.length>0;
   const isEmbedded=window!==window.parent;
   const completableInteractions=interactions.filter(ia=>ia.type!=="label");
@@ -644,9 +660,10 @@ export default function InteractiveVideoPlayer() {
         {activeIA?.type==="true-false"&&<TFOverlay data={activeIA.data} onDismiss={dismiss}/>}
         {activeIA?.type==="hotspot"&&<HotspotOverlay data={activeIA.data} onDismiss={dismiss}/>}
 
-        <div className={`iv-controls ${showCtrl||!playing||activeIA?"visible":""}`}>
-          <div ref={progressRef} className="iv-progress-container" onClick={seek}
-            onTouchStart={onProgressTouch} onTouchMove={onProgressTouch}>
+        <div className={`iv-controls ${showCtrl||!playing||activeIA||scrubPct!=null?"visible":""}`}>
+          <div ref={progressRef} className="iv-progress-container"
+            onPointerDown={onScrubStart} onPointerMove={onScrubMove}
+            onPointerUp={onScrubEnd} onPointerCancel={onScrubCancel}>
             <div className="iv-progress-track">
               <TimelineMarkers interactions={interactions} duration={duration}/>
               <div className="iv-progress-fill" style={{width:`${progress}%`}}/>
@@ -664,7 +681,7 @@ export default function InteractiveVideoPlayer() {
                   value={muted?0:volume} onChange={e=>changeVolume(parseFloat(e.target.value))}/>
               </div>}
             </div>
-            <span className="iv-time">{fmt(currentTime)}/{fmt(duration)}</span>
+            <span className="iv-time">{fmt(displayTime)}/{fmt(duration)}</span>
             {isEmbedded&&<span className="iv-ctrl-progress">{completed.size}/{completableInteractions.length}</span>}
             <div style={{flex:1}}/>
             {isEmbedded&&completed.size>0&&<button className="iv-ctrl-btn iv-reset-ctrl" onClick={resetProgress} title="Reiniciar progreso">↺</button>}
