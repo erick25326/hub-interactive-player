@@ -9,6 +9,8 @@ function ivplayer_supports($feature) {
             return true;
         case FEATURE_COMPLETION_HAS_RULES:
             return true;
+        case FEATURE_GRADE_HAS_GRADE:
+            return true;
         case FEATURE_SHOW_DESCRIPTION:
             return true;
         case FEATURE_BACKUP_MOODLE2:
@@ -30,6 +32,9 @@ function ivplayer_add_instance($data, $mform = null) {
     $data->vimeohash = $parsed['hash'];
 
     $data->id = $DB->insert_record('ivplayer', $data);
+
+    ivplayer_grade_item_update($data);
+
     return $data->id;
 }
 
@@ -43,17 +48,140 @@ function ivplayer_update_instance($data, $mform = null) {
     $data->vimeoid = $parsed['id'];
     $data->vimeohash = $parsed['hash'];
 
-    return $DB->update_record('ivplayer', $data);
+    $result = $DB->update_record('ivplayer', $data);
+
+    // Re-grade: the max grade or the set of interactions may have changed.
+    ivplayer_grade_item_update($data);
+    ivplayer_update_grades($DB->get_record('ivplayer', ['id' => $data->id]));
+
+    return $result;
 }
 
 function ivplayer_delete_instance($id) {
     global $DB;
-    if (!$DB->get_record('ivplayer', ['id' => $id])) {
+    if (!($ivplayer = $DB->get_record('ivplayer', ['id' => $id]))) {
         return false;
     }
+    ivplayer_grade_item_update($ivplayer, 'reset');
+    $DB->delete_records('ivplayer_answers', ['ivplayerid' => $id]);
     $DB->delete_records('ivplayer_progress', ['ivplayerid' => $id]);
     $DB->delete_records('ivplayer', ['id' => $id]);
     return true;
+}
+
+/* ─── Gradebook API ─────────────────────────────────────────── */
+
+/**
+ * Gradable interactions of an instance (multiple-choice and true-false).
+ *
+ * @return array of interaction arrays, indexed by interaction id.
+ */
+function ivplayer_gradable_interactions($ivplayer) {
+    $interactions = json_decode($ivplayer->interactions ?? '[]', true);
+    if (!is_array($interactions)) {
+        return [];
+    }
+    $gradable = [];
+    foreach ($interactions as $ia) {
+        if (!empty($ia['id']) && in_array($ia['type'] ?? '', ['multiple-choice', 'true-false'], true)) {
+            $gradable[$ia['id']] = $ia;
+        }
+    }
+    return $gradable;
+}
+
+/**
+ * Create/update the grade item for an instance.
+ *
+ * @param stdClass $ivplayer instance (needs id, course, name, grade)
+ * @param mixed $grades grade objects, 'reset', or null
+ */
+function ivplayer_grade_item_update($ivplayer, $grades = null) {
+    global $CFG;
+    require_once($CFG->libdir . '/gradelib.php');
+
+    $item = [
+        'itemname' => $ivplayer->name,
+        'gradetype' => GRADE_TYPE_NONE,
+    ];
+    if (!empty($ivplayer->grade) && $ivplayer->grade > 0) {
+        $item['gradetype'] = GRADE_TYPE_VALUE;
+        $item['grademax'] = $ivplayer->grade;
+        $item['grademin'] = 0;
+    }
+    if ($grades === 'reset') {
+        $item['reset'] = true;
+        $grades = null;
+    }
+
+    return grade_update('mod/ivplayer', $ivplayer->course, 'mod', 'ivplayer',
+        $ivplayer->id, 0, $grades, $item);
+}
+
+/**
+ * Compute user grades: (correct answers / gradable interactions) * grade.
+ *
+ * @param stdClass $ivplayer
+ * @param int $userid 0 = all users with answers
+ * @return array userid => grade object, or [] if nothing to grade
+ */
+function ivplayer_get_user_grades($ivplayer, $userid = 0) {
+    global $DB;
+
+    $total = count(ivplayer_gradable_interactions($ivplayer));
+    if (!$total || empty($ivplayer->grade) || $ivplayer->grade <= 0) {
+        return [];
+    }
+
+    $params = ['ivplayerid' => $ivplayer->id];
+    if ($userid) {
+        $params['userid'] = $userid;
+    }
+    $answers = $DB->get_records('ivplayer_answers', $params);
+
+    // Only count answers to interactions that still exist.
+    $gradable = ivplayer_gradable_interactions($ivplayer);
+    $byuser = [];
+    foreach ($answers as $a) {
+        if (!isset($gradable[$a->interactionid])) {
+            continue;
+        }
+        if (!isset($byuser[$a->userid])) {
+            $byuser[$a->userid] = ['correct' => 0, 'time' => 0];
+        }
+        $byuser[$a->userid]['correct'] += $a->correct ? 1 : 0;
+        $byuser[$a->userid]['time'] = max($byuser[$a->userid]['time'], (int)$a->timemodified);
+    }
+
+    $grades = [];
+    foreach ($byuser as $uid => $info) {
+        $grade = new stdClass();
+        $grade->userid = $uid;
+        $grade->rawgrade = $ivplayer->grade * $info['correct'] / $total;
+        $grade->dategraded = $info['time'];
+        $grades[$uid] = $grade;
+    }
+    return $grades;
+}
+
+/**
+ * Standard update_grades callback.
+ */
+function ivplayer_update_grades($ivplayer, $userid = 0, $nullifnone = true) {
+    if (empty($ivplayer->grade) || $ivplayer->grade <= 0) {
+        ivplayer_grade_item_update($ivplayer);
+        return;
+    }
+    if ($grades = ivplayer_get_user_grades($ivplayer, $userid)) {
+        ivplayer_grade_item_update($ivplayer, $grades);
+    } else if ($userid && $nullifnone) {
+        $grade = new stdClass();
+        $grade->userid = $userid;
+        $grade->rawgrade = null;
+        ivplayer_grade_item_update($ivplayer, $grade);
+    } else {
+        ivplayer_grade_item_update($ivplayer);
+    }
 }
 
 /**

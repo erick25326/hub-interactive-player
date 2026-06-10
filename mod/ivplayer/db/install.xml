@@ -13,6 +13,7 @@
         <FIELD NAME="videoloop" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0"/>
         <FIELD NAME="interactions" TYPE="text" NOTNULL="false"/>
         <FIELD NAME="completioninteractions" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="grade" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
       </FIELDS>
@@ -35,6 +36,23 @@
         <KEY NAME="ivplayerid" TYPE="foreign" FIELDS="ivplayerid" REFTABLE="ivplayer" REFFIELDS="id"/>
         <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
         <KEY NAME="ivplayerid-userid" TYPE="unique" FIELDS="ivplayerid, userid"/>
+      </KEYS>
+    </TABLE>
+    <TABLE NAME="ivplayer_answers" COMMENT="Latest answer per user per gradable interaction">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="ivplayerid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="interactionid" TYPE="char" LENGTH="64" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="answer" TYPE="char" LENGTH="255" NOTNULL="false"/>
+        <FIELD NAME="correct" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="ivplayerid" TYPE="foreign" FIELDS="ivplayerid" REFTABLE="ivplayer" REFFIELDS="id"/>
+        <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="ivplayerid-userid-interactionid" TYPE="unique" FIELDS="ivplayerid, userid, interactionid"/>
       </KEYS>
     </TABLE>
   </TABLES>

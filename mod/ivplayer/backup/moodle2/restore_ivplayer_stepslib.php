@@ -10,6 +10,7 @@ class restore_ivplayer_activity_structure_step extends restore_activity_structur
         $paths[] = new restore_path_element('ivplayer', '/activity/ivplayer');
         if ($userinfo) {
             $paths[] = new restore_path_element('ivplayer_progress', '/activity/ivplayer/progresses/progress');
+            $paths[] = new restore_path_element('ivplayer_answer', '/activity/ivplayer/answers/answer');
         }
 
         return $this->prepare_activity_structure($paths);
@@ -33,6 +34,16 @@ class restore_ivplayer_activity_structure_step extends restore_activity_structur
         $data->userid = $this->get_mappingid('user', $data->userid);
 
         $DB->insert_record('ivplayer_progress', $data);
+    }
+
+    protected function process_ivplayer_answer($data) {
+        global $DB;
+
+        $data = (object)$data;
+        $data->ivplayerid = $this->get_new_parentid('ivplayer');
+        $data->userid = $this->get_mappingid('user', $data->userid);
+
+        $DB->insert_record('ivplayer_answers', $data);
     }
 
     protected function after_execute() {

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Player from "@vimeo/player";
-import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress } from "./scorm.js";
+import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
 
 const DEFAULT_CONFIG = {
   title: "Hub Education — Video Interactivo",
@@ -626,11 +626,12 @@ export default function InteractiveVideoPlayer() {
       setCompleted(next);
       setActiveIA(null);
       playerRef.current?.play();
-      // Report individual interaction to SCORM
+      // Report individual interaction to SCORM + Moodle gradebook
       if(result&&(ia.type==="multiple-choice"||ia.type==="true-false")){
         const scormType=ia.type==="multiple-choice"?"choice":"true-false";
         const correctResp=ia.type==="multiple-choice"?ia.data.correctId:String(ia.data.correct);
         scormReportInteraction(ia.id,scormType,result.answer,correctResp,result.correct?"correct":"wrong");
+        moodleReportAnswer(ia.id,result.answer);
       }
       // Report completion if all interactions done and the video was watched
       // to the end (otherwise the videoEnded effect reports it later).

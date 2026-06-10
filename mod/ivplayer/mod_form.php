@@ -164,7 +164,8 @@ class mod_ivplayer_mod_form extends moodleform_mod {
 
         $mform->addElement('html', $editorhtml);
 
-        // Standard elements.
+        // Standard elements (grading section: max grade, category, pass grade).
+        $this->standard_grading_coursemodule_elements();
         $this->standard_coursemodule_elements();
         $this->add_action_buttons();
     }

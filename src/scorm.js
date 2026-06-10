@@ -82,6 +82,21 @@ export function moodleSaveProgress(progress, useBeacon = false) {
 }
 
 /**
+ * Report a quiz answer to Moodle for grading (plugin mode).
+ * Correctness is verified server-side. No-op outside Moodle.
+ */
+export function moodleReportAnswer(interactionId, answer) {
+  const ctx = window.MOODLE_CONTEXT;
+  if (!ctx || !ctx.answerUrl) return;
+  const data = new FormData();
+  data.append('cmid', ctx.cmid);
+  data.append('sesskey', ctx.sesskey);
+  data.append('interactionid', interactionId);
+  data.append('answer', String(answer));
+  fetch(ctx.answerUrl, { method: 'POST', body: data }).catch(() => {});
+}
+
+/**
  * Returns the saved progress injected by Moodle, or null.
  */
 export function moodleGetSavedProgress() {

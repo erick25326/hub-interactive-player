@@ -43,6 +43,7 @@ $moodlecontext = json_encode([
     'sesskey' => sesskey(),
     'completeUrl' => (new moodle_url('/mod/ivplayer/complete.php'))->out(false),
     'progressUrl' => (new moodle_url('/mod/ivplayer/progress.php'))->out(false),
+    'answerUrl' => (new moodle_url('/mod/ivplayer/answer.php'))->out(false),
     'savedProgress' => $savedprogress,
     'alreadyCompleted' => $progressrec ? (bool)$progressrec->completed : false,
 ], $jsonflags);
