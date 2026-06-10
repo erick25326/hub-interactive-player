@@ -28,6 +28,11 @@ jobs:
       - name: Build plugin ZIP (rebuilds player from src)
         run: node scripts/build-plugin.js
 
+      # The configurator build runs "vite build" which empties dist/,
+      # deleting mod_ivplayer.zip — stash it outside dist/ first.
+      - name: Stash plugin ZIP
+        run: mv dist/mod_ivplayer.zip mod_ivplayer.zip
+
       - name: Build configurator (embeds fresh player)
         run: node scripts/build-configurator.js
 
@@ -52,8 +57,9 @@ jobs:
             1. Descargá `mod_ivplayer.zip`
             2. En Moodle: Administración del Sitio → Plugins → Instalar plugins
             3. Subí el ZIP — Moodle detecta que es una actualización y la aplica
-          files: dist/mod_ivplayer.zip
+          files: mod_ivplayer.zip
           make_latest: true
+          fail_on_unmatched_files: true
 
       - name: Prepare configurator for gh-pages
         run: |
