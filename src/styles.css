@@ -831,7 +831,9 @@ html, body { margin: 0; padding: 0; background: #000; }
   color: #334155;
 }
 @media (max-width: 600px) {
-  .iv-label-btn { font-size: 11px; padding: 3px 8px; }
+  /* Achicar SOLO la variable: font-size/padding directos dejaban el círculo
+     ::before (dimensionado por --iv-label-dot) tapando la primera palabra. */
+  .iv-label-btn { --iv-label-fs: 11px; }
   .iv-label-popup { width: 200px; padding: 10px; }
 }
 

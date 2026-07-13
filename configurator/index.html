@@ -780,6 +780,9 @@ function loadVideo() {
 // ============================================================
 function addInteraction(type) {
   closeAddMenu();
+  // Guardar lo tipeado en el form activo ANTES de re-renderizar (sin esto,
+  // agregar una interacción descartaba los edits sin aviso).
+  saveCurrentForm();
   const id = generateId(type);
   let interaction = { id, type, time: 0 };
 
@@ -864,6 +867,8 @@ function renderPreviewTimeline() {
 }
 
 function selectInteractionFromTimeline(id) {
+  // Igual que selectInteraction: no perder lo tipeado en el form activo.
+  saveCurrentForm();
   selectedId = id;
   sortAndRender();
 }
@@ -1174,7 +1179,7 @@ function imageFieldHtml(currentImage) {
       <div class="image-field">
         ${hasImage ? `
           <div class="image-field-preview">
-            <img src="${currentImage}" alt="Imagen">
+            <img src="${escapeAttr(currentImage)}" alt="Imagen">
             <button type="button" class="image-remove-btn" onclick="removeImage()" title="Quitar imagen">&times;</button>
           </div>
         ` : ''}
@@ -1407,6 +1412,7 @@ function buildConfig() {
   saveCurrentForm();
   const { vimeoId, vimeoHash } = parseVimeoUrl(document.getElementById('vimeoInput').value || '');
   return {
+    ...passthroughConfig, // subtitlesUrl / loop de un config importado
     title: document.getElementById('courseTitle').value || 'Sin titulo',
     vimeoId: vimeoId || '',
     vimeoHash: vimeoHash || null,
@@ -1463,28 +1469,51 @@ function handleFileImport(event) {
   event.target.value = '';
 }
 
+// Campos de config externo que el editor no maneja (subtítulos, loop): se
+// preservan acá para no perderlos en un importar→exportar.
+let passthroughConfig = {};
+
+// Ids de config EXTERNO (JSON importado / postMessage): solo [A-Za-z0-9_-].
+// El sidebar y el timeline los interpolan en onclick inline ('${id}'), así
+// que un id con comillas en un JSON malicioso ejecutaría JS (XSS). Los ids
+// que genera el propio configurador ya cumplen el patrón.
+function sanitizeExternalId(id, fallback) {
+  return (typeof id === 'string' && /^[A-Za-z0-9_-]+$/.test(id)) ? id : fallback;
+}
+
 function loadConfig(config) {
-  document.getElementById('courseTitle').value = config.title || '';
+  // Igual que con vimeoId: si el config externo no trae título, no borrar el actual.
+  if (config.title !== undefined) {
+    document.getElementById('courseTitle').value = config.title || '';
+  }
 
-  // Build vimeo URL for input
-  let vimeoStr = config.vimeoId || '';
-  if (config.vimeoHash) vimeoStr = `https://vimeo.com/${config.vimeoId}/${config.vimeoHash}`;
-  document.getElementById('vimeoInput').value = vimeoStr;
+  // No tocar el input de Vimeo si el config no trae vimeoId (ej. el flujo
+  // Moodle mandaba solo interactions y esto borraba la URL recién cargada).
+  if (config.vimeoId !== undefined) {
+    let vimeoStr = config.vimeoId || '';
+    if (config.vimeoHash) vimeoStr = `https://vimeo.com/${config.vimeoId}/${config.vimeoHash}`;
+    document.getElementById('vimeoInput').value = vimeoStr;
+    if (config.vimeoId) loadVideo();
+  }
 
-  if (config.vimeoId) loadVideo();
+  passthroughConfig = {};
+  if (config.subtitlesUrl) passthroughConfig.subtitlesUrl = config.subtitlesUrl;
+  if (config.loop !== undefined) passthroughConfig.loop = config.loop;
 
   // Reset counters
   counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0, label: 0 };
 
+  let importSeq = 0;
   interactions = (config.interactions || []).map(inter => {
     // Track counters for future IDs
     const prefix = inter.type === 'multiple-choice' ? 'mc' : inter.type === 'true-false' ? 'tf' : inter.type;
-    const numMatch = inter.id.match(/\d+$/);
+    const safeId = sanitizeExternalId(inter.id, prefix + '-imp' + (++importSeq));
+    const numMatch = safeId.match(/\d+$/);
     const num = numMatch ? parseInt(numMatch[0], 10) : 0;
     if (num > counters[inter.type]) counters[inter.type] = num;
 
     const result = {
-      id: inter.id,
+      id: safeId,
       type: inter.type,
       time: inter.time || 0,
       data: inter.data || {}
@@ -1547,9 +1576,11 @@ function preview() {
           `<em>Explicacion: ${esc(inter.data.explanation)}</em>`;
         break;
       case 'hotspot':
-        detail = `<strong>Duracion:</strong> ${inter.duration}s<br>` +
+        // Number(): en un JSON importado duration/x/y podrían venir como
+        // strings con HTML — mismos vectores que los ids saneados.
+        detail = `<strong>Duracion:</strong> ${Number(inter.duration) || 0}s<br>` +
           `<strong>Puntos:</strong><br>` +
-          (inter.data.spots || []).map(s => `&nbsp;&nbsp;(${s.x}%, ${s.y}%) - ${esc(s.label)}: ${esc(s.info)}`).join('<br>');
+          (inter.data.spots || []).map(s => `&nbsp;&nbsp;(${Number(s.x) || 0}%, ${Number(s.y) || 0}%) - ${esc(s.label)}: ${esc(s.info)}`).join('<br>');
         break;
     }
     const typeColors = {
@@ -1645,21 +1676,34 @@ function formatTimePreview(seconds) {
 // MOODLE PLUGIN INTEGRATION (postMessage)
 // ============================================================
 var isMoodlePopup = false;
+// Origin del Moodle que nos abrió (se fija al recibir su config válido) —
+// se usa como targetOrigin al devolver el config, en vez de '*'.
+var moodleOrigin = null;
+
+// Solo aceptamos config del campus (y localhost para desarrollo). Sin este
+// chequeo, cualquier página podía abrir el configurador publicado e
+// inyectarle un config malicioso por postMessage.
+function isAllowedMoodleOrigin(origin) {
+  if (origin === 'https://academy.hubeducation.com.ar') return true;
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+  return false;
+}
 
 // Listen for config from Moodle plugin form.
 window.addEventListener('message', function(e) {
+  if (!isAllowedMoodleOrigin(e.origin)) return;
   if (!e.data || e.data.type !== 'ivplayer-load-config') return;
   isMoodlePopup = true;
+  moodleOrigin = e.origin;
   var config = e.data.config;
   if (config) {
-    // Load the config into the editor.
-    if (config.vimeoId) {
-      document.getElementById('vimeoInput').value = config.vimeoId;
-      loadVideo();
-    }
-    if (config.interactions && config.interactions.length > 0) {
-      loadConfig({ interactions: config.interactions });
-    }
+    // Todo por loadConfig (sanea ids, preserva título/URL si no vienen).
+    loadConfig({
+      title: config.title,
+      vimeoId: config.vimeoId || undefined,
+      vimeoHash: config.vimeoHash,
+      interactions: config.interactions || []
+    });
     // Show "Save to Moodle" button.
     showMoodleSaveBtn();
   }
@@ -1677,7 +1721,7 @@ function showMoodleSaveBtn() {
   btn.onclick = function() {
     var config = buildConfig();
     if (window.opener) {
-      window.opener.postMessage({ type: 'ivplayer-save-config', config: config }, '*');
+      window.opener.postMessage({ type: 'ivplayer-save-config', config: config }, moodleOrigin || 'https://academy.hubeducation.com.ar');
       // Visual feedback.
       btn.textContent = 'Guardado!';
       btn.style.background = '#84F4BE';

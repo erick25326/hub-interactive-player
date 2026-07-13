@@ -58,6 +58,9 @@ function getConfig() {
 
 function parseVTT(text) {
   const cues = [];
+  // Normalizar CRLF: con finales de línea Windows, /\n\n+/ no separa bloques
+  // (\r\n\r\n) y el archivo entero terminaba mostrándose como un solo subtítulo.
+  text = text.replace(/\r/g, "");
   const blocks = text.trim().split(/\n\n+/);
   for (const block of blocks) {
     const lines = block.split("\n");
@@ -182,7 +185,13 @@ function HotspotOverlay({ data, onDismiss }) {
             style={{left:`${s.x}%`,top:`${s.y}%`}} onClick={()=>tap(s)}>
             <span className="iv-hotspot-pulse"/><span className="iv-hotspot-label">{s.label}</span>
           </button>
-          {active?.id===s.id&&<div className="iv-hotspot-info" style={{left:`${Math.min(s.x,55)}%`,top:`${s.y+6}%`}}>
+          {/* Con el punto bajo (y>60) el popup va ARRIBA del punto: abajo lo
+              cortaba el overflow:hidden del contenedor, sobre todo en mobile. */}
+          {active?.id===s.id&&<div className="iv-hotspot-info" style={
+            s.y>60
+              ? {left:`${Math.min(s.x,55)}%`,top:`${s.y-6}%`,transform:'translateY(-100%)'}
+              : {left:`${Math.min(s.x,55)}%`,top:`${s.y+6}%`}
+          }>
             <strong>{s.label}</strong><p>{s.info}</p>
           </div>}
         </div>
@@ -337,7 +346,15 @@ export default function InteractiveVideoPlayer() {
       }).catch(()=>{});
     });
     p.on("timeupdate", d=>setCurrent(d.seconds));
-    p.on("play", ()=>setPlaying(true));
+    p.on("play", ()=>{
+      setPlaying(true);
+      // Moodle móvil: el gesto nunca llega al iframe de Vimeo (pointer-events:
+      // none) y el navegador fuerza arranque muteado; el ícono decía "sonido
+      // activo" con audio en silencio. Leer el estado REAL y reflejarlo.
+      Promise.all([p.getVolume(), p.getMuted ? p.getMuted() : Promise.resolve(false)])
+        .then(([v,m])=>{ if(m||v===0) setMuted(true); })
+        .catch(()=>{});
+    });
     p.on("pause", ()=>setPlaying(false));
     p.on("ended", ()=>{
       setPlaying(false);
@@ -352,8 +369,17 @@ export default function InteractiveVideoPlayer() {
     // No cleanup — Vimeo Player does not survive StrictMode destroy/recreate cycle
   },[vimeoData]);
 
+  // Tiempo del tick anterior, para disparar por CRUCE y no solo por proximidad:
+  // los timeupdate de Vimeo llegan ~cada 250ms de reloj, así que a 2× (o con la
+  // pestaña throttleada) el cruce podía caer fuera de la ventana de ±0.8s y la
+  // interacción no disparaba nunca. Un salto grande entre ticks es un seek (lo
+  // cubre el clamp de skip/scrub), no un cruce de reproducción.
+  const prevTimeRef=useRef(0);
   useEffect(()=>{
+    const prev=prevTimeRef.current;
+    prevTimeRef.current=currentTime;
     if(!ready||activeIA) return;
+    const isSeek=Math.abs(currentTime-prev)>2;
     for(const ia of interactions){
       if(ia.type==="label") continue; // Labels don't pause the video.
       if(completed.has(ia.id)||triggered.current.has(ia.id)) continue;
@@ -361,7 +387,7 @@ export default function InteractiveVideoPlayer() {
         if(currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||8)){
           triggered.current.add(ia.id); playerRef.current?.pause(); setActiveIA(ia); break;
         }
-      } else if(Math.abs(currentTime-ia.time)<0.8){
+      } else if(Math.abs(currentTime-ia.time)<0.8||(!isSeek&&prev<ia.time&&currentTime>=ia.time)){
         triggered.current.add(ia.id); playerRef.current?.pause(); setActiveIA(ia); break;
       }
     }
@@ -459,9 +485,12 @@ export default function InteractiveVideoPlayer() {
   useEffect(()=>{
     if(!ready) return;
     scormInit();
+    // pagehide además de beforeunload: en iOS Safari beforeunload muchas veces
+    // no dispara. scormFinish es idempotente (LMSFinish repetido es inocuo).
     const handleUnload=()=>scormFinish();
     window.addEventListener("beforeunload",handleUnload);
-    return()=>window.removeEventListener("beforeunload",handleUnload);
+    window.addEventListener("pagehide",handleUnload);
+    return()=>{window.removeEventListener("beforeunload",handleUnload);window.removeEventListener("pagehide",handleUnload);};
   },[ready]);
 
   // Load progress: prefer server-saved (Moodle, cross-device), fall back to localStorage
@@ -474,6 +503,10 @@ export default function InteractiveVideoPlayer() {
         if(saved) data=JSON.parse(saved);
       }
       if(data){
+        // Postergar el próximo autosave: en este mismo commit corre el efecto
+        // de guardado con el estado TODAVÍA vacío (setCompleted es asíncrono)
+        // y, sin esto, pisaba el progreso del servidor con {completed:[], t:0}.
+        lastSaveRef.current=Date.now();
         if(data.completed){setCompleted(new Set(data.completed));data.completed.forEach(id=>triggered.current.add(id));}
         if(data.currentTime&&playerRef.current) playerRef.current.setCurrentTime(data.currentTime);
       }
@@ -527,17 +560,45 @@ export default function InteractiveVideoPlayer() {
     return()=>clearTimeout(ctrlTimer.current);
   },[playing,activeIA,fakeFS]);
 
-  const togglePlay=()=>{const p=playerRef.current;if(!p||!ready)return;playing?p.pause():p.play();};
-  const skip=(seconds)=>{
+  const togglePlay=()=>{
     const p=playerRef.current;if(!p||!ready)return;
-    let targetTime=Math.max(0,Math.min(duration,currentTime+seconds));
+    if(playing){p.pause();return;}
+    p.play();
+    // Reintentar desmuteo dentro del MISMO gesto del usuario: si el navegador
+    // forzó arranque muteado (iframe anidado en Moodle), este es el único
+    // momento con activación válida para levantar el silencio.
+    if(!muted){
+      if(p.setMuted) p.setMuted(false).catch(()=>{});
+      p.setVolume(volume||1).catch(()=>{});
+    }
+  };
+  const skip=async(seconds)=>{
+    const p=playerRef.current;if(!p||!ready)return;
+    // Leer el tiempo REAL del player, no el del closure: los atajos de teclado
+    // llaman a skip desde un listener cuyo closure puede tener un currentTime
+    // viejo (las flechas saltaban "desde" el tiempo de la última resuscripción).
+    let now=currentTime;
+    try{ now=await p.getCurrentTime(); }catch(e){}
+    let targetTime=Math.max(0,Math.min(duration,now+seconds));
     if(seconds>0){
-      const next=interactions.filter(ia=>!completed.has(ia.id)&&ia.time>currentTime&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
+      // Las "label" no bloquean (nunca entran a completed): no frenan el skip.
+      const next=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&ia.time>now&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
       if(next) targetTime=next.time;
     }
+    setCurrent(targetTime); // optimista, igual que el scrub
     p.setCurrentTime(targetTime);
   };
-  const toggleMute=()=>{const p=playerRef.current;if(!p)return;const m=!muted;p.setVolume(m?0:volume);setMuted(m);};
+  const toggleMute=()=>{
+    const p=playerRef.current;if(!p)return;
+    const m=!muted;
+    // setMuted además de setVolume: en móvil el mute real es el atributo
+    // muted del <video> (el volumen puede ser de solo lectura), y setVolume
+    // solo no siempre lo levanta.
+    if(p.setMuted) p.setMuted(m).catch(()=>{});
+    // Desmutear con el slider en 0 dejaba "sonido activo" pero en silencio.
+    if(!m&&volume===0){ setVolume(0.5); p.setVolume(0.5); setMuted(false); return; }
+    p.setVolume(m?0:volume);setMuted(m);
+  };
   const changeVolume=(v)=>{const p=playerRef.current;if(!p)return;setVolume(v);p.setVolume(v);setMuted(v===0);};
   const progressRef=useRef(null);
   // Scrubbing: while dragging, the bar follows the pointer locally;
@@ -564,8 +625,10 @@ export default function InteractiveVideoPlayer() {
     scrubbingRef.current=false;
     setScrubPct(null);
     let targetTime=pctFromX(e.clientX)*duration;
-    // Forward seeks can't skip past pending interactions.
-    const next=interactions.filter(ia=>!completed.has(ia.id)&&ia.time>currentTime&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
+    // Forward seeks can't skip past pending interactions (labels don't block:
+    // they never enter `completed`, so without the type guard every forward
+    // scrub crossing a label landed on it forever).
+    const next=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&ia.time>currentTime&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
     if(next) targetTime=next.time;
     setCurrent(targetTime); // optimistic — avoids the bar jumping back while Vimeo buffers
     playerRef.current?.setCurrentTime(targetTime);

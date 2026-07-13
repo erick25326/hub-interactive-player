@@ -132,13 +132,29 @@ let interactionIndex = 0;
  */
 export function scormReportInteraction(id, type, studentResponse, correctResponse, result) {
   if (!API) return;
+  // SCORM 1.2: para type "true-false", student_response y el pattern deben ser
+  // UN carácter (t|f|0|1). Mandar "true"/"false" da error 405 en LMS estrictos
+  // (SCORM Cloud lo rechaza; el de Moodle es laxo y por eso "funcionaba").
+  // OJO: esto es solo para SCORM — answer.php espera 'true'/'false' y no cambia.
+  if (type === "true-false") {
+    const tf = (v) => {
+      const s = String(v).toLowerCase();
+      return s === "true" ? "t" : s === "false" ? "f" : s;
+    };
+    studentResponse = tf(studentResponse);
+    correctResponse = tf(correctResponse);
+  }
   const n = interactionIndex++;
   API.LMSSetValue(`cmi.interactions.${n}.id`, id);
   API.LMSSetValue(`cmi.interactions.${n}.type`, type);
   API.LMSSetValue(`cmi.interactions.${n}.student_response`, studentResponse);
   API.LMSSetValue(`cmi.interactions.${n}.correct_responses.0.pattern`, correctResponse);
   API.LMSSetValue(`cmi.interactions.${n}.result`, result);
-  API.LMSSetValue(`cmi.interactions.${n}.time`, new Date().toLocaleTimeString("en-US", { hour12: false }));
+  // Formato manual HH:MM:SS — toLocaleTimeString('en-US',{hour12:false}) puede
+  // producir "24:00:00" a medianoche (CMITime inválido).
+  const d = new Date();
+  const hhmmss = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  API.LMSSetValue(`cmi.interactions.${n}.time`, hhmmss);
   API.LMSCommit("");
 }
 

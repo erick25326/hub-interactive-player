@@ -12,3 +12,16 @@ $string['interactions'] = 'Interacciones (JSON)';
 $string['interactions_help'] = 'Pega la configuracion JSON generada por el configurador visual. Usa el configurador en la URL proporcionada para crear este JSON facilmente.';
 $string['completioninteractions'] = 'El estudiante debe ver el video y completar todas las interacciones';
 $string['completiondetail:interactions'] = 'Ver el video y completar todas las interacciones';
+
+// Privacy API.
+$string['privacy:metadata:ivplayer_progress'] = 'Progreso de visualización por usuario de un video interactivo.';
+$string['privacy:metadata:ivplayer_progress:userid'] = 'El ID del usuario al que pertenece el progreso.';
+$string['privacy:metadata:ivplayer_progress:completed'] = 'Si el usuario completó el video y sus interacciones.';
+$string['privacy:metadata:ivplayer_progress:progress'] = 'Datos serializados de progreso de visualización e interacciones.';
+$string['privacy:metadata:ivplayer_progress:timemodified'] = 'Cuándo se actualizó el progreso por última vez.';
+$string['privacy:metadata:ivplayer_answers'] = 'Última respuesta por usuario para cada interacción calificable.';
+$string['privacy:metadata:ivplayer_answers:userid'] = 'El ID del usuario que respondió.';
+$string['privacy:metadata:ivplayer_answers:interactionid'] = 'La interacción respondida.';
+$string['privacy:metadata:ivplayer_answers:answer'] = 'La respuesta que dio el usuario.';
+$string['privacy:metadata:ivplayer_answers:correct'] = 'Si la respuesta fue correcta.';
+$string['privacy:metadata:ivplayer_answers:timemodified'] = 'Cuándo se actualizó la respuesta por última vez.';

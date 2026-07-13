@@ -134,7 +134,9 @@ class mod_ivplayer_mod_form extends moodleform_mod {
                 var sendInterval = setInterval(function() {
                     if (w && w.closed) { clearInterval(sendInterval); return; }
                     try {
-                        w.postMessage({ type: "ivplayer-load-config", config: config }, "*");
+                        // targetOrigin explícito (no "*"): la config no debe poder
+                        // filtrarse a otro documento que ocupe esa ventana.
+                        w.postMessage({ type: "ivplayer-load-config", config: config }, CONFIGURATOR_ORIGIN);
                     } catch(e) {}
                 }, 500);
 

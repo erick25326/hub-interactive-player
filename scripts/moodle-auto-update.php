@@ -4,7 +4,17 @@
  *
  * Descarga la última release de GitHub y actualiza el plugin automáticamente.
  * Configurar como Cron Job en Hostinger hPanel.
+ *
+ * SEGURIDAD: este script SOLO puede correr por CLI (cron). Si quedara en un
+ * directorio servido por web, sin esta guarda cualquier visitante anónimo
+ * podría dispararlo por HTTP y forzar reemplazos del código del plugin.
+ * Igualmente: mantenerlo FUERA de public_html (ej. /home/<user>/bin/).
  */
+
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('CLI only');
+}
 
 // ======================== CONFIGURACIÓN ========================
 // El repo de GitHub es público y se puede dejar acá.
@@ -179,35 +189,51 @@ $extractDir = $TMP_DIR . '/extract';
 $zip->extractTo($extractDir);
 $zip->close();
 
-// Determinar la carpeta raíz del ZIP (puede ser 'ivplayer/' o similar)
-$extractedContents = scandir($extractDir);
-$sourceDir = $extractDir;
-foreach ($extractedContents as $item) {
-    if ($item !== '.' && $item !== '..' && is_dir($extractDir . '/' . $item)) {
-        $sourceDir = $extractDir . '/' . $item;
-        break;
+// Determinar la carpeta raíz del ZIP: buscar EXPLÍCITAMENTE 'ivplayer/' (o, como
+// fallback, la carpeta que contenga version.php) — nunca "la primera que aparezca",
+// que dependía del orden de scandir y podía instalar cualquier cosa.
+$sourceDir = null;
+if (is_dir($extractDir . '/ivplayer') && file_exists($extractDir . '/ivplayer/version.php')) {
+    $sourceDir = $extractDir . '/ivplayer';
+} elseif (file_exists($extractDir . '/version.php')) {
+    $sourceDir = $extractDir;
+} else {
+    foreach (array_diff(scandir($extractDir), ['.', '..']) as $item) {
+        if (is_dir($extractDir . '/' . $item) && file_exists($extractDir . '/' . $item . '/version.php')) {
+            $sourceDir = $extractDir . '/' . $item;
+            break;
+        }
     }
 }
 
-// Verificar que tiene version.php (es un plugin válido)
-if (!file_exists($sourceDir . '/version.php')) {
+if (null === $sourceDir) {
     logMsg("ERROR: El ZIP no contiene un plugin Moodle válido (falta version.php)");
-    logMsg("Contenido encontrado: " . implode(', ', array_diff(scandir($sourceDir), ['.', '..'])));
-    // Restaurar backup
-    if (is_dir($BACKUP_DIR)) {
-        deleteDir($PLUGIN_DIR);
-        rename($BACKUP_DIR, $PLUGIN_DIR);
-        logMsg("Backup restaurado.");
-    }
+    logMsg("Contenido encontrado: " . implode(', ', array_diff(scandir($extractDir), ['.', '..'])));
     cleanup($TMP_DIR);
     exit(1);
 }
 
-// Eliminar plugin actual y copiar el nuevo
-if (is_dir($PLUGIN_DIR)) {
-    deleteDir($PLUGIN_DIR);
+// Reemplazo ATÓMICO (por swap de renames, no "borrar y copiar"): se copia el plugin
+// nuevo a un staging DENTRO de mod/ (mismo filesystem → rename atómico) y recién
+// cuando está completo se hace el swap. Antes, un timeout a mitad de copyDir dejaba
+// el plugin roto (y Moodle caído para esa actividad) hasta el próximo cron.
+$STAGING_DIR = dirname($PLUGIN_DIR) . '/ivplayer_incoming_' . time();
+copyDir($sourceDir, $STAGING_DIR);
+if (!file_exists($STAGING_DIR . '/version.php')) {
+    logMsg("ERROR: staging incompleto; se aborta sin tocar el plugin actual.");
+    deleteDir($STAGING_DIR);
+    cleanup($TMP_DIR);
+    exit(1);
 }
-copyDir($sourceDir, $PLUGIN_DIR);
+if (is_dir($PLUGIN_DIR)) {
+    // El backup por copyDir ya se hizo arriba; acá solo sale del camino el actual.
+    $old = $PLUGIN_DIR . '_old_' . time();
+    rename($PLUGIN_DIR, $old);
+    rename($STAGING_DIR, $PLUGIN_DIR);
+    deleteDir($old);
+} else {
+    rename($STAGING_DIR, $PLUGIN_DIR);
+}
 
 // 8. Guardar versión instalada
 file_put_contents($PLUGIN_DIR . '/.installed_release', $tagName);

@@ -36,7 +36,12 @@ const injectedScript = `
   }
 
   function injectConfig(html, config) {
-    var tag = '<scr'+'ipt>window.PLAYER_CONFIG=' + JSON.stringify(config) + ';</scr'+'ipt>';
+    // Escapar "<" como secuencia unicode: un texto de interacción que contenga
+    // "</scr"+"ipt>" rompería el HTML generado (mismo hardening que JSON_HEX_TAG
+    // en player.php). Doble-doble escape: esto vive dentro de un template
+    // literal del build, el script emitido debe decir replace(/</g,'\\u003C').
+    var json = JSON.stringify(config).replace(/</g, '\\\\u003C');
+    var tag = '<scr'+'ipt>window.PLAYER_CONFIG=' + json + ';</scr'+'ipt>';
     return html.replace('</head>', tag + '</head>');
   }
 

@@ -71,13 +71,18 @@ echo $OUTPUT->header();
     inset: 0 !important;
     z-index: 99999 !important;
     width: 100vw !important;
+    /* 100vh en móvil incluye la franja detrás de la barra del navegador y
+       dejaba los controles (borde inferior del iframe) tapados; dvh sigue
+       al viewport visible. */
     height: 100vh !important;
+    height: 100dvh !important;
     max-width: none !important;
     border-radius: 0 !important;
     background: #000 !important;
     display: flex;
     align-items: center;
     justify-content: center;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .ivplayer-frame-wrap.ivplayer-css-fs .ivplayer-frame {
     width: 100% !important;
