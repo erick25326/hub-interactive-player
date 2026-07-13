@@ -565,6 +565,17 @@ html, body { margin: 0; padding: 0; background: #000; }
   cursor: pointer;
 }
 
+/* ─── BUFFERING (spinner durante seeks/stalls) ─────────────── */
+.iv-buffering {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+  pointer-events: none;
+}
+
 /* ─── LOADING ──────────────────────────────────────────────── */
 .iv-loading {
   position: absolute;

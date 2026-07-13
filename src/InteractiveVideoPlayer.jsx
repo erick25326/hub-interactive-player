@@ -299,8 +299,10 @@ export default function InteractiveVideoPlayer() {
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [skipFeedback, setSkipFeedback] = useState(null);
   const [videoEnded, setVideoEnded] = useState(false);
+  const [buffering, setBuffering] = useState(false);
   const ctrlTimer = useRef(null);
   const triggered = useRef(new Set());
+  const currentTimeRef = useRef(0); // último tiempo real de Vimeo, sin pasar por React
   const lastTapRef = useRef({ time: 0, x: 0 });
   const singleTapTimer = useRef(null);
   const lastSaveRef = useRef(0);
@@ -345,7 +347,7 @@ export default function InteractiveVideoPlayer() {
         }
       }).catch(()=>{});
     });
-    p.on("timeupdate", d=>setCurrent(d.seconds));
+    p.on("timeupdate", d=>{currentTimeRef.current=d.seconds;setCurrent(d.seconds);});
     p.on("play", ()=>{
       setPlaying(true);
       // Moodle móvil: el gesto nunca llega al iframe de Vimeo (pointer-events:
@@ -356,6 +358,12 @@ export default function InteractiveVideoPlayer() {
         .catch(()=>{});
     });
     p.on("pause", ()=>setPlaying(false));
+    // Con controls:false el spinner propio de Vimeo no existe: un buffering
+    // normal tras un seek se veía como "se congeló el video". Exponer el
+    // estado para mostrar nuestro propio spinner.
+    p.on("bufferstart", ()=>setBuffering(true));
+    p.on("bufferend", ()=>setBuffering(false));
+    p.on("seeked", ()=>setBuffering(false));
     p.on("ended", ()=>{
       setPlaying(false);
       setVideoEnded(true);
@@ -385,10 +393,10 @@ export default function InteractiveVideoPlayer() {
       if(completed.has(ia.id)||triggered.current.has(ia.id)) continue;
       if(ia.type==="hotspot"){
         if(currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||8)){
-          triggered.current.add(ia.id); playerRef.current?.pause(); setActiveIA(ia); break;
+          triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); setActiveIA(ia); break;
         }
       } else if(Math.abs(currentTime-ia.time)<0.8||(!isSeek&&prev<ia.time&&currentTime>=ia.time)){
-        triggered.current.add(ia.id); playerRef.current?.pause(); setActiveIA(ia); break;
+        triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); setActiveIA(ia); break;
       }
     }
   },[currentTime,ready,completed,interactions,activeIA]);
@@ -453,7 +461,13 @@ export default function InteractiveVideoPlayer() {
     if(isFS||fakeFS){
       p.getQualities().then(qs=>{
         if(!Array.isArray(qs)||!qs.length) return;
-        const order=['1080p','720p','540p'];
+        // En táctil (celular) preferir 720p: forzar 1080p vaciaba el buffer en
+        // cada seek y la imagen quedaba congelada con el audio corriendo
+        // (la pista de audio pesa poco y sigue; la de video no llega a
+        // rellenarse en conexiones móviles). 720p en pantalla de teléfono es
+        // visualmente equivalente con la mitad de bitrate.
+        const coarse=window.matchMedia?.('(pointer: coarse)').matches;
+        const order=coarse?['720p','1080p','540p']:['1080p','720p','540p'];
         const best=order.find(q=>qs.some(x=>x.id===q));
         if(best) p.setQuality(best).catch(()=>{});
       }).catch(()=>{});
@@ -562,8 +576,8 @@ export default function InteractiveVideoPlayer() {
 
   const togglePlay=()=>{
     const p=playerRef.current;if(!p||!ready)return;
-    if(playing){p.pause();return;}
-    p.play();
+    if(playing){playIntentRef.current=null;p.pause();return;}
+    safePlay();
     // Reintentar desmuteo dentro del MISMO gesto del usuario: si el navegador
     // forzó arranque muteado (iframe anidado en Moodle), este es el único
     // momento con activación válida para levantar el silencio.
@@ -572,13 +586,52 @@ export default function InteractiveVideoPlayer() {
       p.setVolume(volume||1).catch(()=>{});
     }
   };
-  const skip=async(seconds)=>{
+  // Los comandos del SDK de Vimeo viajan por postMessage y NO se garantizan
+  // entre sí: reproducido en pruebas, un play() cerca de un seek pendiente se
+  // pierde (queda "congelado" en pausa) y un setCurrentTime justo antes de un
+  // play se traga (la barra muestra el destino pero el video sigue donde
+  // estaba). En móvil, con roundtrips más lentos, la ventana es mayor.
+  // Estrategia: serializar seeks + verificar el resultado y reintentar una vez.
+  const seekBusyRef=useRef(false);
+  const seekNextRef=useRef(null);
+  const seekTargetRef=useRef(null); // último destino pedido; null si no hay seek pendiente
+  const seekTo=useCallback((t)=>{
+    const p=playerRef.current;if(!p)return;
+    seekTargetRef.current=t;
+    if(seekBusyRef.current){seekNextRef.current=t;return;}
+    seekBusyRef.current=true;
+    p.setCurrentTime(t).catch(()=>{}).then(()=>p.getCurrentTime().catch(()=>t)).then(actual=>{
+      seekBusyRef.current=false;
+      if(seekNextRef.current!=null){const n=seekNextRef.current;seekNextRef.current=null;seekTo(n);return;}
+      seekTargetRef.current=null;
+      // Verificación: si Vimeo se tragó el seek, re-emitirlo UNA vez.
+      if(Math.abs(actual-t)>1.5) p.setCurrentTime(t).catch(()=>{});
+    });
+  },[]);
+  // Watchdog de play: si el play se pierde (carrera con un seek), verificar el
+  // estado real a los 700ms y reintentar una vez. El intent se invalida al
+  // pausar para no "revivir" un video que el usuario o una interacción pausó.
+  const playIntentRef=useRef(null);
+  const safePlay=useCallback(()=>{
+    const p=playerRef.current;if(!p)return;
+    const intent=Symbol();
+    playIntentRef.current=intent;
+    p.play().catch(()=>{});
+    setTimeout(()=>{
+      if(playIntentRef.current!==intent)return;
+      p.getPaused().then(paused=>{
+        if(paused&&playIntentRef.current===intent) p.play().catch(()=>{});
+      }).catch(()=>{});
+    },700);
+  },[]);
+  const skip=(seconds)=>{
     const p=playerRef.current;if(!p||!ready)return;
-    // Leer el tiempo REAL del player, no el del closure: los atajos de teclado
-    // llaman a skip desde un listener cuyo closure puede tener un currentTime
-    // viejo (las flechas saltaban "desde" el tiempo de la última resuscripción).
-    let now=currentTime;
-    try{ now=await p.getCurrentTime(); }catch(e){}
+    // Base del salto, SIN await (el roundtrip de getCurrentTime hacía que dos
+    // taps rápidos de ±10s calcularan ambos desde el tiempo viejo y colapsaran
+    // en un solo salto): el destino del seek pendiente si lo hay (así dos taps
+    // encadenan ±20s), o el último tiempo real reportado por Vimeo vía ref
+    // (los atajos de teclado capturan un currentTime de closure viejo).
+    const now=seekTargetRef.current!=null?seekTargetRef.current:currentTimeRef.current;
     let targetTime=Math.max(0,Math.min(duration,now+seconds));
     if(seconds>0){
       // Las "label" no bloquean (nunca entran a completed): no frenan el skip.
@@ -586,7 +639,7 @@ export default function InteractiveVideoPlayer() {
       if(next) targetTime=next.time;
     }
     setCurrent(targetTime); // optimista, igual que el scrub
-    p.setCurrentTime(targetTime);
+    seekTo(targetTime);
   };
   const toggleMute=()=>{
     const p=playerRef.current;if(!p)return;
@@ -631,7 +684,7 @@ export default function InteractiveVideoPlayer() {
     const next=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&ia.time>currentTime&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
     if(next) targetTime=next.time;
     setCurrent(targetTime); // optimistic — avoids the bar jumping back while Vimeo buffers
-    playerRef.current?.setCurrentTime(targetTime);
+    seekTo(targetTime);
   };
   const onScrubCancel=()=>{
     scrubbingRef.current=false;
@@ -688,7 +741,7 @@ export default function InteractiveVideoPlayer() {
       const next=new Set([...completed,ia.id]);
       setCompleted(next);
       setActiveIA(null);
-      playerRef.current?.play();
+      safePlay();
       // Report individual interaction to SCORM + Moodle gradebook
       if(result&&(ia.type==="multiple-choice"||ia.type==="true-false")){
         const scormType=ia.type==="multiple-choice"?"choice":"true-false";
@@ -732,6 +785,7 @@ export default function InteractiveVideoPlayer() {
         <div ref={vimeoRef} className="iv-vimeo-wrap"/>
         {ready&&!activeIA&&<div className="iv-click-layer" onClick={handleClickLayer} onTouchStart={resetCtrl} onTouchEnd={handleTouchEnd}/>}
         {skipFeedback&&<div className={`iv-skip-feedback ${skipFeedback}`}>{skipFeedback==='left'?'⟲ 10s':'10s ⟳'}</div>}
+        {ready&&buffering&&!activeIA&&<div className="iv-buffering"><div className="iv-spinner"/></div>}
         {!ready&&<div className="iv-loading"><div className="iv-spinner"/><span>Cargando video...</span></div>}
         {ready&&!playing&&!activeIA&&<button className="iv-big-play" onClick={togglePlay}><PlayIcon/></button>}
 
