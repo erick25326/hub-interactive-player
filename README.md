@@ -63,11 +63,12 @@ window.PLAYER_CONFIG = {
 Hoy `vite-plugin-singlefile` mete JS y CSS adentro de un único `index.html` de
 ~260 KB, y `player.php` lo sirve entero. Como **cada lección es un `cmid`
 distinto**, o sea otra URL, el navegador se baja y re-compila esos 260 KB en
-CADA lección. Ninguna caché de `player.php` puede arreglarlo: lo único que
-cachea es esa URL puntual (para eso ya tiene ETag + `private`, que sí ahorra en
-las recargas de la misma lección — y este player se recarga más de lo que
-parece, porque el arreglo de viewport de iOS remontea el WebView al entrar a
-pantalla completa).
+CADA lección.
+
+Ponerle caché a `player.php` NO lo arregla, y además es peligroso: esa
+respuesta lleva `sesskey` y el progreso del alumno congelados adentro. Se
+intentó con ETag y se revirtió — el porqué está escrito en el propio
+`player.php`, vale la pena leerlo antes de volver a intentarlo.
 
 El arreglo de fondo es servir el bundle estático desde **una sola URL
 compartida y versionada**, que se cachea una vez y vale para todas las

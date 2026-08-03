@@ -51,132 +51,243 @@ export function scormInit() {
    COLA DE ENVÍOS A MOODLE
 
    Antes los tres POST (finalización, progreso y respuestas) eran
-   `fetch(...).catch(()=>{})`: se tragaban el error, no miraban `res.ok` y no
-   reintentaban. Si el POST se caía, ese progreso NO EXISTIÓ NUNCA. El caso real
-   de esta app no es el escritorio con fibra: es un piloto mirando la lección en
-   el campo con dos rayitas. Miraba 18 minutos, se le caían los POST, cerraba, y
-   al volver el player lo plantaba en el minuto del último save que llegó.
+   `fetch(...).catch(()=>{})`: se tragaban el error y no reintentaban. Si el POST
+   se caía, ese progreso NO EXISTIÓ NUNCA. El caso real de esta app no es el
+   escritorio con fibra: es un piloto mirando la lección en el campo con dos
+   rayitas. Miraba 18 minutos, se le caían los POST, cerraba, y al volver el
+   player lo plantaba en el minuto del último save que había llegado.
 
-   Ahora todo pasa por una cola persistida en localStorage que sobrevive al
-   cierre de la app y se vacía sola: al cargar, al volver la conexión y después
-   de cada envío nuevo.
+   Cinco cosas que hay que tener presentes para no romper esto:
 
-   Dos comportamientos distintos según el dato, y la diferencia importa:
-   - PROGRESO: sólo vale el ÚLTIMO. Se guarda UNA entrada que se pisa a sí
-     misma. Así la cola no puede escribir una posición vieja encima de una
-     nueva, y de paso no crece sin límite.
-   - FINALIZACIÓN y RESPUESTAS: cada una es un hecho propio y no se puede
-     perder ninguna (van al libro de calificaciones), así que se acumulan.
+   1. LA FUENTE DE VERDAD ES LA MEMORIA, no localStorage. Si el disco no está
+      disponible (modo privado, cuota llena, DOM storage apagado en el WebView)
+      se pierde la persistencia ENTRE sesiones, pero los reintentos de esta
+      sesión siguen andando. Al revés —tomando el disco como fuente— un disco
+      caído dejaba la cola vacía y el POST no se emitía nunca: peor que el
+      `fetch` suelto que había antes.
+
+   2. EL `sesskey` NO SE GUARDA. Se estampa en el momento del envío, desde
+      `window.MOODLE_CONTEXT`. Uno guardado ayer ya no vale, y era la forma más
+      segura de que la entrega diferida —la razón de ser de esta cola— fallara
+      siempre.
+
+   3. `res.ok` NO ALCANZA. Los tres endpoints contestan `{success:false}` con
+      HTTP 200 (ver progress.php:25, answer.php:30). Hay que mirar el cuerpo, o
+      la cola borra el dato creyendo que lo entregó.
+
+   4. FALLA DE RED ≠ RECHAZO DEL SERVIDOR. Si no hay red, no tiene sentido
+      seguir con el resto: se corta y se reintenta después. Si el servidor
+      contestó y rechazó, ese ítem probablemente esté podrido: se cuenta el
+      intento, se sigue con los demás y se descarta a los 8 intentos. Si no, un
+      solo ítem podrido bloquea la cola entera para siempre.
+
+   5. EL PROGRESO VA POR LECCIÓN. Sólo vale el último de CADA lección, así que
+      es un mapa por `cmid`, no un único casillero. Con un solo casillero, abrir
+      la lección B borraba el progreso pendiente de la A.
+
+   La escalera de reintentos NO se rinde mientras haya algo pendiente: se
+   estanca en 60 s. Un piloto puede estar 40 minutos sin señal.
    ───────────────────────────────────────────────────────────────────────── */
 
 const COLA_KEY = 'iv_cola_moodle_v1';
-const MAX_EVENTOS = 200; // techo de seguridad: si algo va muy mal, no llenamos el disco
+const MAX_EVENTOS = 500;
+const MAX_INTENTOS = 8;
 const ESPERAS_MS = [2_000, 5_000, 15_000, 60_000];
+const TIMEOUT_MS = 15_000;
 
-function leerCola() {
+const COLA_VACIA = { progreso: {}, eventos: [] };
+
+function leerDelDisco() {
   try {
     const c = JSON.parse(localStorage.getItem(COLA_KEY));
-    if (!c || typeof c !== 'object') return { progreso: null, eventos: [] };
-    return { progreso: c.progreso ?? null, eventos: Array.isArray(c.eventos) ? c.eventos : [] };
+    if (!c || typeof c !== 'object') return { ...COLA_VACIA };
+    return {
+      progreso: c.progreso && typeof c.progreso === 'object' ? c.progreso : {},
+      eventos: Array.isArray(c.eventos) ? c.eventos : [],
+    };
   } catch {
-    return { progreso: null, eventos: [] };
+    return { ...COLA_VACIA };
   }
 }
 
-function escribirCola(c) {
+/** Fuente de verdad. El disco es sólo su espejo. */
+let cola = typeof window !== 'undefined' ? leerDelDisco() : { ...COLA_VACIA };
+
+function persistir() {
   try {
-    localStorage.setItem(COLA_KEY, JSON.stringify(c));
+    localStorage.setItem(COLA_KEY, JSON.stringify(cola));
   } catch {
-    // Sin localStorage (modo privado, cuota llena) se sigue andando: se pierde
-    // la garantía entre sesiones, pero los reintentos en memoria siguen vivos.
+    // Sin disco se sigue andando: se pierde la persistencia entre sesiones,
+    // no los reintentos de ésta.
   }
 }
 
+class FallaDeRed extends Error {}
+
+/**
+ * Manda un envío. Devuelve true si el servidor lo aceptó, false si lo rechazó
+ * explícitamente. Lanza `FallaDeRed` si no se pudo hablar con el servidor.
+ */
 async function postear({ url, campos }) {
+  const ctx = typeof window !== 'undefined' ? window.MOODLE_CONTEXT : null;
   const data = new FormData();
   for (const [k, v] of Object.entries(campos)) data.append(k, v);
-  const res = await fetch(url, { method: 'POST', body: data });
-  // `res.ok` es la mitad que faltaba: un 403 por sesión vencida devolvía una
-  // promesa RESUELTA, así que el `.catch` no se enteraba y el dato se perdía
-  // igual que si no hubiera red.
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return true;
+  // El sesskey se estampa AHORA, nunca se guarda: ver punto 2 de arriba.
+  if (ctx && ctx.sesskey) data.append('sesskey', ctx.sesskey);
+
+  // AbortController a mano y no `AbortSignal.timeout`, que no existe en los
+  // WebView de Android viejos donde justamente corre esto.
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url, { method: 'POST', body: data, signal: ac.signal });
+  } catch {
+    throw new FallaDeRed('sin respuesta');
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) throw new FallaDeRed(`HTTP ${res.status}`);
+
+  // Un 200 con HTML (por ejemplo la página de error de sesión de Moodle) no es
+  // una entrega: se trata como falla de red para que se reintente.
+  let cuerpo;
+  try {
+    cuerpo = await res.json();
+  } catch {
+    throw new FallaDeRed('respuesta ilegible');
+  }
+  return !!(cuerpo && cuerpo.success === true);
 }
 
 let vaciando = false;
+let timerReintento = null;
 
-/** Intenta vaciar la cola. Nunca lanza; si algo falla, queda para la próxima. */
+function programar(ms, intento) {
+  clearTimeout(timerReintento);
+  timerReintento = setTimeout(() => {
+    timerReintento = null;
+    vaciando = false;
+    vaciarCola(intento);
+  }, ms);
+}
+
+function hayPendientes() {
+  return Object.keys(cola.progreso).length > 0 || cola.eventos.length > 0;
+}
+
+/** Intenta vaciar la cola. Nunca lanza. */
 async function vaciarCola(intento = 0) {
   if (vaciando) return;
   vaciando = true;
-  // Si se programa un reintento, el candado NO se suelta acá: lo suelta el
-  // timer. Si no, `finally` lo suelta siempre, incluso ante una excepción.
+  // Si se programa un reintento, el candado lo suelta el timer; si no, el
+  // `finally`, incluso ante una excepción inesperada.
   let reprogramado = false;
   try {
-    const cola = leerCola();
-    if (!cola.progreso && !cola.eventos.length) return;
+    if (!hayPendientes()) return;
+    let sinRed = false;
+    // Foto de lo que había AL EMPEZAR. Sirve para distinguir, al terminar, lo
+    // que entró nuevo durante el vaciado de lo que quedó porque el servidor lo
+    // rechazó. Sin esta distinción, un ítem rechazado dispara un re-vaciado
+    // inmediato, que lo vuelve a rechazar, y se queman los 8 intentos en
+    // milisegundos en vez de espaciarlos.
+    const alEmpezar = new Set([
+      ...Object.keys(cola.progreso).map((k) => 'p:' + k),
+      ...cola.eventos.map((e) => 'e:' + e.id),
+    ]);
 
-    let huboFalla = false;
-
-    if (cola.progreso) {
+    for (const cmid of Object.keys(cola.progreso)) {
+      const envio = cola.progreso[cmid];
+      if (!envio) continue;
       try {
-        await postear(cola.progreso);
-        // Releer antes de borrar: mientras viajaba el POST, el player pudo
-        // haber guardado una posición más nueva y no queremos tirarla.
-        const ahora = leerCola();
-        if (ahora.progreso && ahora.progreso.guardadoEn === cola.progreso.guardadoEn) {
-          ahora.progreso = null;
-          escribirCola(ahora);
+        const aceptado = await postear(envio);
+        // Releer antes de borrar: mientras viajaba el POST, el alumno pudo
+        // haber avanzado y no queremos tirar la posición más nueva.
+        const actual = cola.progreso[cmid];
+        if (actual && actual.guardadoEn === envio.guardadoEn) {
+          if (aceptado || (envio.intentos ?? 0) + 1 >= MAX_INTENTOS) {
+            delete cola.progreso[cmid];
+          } else {
+            envio.intentos = (envio.intentos ?? 0) + 1;
+          }
+          persistir();
         }
-      } catch {
-        huboFalla = true;
+      } catch (e) {
+        if (e instanceof FallaDeRed) { sinRed = true; break; }
       }
     }
 
-    for (const ev of [...cola.eventos]) {
-      try {
-        await postear(ev);
-        const ahora = leerCola();
-        ahora.eventos = ahora.eventos.filter((e) => e.id !== ev.id);
-        escribirCola(ahora);
-      } catch {
-        huboFalla = true;
-        break; // sin red, no tiene sentido seguir intentando el resto
+    if (!sinRed) {
+      for (const ev of [...cola.eventos]) {
+        try {
+          const aceptado = await postear(ev);
+          if (aceptado || (ev.intentos ?? 0) + 1 >= MAX_INTENTOS) {
+            cola.eventos = cola.eventos.filter((e) => e.id !== ev.id);
+          } else {
+            ev.intentos = (ev.intentos ?? 0) + 1;
+          }
+          persistir();
+        } catch (e) {
+          if (e instanceof FallaDeRed) { sinRed = true; break; }
+        }
       }
     }
 
-    if (huboFalla && intento < ESPERAS_MS.length) {
+    const hayNuevos =
+      Object.keys(cola.progreso).some((k) => !alEmpezar.has('p:' + k)) ||
+      cola.eventos.some((e) => !alEmpezar.has('e:' + e.id));
+
+    if (sinRed) {
+      // No se rinde: la escalera se estanca en el último escalón.
       reprogramado = true;
-      setTimeout(() => {
-        vaciando = false;
-        vaciarCola(intento + 1);
-      }, ESPERAS_MS[intento]);
+      programar(ESPERAS_MS[Math.min(intento, ESPERAS_MS.length - 1)], intento + 1);
+    } else if (hayNuevos) {
+      // Entró algo NUEVO mientras vaciábamos (el alumno terminó el video
+      // mientras viajaba la respuesta anterior). Sin esto quedaba huérfano: no
+      // estaba en la foto del bucle y nadie lo reprogramaba.
+      reprogramado = true;
+      programar(0, 0);
+    } else if (hayPendientes()) {
+      // Sólo quedan ítems que el servidor RECHAZÓ. Se reintentan espaciados,
+      // nunca en bucle cerrado.
+      reprogramado = true;
+      programar(ESPERAS_MS[Math.min(intento, ESPERAS_MS.length - 1)], intento + 1);
     }
   } finally {
     if (!reprogramado) vaciando = false;
   }
 }
 
-function encolarProgreso(envio) {
-  const cola = leerCola();
-  cola.progreso = envio;
-  escribirCola(cola);
-  vaciarCola();
+function despachar() {
+  // Si ya hay un reintento en camino, dejarlo: reprogramar en cada guardado
+  // (uno cada 5 s) reiniciaría la escalera y martillaría la red.
+  if (timerReintento === null) vaciarCola(0);
+}
+
+function encolarProgreso(cmid, envio) {
+  cola.progreso[String(cmid)] = envio;
+  persistir();
+  despachar();
 }
 
 function encolarEvento(envio) {
-  const cola = leerCola();
   cola.eventos = [...cola.eventos, envio].slice(-MAX_EVENTOS);
-  escribirCola(cola);
-  vaciarCola();
+  persistir();
+  despachar();
 }
 
 if (typeof window !== 'undefined') {
-  // Al volver la conexión, mandar lo pendiente sin esperar a que el alumno haga
-  // nada. Es EL momento en que esto vale: bajó del campo, agarró señal.
-  window.addEventListener('online', () => vaciarCola());
+  // Al volver la conexión, mandar lo pendiente YA: es EL momento en que esto
+  // vale (bajó del campo, agarró señal). Se cancela el reintento en curso y se
+  // reinicia la escalera, porque la espera larga ya no tiene sentido.
+  window.addEventListener('online', () => {
+    clearTimeout(timerReintento);
+    timerReintento = null;
+    vaciando = false;
+    vaciarCola(0);
+  });
   // Y al arrancar, por lo que haya quedado de la sesión anterior.
-  setTimeout(() => vaciarCola(), 1_500);
+  setTimeout(() => despachar(), 1_500);
 }
 
 export function scormSetComplete() {
@@ -186,7 +297,7 @@ export function scormSetComplete() {
     encolarEvento({
       id: `fin-${ctx.cmid}-${Date.now()}`,
       url: ctx.completeUrl,
-      campos: { cmid: ctx.cmid, sesskey: ctx.sesskey },
+      campos: { cmid: ctx.cmid },
     });
   }
   // SCORM completion.
@@ -203,16 +314,19 @@ export function scormSetComplete() {
 export function moodleSaveProgress(progress, useBeacon = false) {
   const ctx = window.MOODLE_CONTEXT;
   if (!ctx || !ctx.progressUrl) return;
-  const campos = { cmid: ctx.cmid, sesskey: ctx.sesskey, data: JSON.stringify(progress) };
+  const campos = { cmid: ctx.cmid, data: JSON.stringify(progress) };
+
+  // Se encola SIEMPRE, también en el camino del beacon: `sendBeacon` devolviendo
+  // true sólo dice que el navegador lo aceptó para mandarlo, no que haya
+  // llegado. Si llegó, el reenvío escribe el mismo valor y no molesta a nadie.
+  encolarProgreso(ctx.cmid, { url: ctx.progressUrl, campos, guardadoEn: Date.now() });
 
   if (useBeacon && navigator.sendBeacon) {
     const data = new FormData();
     for (const [k, v] of Object.entries(campos)) data.append(k, v);
-    // sendBeacon devuelve false si el navegador NI SIQUIERA pudo encolarlo
-    // (típico: excede la cuota). En ese caso cae a la cola nuestra.
-    if (navigator.sendBeacon(ctx.progressUrl, data)) return;
+    if (ctx.sesskey) data.append('sesskey', ctx.sesskey);
+    navigator.sendBeacon(ctx.progressUrl, data);
   }
-  encolarProgreso({ url: ctx.progressUrl, campos, guardadoEn: Date.now() });
 }
 
 /**
@@ -225,12 +339,7 @@ export function moodleReportAnswer(interactionId, answer) {
   encolarEvento({
     id: `resp-${ctx.cmid}-${interactionId}-${Date.now()}`,
     url: ctx.answerUrl,
-    campos: {
-      cmid: ctx.cmid,
-      sesskey: ctx.sesskey,
-      interactionid: interactionId,
-      answer: String(answer),
-    },
+    campos: { cmid: ctx.cmid, interactionid: interactionId, answer: String(answer) },
   });
 }
 

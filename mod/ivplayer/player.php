@@ -58,41 +58,29 @@ $playerhtml = str_replace('</head>', $configscript . "\n</head>", $playerhtml);
 
 // Output raw HTML — no Moodle wrapper.
 //
-// CACHÉ. El HTML pesa ~259 KB (243 de JS embebido) y hasta acá se servía con
-// `no-store`: Moodle arranca la sesión con `session.cache_limiter = nocache` y
-// como este archivo nunca llama a `$OUTPUT->header()`, esos headers quedaban.
-// Resultado: cada recarga se bajaba y re-compilaba los 259 KB enteros. Y este
-// player se recarga más de lo que parece — el arreglo de viewport de iOS
-// remontea el WebView al entrar a pantalla completa.
+// SOBRE LA CACHÉ, PORQUE YA SE INTENTÓ Y SE VOLVIÓ ATRÁS (3-ago-2026).
 //
-// 🔴 Lo que NO se puede hacer: `public`. Esta respuesta es POR USUARIO (lleva
-// `sesskey` y el progreso guardado), así que una caché compartida —un proxy, la
-// CDN— se la serviría a otro alumno. De ahí `private`.
+// El HTML pesa ~259 KB y hoy NO se cachea: Moodle arranca la sesión con
+// `session.cache_limiter = nocache` y, como este archivo nunca llama a
+// `$OUTPUT->header()`, esos headers quedan. Es tentador ponerle un ETag con
+// `private, must-revalidate` para ahorrarse el cuerpo en las recargas. Se probó
+// y se revirtió, por dos razones:
 //
-// Con `must-revalidate` + ETag el navegador igual pregunta, pero ante un 304 no
-// re-descarga el cuerpo. El ETag sale del HTML final, así que incluye la config
-// y el progreso: si el alumno avanzó, cambia y se sirve completo, que es lo
-// correcto.
+// 1. NO SIRVE. El ETag tendría que salir del HTML final, que incluye el
+//    progreso del alumno — y ése cambia cada 5 segundos de reproducción. O sea
+//    que el 304 casi nunca dispara, y menos que nunca en el caso que lo
+//    justificaba (el remonte del WebView por el arreglo de viewport de iOS).
+// 2. ES PELIGROSO. Al pasar de `no-store` a almacenable, este documento —que
+//    lleva `savedProgress` y `sesskey` CONGELADOS adentro— puede quedar
+//    guardado y reusarse sin revalidar en navegación de historial. El player
+//    prefiere ese `savedProgress` viejo por sobre lo que tiene en localStorage
+//    y después lo escribe en el servidor, que no compara timestamps: el video
+//    "retrocede solo". Ese camino, con `no-store`, es imposible.
 //
-// ⚠ LÍMITE CONOCIDO: esto NO ahorra nada ENTRE lecciones distintas, porque cada
-// una es un `cmid` distinto y por lo tanto otra URL. Para eso hay que partir el
-// bundle estático a una URL compartida y versionada (ver "Partir el bundle" en
-// el README) — es un cambio de build, no de este archivo.
-$etag = '"' . md5($playerhtml) . '"';
-
-// Moodle ya mandó los headers anti-caché de la sesión; hay que pisarlos.
-header_remove('Pragma');
-header_remove('Expires');
-header('Cache-Control: private, max-age=0, must-revalidate');
-header('ETag: ' . $etag);
-
-$enviado = isset($_SERVER['HTTP_IF_NONE_MATCH']) ? trim($_SERVER['HTTP_IF_NONE_MATCH']) : '';
-// Algunos proxies anexan '-gzip' al ETag; comparar sin ese sufijo.
-if ($enviado !== '' && (str_replace('-gzip', '', $enviado) === $etag)) {
-    header('Content-Type: text/html; charset=utf-8');
-    http_response_code(304);
-    exit;
-}
-
+// El ahorro de verdad no está acá: cada lección es un `cmid` distinto, o sea
+// otra URL, así que NINGUNA caché de este archivo ahorra bytes entre lecciones.
+// Eso se arregla partiendo el bundle estático a una URL compartida y versionada
+// (ver "Pendiente: partir el bundle" en el README). Ahí sí corresponde `public`,
+// porque ese bundle es igual para todos y no lleva sesskey ni progreso.
 header('Content-Type: text/html; charset=utf-8');
 echo $playerhtml;
