@@ -58,6 +58,44 @@ window.PLAYER_CONFIG = {
 2. Subir `dist/index.html` como recurso "Archivo" en Moodle
 3. O embeber como iframe en una actividad "Página"
 
+## Pendiente: partir el bundle
+
+Hoy `vite-plugin-singlefile` mete JS y CSS adentro de un único `index.html` de
+~260 KB, y `player.php` lo sirve entero. Como **cada lección es un `cmid`
+distinto**, o sea otra URL, el navegador se baja y re-compila esos 260 KB en
+CADA lección. Ninguna caché de `player.php` puede arreglarlo: lo único que
+cachea es esa URL puntual (para eso ya tiene ETag + `private`, que sí ahorra en
+las recargas de la misma lección — y este player se recarga más de lo que
+parece, porque el arreglo de viewport de iOS remontea el WebView al entrar a
+pantalla completa).
+
+El arreglo de fondo es servir el bundle estático desde **una sola URL
+compartida y versionada**, que se cachea una vez y vale para todas las
+lecciones:
+
+1. Que el build emita también `player.js` y `player.css` sueltos (Vite ya lo
+   hace; hoy singlefile los vuelve a meter adentro).
+2. Que `player.php` devuelva un HTML chico: la config inyectada +
+   `<script src="static.php?v=<plugin->version>">`. Con la versión en la query,
+   publicar una versión nueva invalida la caché sola.
+3. Que ese `static.php` mande `Cache-Control: public, max-age=31536000,
+   immutable` — ahí sí `public`, porque el bundle es igual para todos y **no
+   lleva `sesskey` ni progreso**. Esa distinción es la que importa: lo que hoy
+   NO se puede cachear públicamente es la respuesta de `player.php`, que sí es
+   por usuario.
+
+Impacto estimado: un alumno que cursa 6 lecciones baja 260 KB una vez en lugar
+de seis. En datos móviles, en el campo, es la diferencia entre esperar y no.
+
+## Fuentes por `@import` (menor)
+
+`src/styles.css:1` trae Work Sans y Changa de Google Fonts con `@import`, que
+queda literal dentro del `<style>` del HTML único. Es lo peor de los dos mundos:
+el preload scanner no lo ve (se descubre recién al parsear el CSS) y encadena
+dos round-trips antes del primer pintado. El arreglo es subsetear a latín,
+convertir a woff2 y embeberlas como `@font-face` con `data:` — suma peso al
+bundle pero saca dos viajes de red del camino crítico. Requiere `fontTools`.
+
 ## Licencia
 
 Uso interno Hub Education.

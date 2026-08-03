@@ -47,14 +47,147 @@ export function scormInit() {
   return false;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   COLA DE ENVÍOS A MOODLE
+
+   Antes los tres POST (finalización, progreso y respuestas) eran
+   `fetch(...).catch(()=>{})`: se tragaban el error, no miraban `res.ok` y no
+   reintentaban. Si el POST se caía, ese progreso NO EXISTIÓ NUNCA. El caso real
+   de esta app no es el escritorio con fibra: es un piloto mirando la lección en
+   el campo con dos rayitas. Miraba 18 minutos, se le caían los POST, cerraba, y
+   al volver el player lo plantaba en el minuto del último save que llegó.
+
+   Ahora todo pasa por una cola persistida en localStorage que sobrevive al
+   cierre de la app y se vacía sola: al cargar, al volver la conexión y después
+   de cada envío nuevo.
+
+   Dos comportamientos distintos según el dato, y la diferencia importa:
+   - PROGRESO: sólo vale el ÚLTIMO. Se guarda UNA entrada que se pisa a sí
+     misma. Así la cola no puede escribir una posición vieja encima de una
+     nueva, y de paso no crece sin límite.
+   - FINALIZACIÓN y RESPUESTAS: cada una es un hecho propio y no se puede
+     perder ninguna (van al libro de calificaciones), así que se acumulan.
+   ───────────────────────────────────────────────────────────────────────── */
+
+const COLA_KEY = 'iv_cola_moodle_v1';
+const MAX_EVENTOS = 200; // techo de seguridad: si algo va muy mal, no llenamos el disco
+const ESPERAS_MS = [2_000, 5_000, 15_000, 60_000];
+
+function leerCola() {
+  try {
+    const c = JSON.parse(localStorage.getItem(COLA_KEY));
+    if (!c || typeof c !== 'object') return { progreso: null, eventos: [] };
+    return { progreso: c.progreso ?? null, eventos: Array.isArray(c.eventos) ? c.eventos : [] };
+  } catch {
+    return { progreso: null, eventos: [] };
+  }
+}
+
+function escribirCola(c) {
+  try {
+    localStorage.setItem(COLA_KEY, JSON.stringify(c));
+  } catch {
+    // Sin localStorage (modo privado, cuota llena) se sigue andando: se pierde
+    // la garantía entre sesiones, pero los reintentos en memoria siguen vivos.
+  }
+}
+
+async function postear({ url, campos }) {
+  const data = new FormData();
+  for (const [k, v] of Object.entries(campos)) data.append(k, v);
+  const res = await fetch(url, { method: 'POST', body: data });
+  // `res.ok` es la mitad que faltaba: un 403 por sesión vencida devolvía una
+  // promesa RESUELTA, así que el `.catch` no se enteraba y el dato se perdía
+  // igual que si no hubiera red.
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return true;
+}
+
+let vaciando = false;
+
+/** Intenta vaciar la cola. Nunca lanza; si algo falla, queda para la próxima. */
+async function vaciarCola(intento = 0) {
+  if (vaciando) return;
+  vaciando = true;
+  // Si se programa un reintento, el candado NO se suelta acá: lo suelta el
+  // timer. Si no, `finally` lo suelta siempre, incluso ante una excepción.
+  let reprogramado = false;
+  try {
+    const cola = leerCola();
+    if (!cola.progreso && !cola.eventos.length) return;
+
+    let huboFalla = false;
+
+    if (cola.progreso) {
+      try {
+        await postear(cola.progreso);
+        // Releer antes de borrar: mientras viajaba el POST, el player pudo
+        // haber guardado una posición más nueva y no queremos tirarla.
+        const ahora = leerCola();
+        if (ahora.progreso && ahora.progreso.guardadoEn === cola.progreso.guardadoEn) {
+          ahora.progreso = null;
+          escribirCola(ahora);
+        }
+      } catch {
+        huboFalla = true;
+      }
+    }
+
+    for (const ev of [...cola.eventos]) {
+      try {
+        await postear(ev);
+        const ahora = leerCola();
+        ahora.eventos = ahora.eventos.filter((e) => e.id !== ev.id);
+        escribirCola(ahora);
+      } catch {
+        huboFalla = true;
+        break; // sin red, no tiene sentido seguir intentando el resto
+      }
+    }
+
+    if (huboFalla && intento < ESPERAS_MS.length) {
+      reprogramado = true;
+      setTimeout(() => {
+        vaciando = false;
+        vaciarCola(intento + 1);
+      }, ESPERAS_MS[intento]);
+    }
+  } finally {
+    if (!reprogramado) vaciando = false;
+  }
+}
+
+function encolarProgreso(envio) {
+  const cola = leerCola();
+  cola.progreso = envio;
+  escribirCola(cola);
+  vaciarCola();
+}
+
+function encolarEvento(envio) {
+  const cola = leerCola();
+  cola.eventos = [...cola.eventos, envio].slice(-MAX_EVENTOS);
+  escribirCola(cola);
+  vaciarCola();
+}
+
+if (typeof window !== 'undefined') {
+  // Al volver la conexión, mandar lo pendiente sin esperar a que el alumno haga
+  // nada. Es EL momento en que esto vale: bajó del campo, agarró señal.
+  window.addEventListener('online', () => vaciarCola());
+  // Y al arrancar, por lo que haya quedado de la sesión anterior.
+  setTimeout(() => vaciarCola(), 1_500);
+}
+
 export function scormSetComplete() {
   // Moodle native completion (plugin mode).
-  if (window.MOODLE_CONTEXT) {
-    const data = new FormData();
-    data.append('cmid', window.MOODLE_CONTEXT.cmid);
-    data.append('sesskey', window.MOODLE_CONTEXT.sesskey);
-    fetch(window.MOODLE_CONTEXT.completeUrl, { method: 'POST', body: data })
-      .catch(() => {});
+  const ctx = window.MOODLE_CONTEXT;
+  if (ctx && ctx.completeUrl) {
+    encolarEvento({
+      id: `fin-${ctx.cmid}-${Date.now()}`,
+      url: ctx.completeUrl,
+      campos: { cmid: ctx.cmid, sesskey: ctx.sesskey },
+    });
   }
   // SCORM completion.
   if (!API) return;
@@ -70,15 +203,16 @@ export function scormSetComplete() {
 export function moodleSaveProgress(progress, useBeacon = false) {
   const ctx = window.MOODLE_CONTEXT;
   if (!ctx || !ctx.progressUrl) return;
-  const data = new FormData();
-  data.append('cmid', ctx.cmid);
-  data.append('sesskey', ctx.sesskey);
-  data.append('data', JSON.stringify(progress));
+  const campos = { cmid: ctx.cmid, sesskey: ctx.sesskey, data: JSON.stringify(progress) };
+
   if (useBeacon && navigator.sendBeacon) {
-    navigator.sendBeacon(ctx.progressUrl, data);
-  } else {
-    fetch(ctx.progressUrl, { method: 'POST', body: data }).catch(() => {});
+    const data = new FormData();
+    for (const [k, v] of Object.entries(campos)) data.append(k, v);
+    // sendBeacon devuelve false si el navegador NI SIQUIERA pudo encolarlo
+    // (típico: excede la cuota). En ese caso cae a la cola nuestra.
+    if (navigator.sendBeacon(ctx.progressUrl, data)) return;
   }
+  encolarProgreso({ url: ctx.progressUrl, campos, guardadoEn: Date.now() });
 }
 
 /**
@@ -88,12 +222,16 @@ export function moodleSaveProgress(progress, useBeacon = false) {
 export function moodleReportAnswer(interactionId, answer) {
   const ctx = window.MOODLE_CONTEXT;
   if (!ctx || !ctx.answerUrl) return;
-  const data = new FormData();
-  data.append('cmid', ctx.cmid);
-  data.append('sesskey', ctx.sesskey);
-  data.append('interactionid', interactionId);
-  data.append('answer', String(answer));
-  fetch(ctx.answerUrl, { method: 'POST', body: data }).catch(() => {});
+  encolarEvento({
+    id: `resp-${ctx.cmid}-${interactionId}-${Date.now()}`,
+    url: ctx.answerUrl,
+    campos: {
+      cmid: ctx.cmid,
+      sesskey: ctx.sesskey,
+      interactionid: interactionId,
+      answer: String(answer),
+    },
+  });
 }
 
 /**
