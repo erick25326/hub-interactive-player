@@ -218,7 +218,10 @@ html, body { margin: 0; padding: 0; background: #000; }
   justify-content: center;
   padding: 16px;
   z-index: 10;
-  backdrop-filter: blur(4px);
+  /* Sin backdrop-filter a propósito: con el fondo al 88% el desenfoque es
+     imperceptible, pero obliga al compositor a rasterizar el área del video en
+     cada cuadro de la animación de entrada. Se veía como un tirón al aparecer
+     la pregunta. */
   overflow-y: auto;
   animation: ivFadeIn 0.3s ease;
 }
@@ -769,8 +772,12 @@ html, body { margin: 0; padding: 0; background: #000; }
   letter-spacing: 0.2px;
   position: relative;
   min-height: var(--iv-label-dot);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  /* Sin backdrop-filter a propósito: el fondo ya está al 92%, así que no se
+     notaba, y ésta es la peor ubicación posible para el efecto — la etiqueta se
+     dibuja ENCIMA del video mientras reproduce, y eso saca al video del plano
+     de overlay del compositor y lo obliga a componer por GPU cuadro a cuadro.
+     En un Android de gama baja son frames caídos justo en los tramos con
+     etiquetas. */
 }
 .iv-label-btn::before {
   /* Blue circle (sized 2× font-size, protrudes left) */

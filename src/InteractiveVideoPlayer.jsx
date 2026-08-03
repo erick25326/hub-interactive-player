@@ -713,7 +713,24 @@ export default function InteractiveVideoPlayer() {
     const touch=e.changedTouches?.[0];
     if(!touch) return;
     const x=touch.clientX;
-    const isLeft=(x-rect.left)<rect.width/2;
+    const rel=(x-rect.left)/rect.width;
+    // El 40% del medio NO participa del doble tap: ahí un toque es play/pausa y
+    // se ejecuta al instante. Antes todo toque esperaba 300 ms por si venía un
+    // segundo, así que el 100% de los alumnos pagaba ese retardo para habilitar
+    // un gesto que casi nadie usa: tocaban para pausar y el video seguía tres
+    // décimas. Eso es lo que se describe como "el reproductor va lento".
+    // Por qué zonas y no "actuar y deshacer": deshacer encadenaría un play()
+    // pegado a un seek(), que es JUSTO la carrera que arregló la v1.2.3 (los
+    // comandos del SDK de Vimeo viajan por postMessage y se pisan). Separando
+    // las zonas no se crea ningún par nuevo de comandos.
+    // Los bordes conservan el doble tap para saltar ±10 s, igual que YouTube.
+    if(rel>0.3&&rel<0.7){
+      clearTimeout(singleTapTimer.current);
+      lastTapRef.current={time:0,x};
+      togglePlay();
+      return;
+    }
+    const isLeft=rel<0.5;
     if(now-lastTapRef.current.time<300){
       // Double tap — skip ±10s, cancel pending play/pause, keep playing
       e.preventDefault();
