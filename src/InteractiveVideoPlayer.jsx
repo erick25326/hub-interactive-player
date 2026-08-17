@@ -10,6 +10,14 @@ const DEFAULT_CONFIG = {
   loop: false,              // true = repetir video al terminar
   subtitlesUrl: null,
   subtitlesCues: [],
+  // Los subtitulos arrancan APAGADOS. El boton sigue estando: el alumno que los
+  // quiera los prende y ahi se quedan mientras dure el video.
+  // Antes arrancaban prendidos y ademas el reproductor le pedia a Vimeo que
+  // activara la pista apenas cargaba, asi que aparecian solos en cada video aunque
+  // nadie los hubiera pedido. Un video de catedra con el texto encima tapa
+  // justamente lo que se esta mostrando -- un mapa, una pantalla de DJI Pilot.
+  // Se puede prender por video con `subtitlesOn: true` en el PLAYER_CONFIG.
+  subtitlesOn: false,
   interactions: [
     {
       id: "note-1", type: "note", time: 3,
@@ -276,7 +284,7 @@ function SubtitleDisplay({ cues, currentTime, visible }) {
 // Main player
 export default function InteractiveVideoPlayer() {
   const config = getConfig();
-  const { title, vimeoId, vimeoHash, subtitlesUrl, subtitlesCues, interactions } = config;
+  const { title, vimeoId, vimeoHash, subtitlesUrl, subtitlesCues, subtitlesOn, interactions } = config;
   const containerRef = useRef(null);
   const vimeoRef = useRef(null);
   const playerRef = useRef(null);
@@ -292,7 +300,7 @@ export default function InteractiveVideoPlayer() {
   const [activeIA, setActiveIA] = useState(null);
   const [completed, setCompleted] = useState(new Set());
   const [showCtrl, setShowCtrl] = useState(true);
-  const [subsOn, setSubsOn] = useState(true);
+  const [subsOn, setSubsOn] = useState(!!subtitlesOn);
   const [cues, setCues] = useState(subtitlesCues || []);
   const [hasVimeoSubs, setHasVimeoSubs] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -338,12 +346,19 @@ export default function InteractiveVideoPlayer() {
     p.ready().then(()=>{
       setReady(true);
       p.getDuration().then(setDuration);
+      // Se AVERIGUA si el video trae pista de subtitulos, pero no se activa sola.
+      // `hasVimeoSubs` decide quien los dibuja -- Vimeo o nuestro SubtitleDisplay --,
+      // asi que hay que saberlo igual aunque arranquen apagados. La pista se activa
+      // recien cuando el alumno toca el boton (ver toggleSubs), o de entrada solo si
+      // el video se configuro con subtitlesOn.
       p.getTextTracks().then(tracks=>{
         if(tracks&&tracks.length>0){
-          const esTrack=tracks.find(t=>t.language==='es');
-          const track=esTrack||tracks[0];
-          p.enableTextTrack(track.language,track.kind).catch(()=>{});
           setHasVimeoSubs(true);
+          if(subtitlesOn){
+            const esTrack=tracks.find(t=>t.language==='es');
+            const track=esTrack||tracks[0];
+            p.enableTextTrack(track.language,track.kind).catch(()=>{});
+          }
         }
       }).catch(()=>{});
     });
