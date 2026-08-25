@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, Fragment } from "react";
 import Player from "@vimeo/player";
 import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
 
@@ -21,7 +21,21 @@ const DEFAULT_CONFIG = {
   interactions: [
     {
       id: "note-1", type: "note", time: 3,
-      data: { title: "📍 Dato importante", text: "En esta sección vamos a ver cómo el dron ajusta su altitud automáticamente usando sensores barométricos y GPS." },
+      // El texto de las notas, etiquetas y explicaciones acepta un subconjunto
+      // de markdown: **negrita**, _cursiva_, y una linea en blanco para separar
+      // parrafos. Ver el componente RichText mas abajo.
+      data: {
+        title: "📍 Dato importante",
+        text: "En esta sección vamos a ver cómo el dron ajusta su altitud **automáticamente**, usando dos sensores distintos.\n\nEl _barométrico_ mide presión y da la altura relativa al punto de despegue. El _GPS_ da la posición, y con ella la altura sobre el nivel del mar.\nNo son lo mismo, y es la confusión más común.",
+      },
+    },
+    {
+      id: "label-1", type: "label", time: 5, duration: 8,
+      data: {
+        text: "Barómetro",
+        definition: "Sensor que mide la **presión del aire** para estimar la altura.\n\nOjo con una cosa: da la altura _relativa_ al punto de despegue, no sobre el nivel del mar.",
+        x: 1, y: 10,
+      },
     },
     {
       id: "mc-1", type: "multiple-choice", time: 8,
@@ -110,6 +124,83 @@ const InfoIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="cur
 
 const fmt = (s) => { const m=Math.floor(s/60); return `${m}:${Math.floor(s%60).toString().padStart(2,"0")}`; };
 
+/* ─── TEXTO CON FORMATO ─────────────────────────────────────────
+ * Las etiquetas, notas y explicaciones se escriben a mano en el JSON de
+ * configuración, y ahí hacía falta poder resaltar una palabra y separar
+ * párrafos. Antes todo salía como texto plano: los \n se los comía el HTML.
+ *
+ * Se soporta un subconjunto mínimo de markdown, el que se usa de verdad
+ * escribiendo una definición:
+ *
+ *     **negrita**            _cursiva_   o   *cursiva*
+ *     una línea en blanco  → párrafo nuevo
+ *     un salto simple      → salto de línea
+ *
+ * Se parsea a elementos de React a propósito, en vez de inyectar HTML con
+ * dangerouslySetInnerHTML. El reproductor se incrusta en el campus y el texto
+ * sale de un JSON que edita el configurador: no conviene abrir esa puerta a
+ * cambio de un par de negritas. Como efecto secundario, un `<` suelto en una
+ * definición se ve como `<` en vez de romper el render.
+ */
+/* El guion bajo SOLO abre y cierra cursiva en borde de palabra. Sin esa regla,
+ * "hub_student_identity" se renderizaba como hub<em>student</em>identity — y en
+ * estos cursos las definiciones nombran metas y funciones todo el tiempo
+ * (hub_student_fullname, hub_is_gift, hub_course_map). Es la misma regla que usa
+ * markdown de verdad; el asterisco sí permite cursiva dentro de una palabra.
+ *
+ * El borde de la izquierda se captura como grupo en vez de usar lookbehind: los
+ * lookbehind recién andan en Safari 16.4, y esto se ve en iPads del aula.
+ *
+ * Grupos: 1 = negrita · 2 = cursiva con * · 3 = caracter previo · 4 = cursiva con _
+ */
+const RE_INLINE = /\*\*([^*]+?)\*\*|\*([^*\n]+?)\*|(^|[^A-Za-z0-9_])_([^_\n]+?)_(?![A-Za-z0-9_])/g;
+
+function conFormato(linea, base) {
+  const partes = [];
+  let ultimo = 0, m, n = 0;
+  RE_INLINE.lastIndex = 0;
+  while ((m = RE_INLINE.exec(linea)) !== null) {
+    if (m.index > ultimo) partes.push(linea.slice(ultimo, m.index));
+    if (m[1] !== undefined) {
+      partes.push(<strong key={`${base}b${n++}`}>{m[1]}</strong>);
+    } else if (m[2] !== undefined) {
+      partes.push(<em key={`${base}i${n++}`}>{m[2]}</em>);
+    } else {
+      // m[3] es el caracter que habilitó el borde de palabra: no es parte de la
+      // cursiva, así que vuelve al texto tal cual.
+      if (m[3]) partes.push(m[3]);
+      partes.push(<em key={`${base}i${n++}`}>{m[4]}</em>);
+    }
+    ultimo = m.index + m[0].length;
+  }
+  if (ultimo < linea.length) partes.push(linea.slice(ultimo));
+  return partes;
+}
+
+export function RichText({ children, className = "" }) {
+  const texto = typeof children === "string" ? children : "";
+  if (!texto.trim()) return null;
+  // Una o más líneas en blanco separan párrafos; un solo salto es <br>.
+  const parrafos = texto.trim().split(/\n[ \t]*\n+/);
+  return (
+    <div className={`iv-rich ${className}`.trim()}>
+      {parrafos.map((parrafo, p) => {
+        const lineas = parrafo.split("\n");
+        return (
+          <p key={p}>
+            {lineas.map((linea, l) => (
+              <Fragment key={l}>
+                {conFormato(linea, `${p}-${l}-`)}
+                {l < lineas.length - 1 && <br />}
+              </Fragment>
+            ))}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 // Interaction overlays
 function NoteOverlay({ data, onDismiss }) {
   return (
@@ -117,7 +208,7 @@ function NoteOverlay({ data, onDismiss }) {
       <div className="iv-card iv-note-card">
         <div className="iv-note-header"><InfoIcon /><span className="iv-note-title">{data.title}</span></div>
         {data.image && <img className="iv-interaction-image" src={data.image} alt="" />}
-        <p className="iv-note-text">{data.text}</p>
+        <RichText className="iv-note-text">{data.text}</RichText>
         <button className="iv-btn-primary" onClick={onDismiss}>Continuar ▸</button>
       </div>
     </div>
@@ -133,7 +224,7 @@ function MCOverlay({ data, onDismiss }) {
       <div className="iv-card iv-quiz-card">
         <div className="iv-badge">PREGUNTA</div>
         {data.image && <img className="iv-interaction-image" src={data.image} alt="" />}
-        <p className="iv-question">{data.question}</p>
+        <RichText className="iv-question">{data.question}</RichText>
         <div className="iv-options">
           {data.options.map(o => {
             let c="iv-option";
@@ -147,7 +238,7 @@ function MCOverlay({ data, onDismiss }) {
             </button>;
           })}
         </div>
-        {done&&<div className={`iv-explanation ${ok?"correct":"wrong"}`}><strong>{ok?"✓ ¡Correcto!":"✗ Incorrecto"}</strong><p>{data.explanation}</p></div>}
+        {done&&<div className={`iv-explanation ${ok?"correct":"wrong"}`}><strong>{ok?"✓ ¡Correcto!":"✗ Incorrecto"}</strong><RichText>{data.explanation}</RichText></div>}
         {!done
           ? <button className="iv-btn-primary" style={{opacity:sel?1:0.4}} onClick={()=>sel&&setDone(true)} disabled={!sel}>Confirmar respuesta</button>
           : <button className="iv-btn-primary" onClick={()=>onDismiss({answer:sel,correct:ok})}>Continuar ▸</button>}
@@ -166,12 +257,12 @@ function TFOverlay({ data, onDismiss }) {
       <div className="iv-card iv-quiz-card iv-tf-card">
         <div className="iv-badge tf">VERDADERO O FALSO</div>
         {data.image && <img className="iv-interaction-image" src={data.image} alt="" />}
-        <p className="iv-question">{data.statement}</p>
+        <RichText className="iv-question">{data.statement}</RichText>
         <div className="iv-tf-row">
           <button className={bc(true)} onClick={()=>!done&&setAns(true)} disabled={done}>Verdadero</button>
           <button className={bc(false)} onClick={()=>!done&&setAns(false)} disabled={done}>Falso</button>
         </div>
-        {done&&<div className={`iv-explanation ${ok?"correct":"wrong"}`}><strong>{ok?"✓ ¡Correcto!":"✗ Incorrecto"}</strong><p>{data.explanation}</p></div>}
+        {done&&<div className={`iv-explanation ${ok?"correct":"wrong"}`}><strong>{ok?"✓ ¡Correcto!":"✗ Incorrecto"}</strong><RichText>{data.explanation}</RichText></div>}
         {!done
           ? <button className="iv-btn-primary" style={{opacity:ans!==null?1:0.4}} onClick={()=>ans!==null&&setDone(true)} disabled={ans===null}>Confirmar</button>
           : <button className="iv-btn-primary" onClick={()=>onDismiss({answer:String(ans),correct:ok})}>Continuar ▸</button>}
@@ -260,7 +351,7 @@ function LabelOverlay({ interactions, currentTime, playerRef }) {
         </button>
         {openId===ia.id&&<div className={popupCls} onClick={e=>e.stopPropagation()}>
           <div className="iv-label-popup-title">{ia.data.text}</div>
-          <div className="iv-label-popup-def">{ia.data.definition}</div>
+          <RichText className="iv-label-popup-def">{ia.data.definition}</RichText>
         </div>}
       </div>
     );

@@ -901,3 +901,26 @@ html, body { margin: 0; padding: 0; background: #000; }
   opacity: 0.6;
 }
 .iv-reset-ctrl:hover { opacity: 1; }
+
+/* ─── TEXTO CON FORMATO ─────────────────────────────────────
+ * Envoltorio que genera <RichText> para las notas, etiquetas, preguntas y
+ * explicaciones. Antes cada uno de esos textos era un <p> suelto; ahora es un
+ * contenedor con uno o más <p> adentro, así que el margen exterior lo sigue
+ * poniendo la clase de siempre (.iv-note-text, .iv-question…) y acá solo se
+ * define la separación ENTRE párrafos.
+ *
+ * Va al final del archivo a propósito: `.iv-rich > p` y `.iv-explanation p`
+ * tienen la misma especificidad, así que gana el que esté después.
+ */
+.iv-rich > p { margin: 0 0 0.85em; }
+.iv-rich > p:first-child { margin-top: 0; }
+.iv-rich > p:last-child { margin-bottom: 0; }
+
+/* La pregunta ya viene en 600, así que una negrita adentro necesita más peso
+   para que se note como negrita y no como "el mismo texto". */
+.iv-rich strong { font-weight: 700; }
+.iv-rich em { font-style: italic; }
+
+/* En la explicación, el primer párrafo tiene que despegarse del "✓ ¡Correcto!",
+   que es el margen que antes daba la regla .iv-explanation p. */
+.iv-explanation .iv-rich { margin-top: 6px; }

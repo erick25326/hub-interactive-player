@@ -21,6 +21,36 @@ A standalone interactive video player that replaces H5P for Hub Education's Mood
 2. **multiple-choice** — 4 options, feedback, explanation
 3. **true-false** — Binary choice with feedback
 4. **hotspot** — Clickable points overlaid on video, must view all to continue
+5. **label** — Pin over the video; click opens a popup with a definition
+
+## Text formatting (labels, notes, questions, explanations)
+
+These fields accept a small markdown subset: `data.text`, `data.definition`,
+`data.explanation`, `data.statement`, `data.question`.
+
+```
+**negrita**            _cursiva_   or   *cursiva*
+a blank line         → new paragraph
+a single newline     → line break
+```
+
+Everything else is literal. Plain text keeps rendering exactly as before —
+verified against the 89 existing strings in `interacciones/`: none changed.
+
+Two rules worth knowing:
+
+- **`_` only opens/closes italics at a word boundary.** `hub_student_identity`
+  stays intact; `_idnumber_` between spaces becomes italic. Without this rule,
+  every meta and function name in a definition rendered mangled. `*` does allow
+  intraword italics, like real markdown.
+- **It parses to React elements, never `dangerouslySetInnerHTML`.** The player is
+  embedded in the campus and the text comes from a JSON the configurator edits,
+  so raw `<b>` or `<script>` in a definition renders as literal text.
+
+Implemented by `RichText` in `InteractiveVideoPlayer.jsx` (exported, so it can be
+tested). `prueba-richtext.html` is a dev-only bench with 21 cases — open
+`http://localhost:5173/prueba-richtext.html` with `npx vite` running. It is not
+part of the build; `vite build` only emits `index.html`.
 
 ## Build
 ```bash
