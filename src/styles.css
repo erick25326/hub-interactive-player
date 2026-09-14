@@ -65,13 +65,11 @@ html, body { margin: 0; padding: 0; background: #000; }
   container-type: inline-size;
   container-name: ivc;
 }
-.iv-container.fullscreen {
-  border-radius: 0;
-  width: 100vw;
-  height: 100vh;
-  aspect-ratio: unset;
-}
-/* Fake fullscreen: wrapper becomes the fullscreen container */
+/* Pantalla completa, nativa o simulada: el WRAPPER ocupa la pantalla y el
+   contenedor queda 16:9 centrado adentro. La nativa también usa .fake-fs (lo pone
+   el JSX cuando isFS). Antes la nativa agrandaba .iv-container, y la caja
+   responsive de Vimeo (alto = ancho × 9/16) quedaba pegada arriba en cualquier
+   pantalla que no fuera 16:9: el video arriba y negro abajo en los celulares. */
 .iv-wrapper.fake-fs {
   position: fixed;
   inset: 0;

@@ -377,6 +377,8 @@ export default function InteractiveVideoPlayer() {
   const config = getConfig();
   const { title, vimeoId, vimeoHash, subtitlesUrl, subtitlesCues, subtitlesOn, interactions } = config;
   const containerRef = useRef(null);
+  // La pantalla completa NATIVA va sobre el wrapper, no sobre el contenedor: ver toggleFS.
+  const wrapperRef = useRef(null);
   const vimeoRef = useRef(null);
   const playerRef = useRef(null);
   const [ready, setReady] = useState(false);
@@ -508,9 +510,17 @@ export default function InteractiveVideoPlayer() {
   },[currentTime,ready,completed,interactions,activeIA]);
 
   const toggleFS = useCallback(async()=>{
-    const el=containerRef.current; if(!el) return;
+    // 🔴 Pantalla completa sobre el WRAPPER, no sobre .iv-container. Vimeo con
+    // `responsive: true` arma una caja de alto = ancho × 9/16 pegada ARRIBA de su
+    // contenedor. Si el que se agrandaba a la pantalla era .iv-container, en un
+    // celular —que no es 16:9, ni parado ni acostado— el video quedaba arriba y
+    // el resto en negro, con los controles abajo y los puntos desalineados. Es lo
+    // que veían los alumnos en la app (14-sep-2026); en la compu no se nota porque
+    // el monitor es 16:9. Con el wrapper, el contenedor conserva su 16:9 centrado:
+    // el mismo diseño de la pantalla completa simulada (.fake-fs), que ya andaba.
+    const el=wrapperRef.current; if(!el) return;
     const inIframe=window!==window.parent;
-    // Try native Fullscreen API on the container (desktop/standalone)
+    // Try native Fullscreen API on the wrapper (desktop/Android/standalone)
     try{
       if(!document.fullscreenElement&&!document.webkitFullscreenElement&&!fakeFS){
         if(el.requestFullscreen) { await el.requestFullscreen(); return; }
@@ -894,7 +904,7 @@ export default function InteractiveVideoPlayer() {
   const completableInteractions=interactions.filter(ia=>ia.type!=="label");
 
   return (
-    <div className={`iv-wrapper ${fakeFS?"fake-fs":""} ${isEmbedded?"embedded":""}`}>
+    <div ref={wrapperRef} className={`iv-wrapper ${fakeFS||isFS?"fake-fs":""} ${isEmbedded?"embedded":""}`}>
       <div className="iv-top-bar">
         <span className="iv-top-title">{title}</span>
         <span className="iv-top-progress">
@@ -902,7 +912,7 @@ export default function InteractiveVideoPlayer() {
           {completed.size>0&&<button className="iv-reset-btn-top" onClick={resetProgress}>Reiniciar</button>}
         </span>
       </div>
-      <div ref={containerRef} className={`iv-container ${isFS&&!fakeFS?"fullscreen":""}`}
+      <div ref={containerRef} className="iv-container"
         onMouseMove={resetCtrl} onTouchStart={resetCtrl}>
 
         <div ref={vimeoRef} className="iv-vimeo-wrap"/>
