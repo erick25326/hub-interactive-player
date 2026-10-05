@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo, Fragment } from "react";
 import Player from "@vimeo/player";
+import NativePlayer from "./nativePlayer.js";
 import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
 
 const DEFAULT_CONFIG = {
@@ -7,6 +8,10 @@ const DEFAULT_CONFIG = {
   // Acepta: ID numérico, URL pública, o URL con hash para videos privados
   vimeoId: "1171751497",
   vimeoHash: "415649d0b1",  // Hash para videos privados/no listados
+  // Alternativa a Vimeo: URL HLS (.m3u8, p. ej. Bunny Stream) o MP4 directo.
+  // Si está, manda sobre vimeoId y se usa el <video> nativo (ver nativePlayer.js).
+  videoUrl: null,
+  poster: null,
   loop: false,              // true = repetir video al terminar
   subtitlesUrl: null,
   subtitlesCues: [],
@@ -375,7 +380,11 @@ function SubtitleDisplay({ cues, currentTime, visible }) {
 // Main player
 export default function InteractiveVideoPlayer() {
   const config = getConfig();
-  const { title, vimeoId, vimeoHash, subtitlesUrl, subtitlesCues, subtitlesOn, interactions } = config;
+  const { title, vimeoId, vimeoHash, videoUrl, poster, subtitlesUrl, subtitlesCues, subtitlesOn, interactions } = config;
+  // Video propio (HLS/MP4) en vez de Vimeo. También se acepta pegado en vimeoId,
+  // para poder probar sin tocar el formulario de Moodle.
+  const nativeSrc = videoUrl
+    || (typeof vimeoId === "string" && /^https?:\/\//.test(vimeoId) && !/vimeo\.com/.test(vimeoId) ? vimeoId : null);
   const containerRef = useRef(null);
   // La pantalla completa NATIVA va sobre el wrapper, no sobre el contenedor: ver toggleFS.
   const wrapperRef = useRef(null);
@@ -401,6 +410,11 @@ export default function InteractiveVideoPlayer() {
   const [skipFeedback, setSkipFeedback] = useState(null);
   const [videoEnded, setVideoEnded] = useState(false);
   const [buffering, setBuffering] = useState(false);
+  // Error que no se puede recuperar (token vencido, sin conexión, formato). Con
+  // Vimeo lo mostraba su propio iframe; con el <video> propio, si no lo dibujamos
+  // nosotros, el alumno ve un spinner eterno.
+  const [videoError, setVideoError] = useState(null);
+  const activeIARef = useRef(null);
   const ctrlTimer = useRef(null);
   const triggered = useRef(new Set());
   const currentTimeRef = useRef(0); // último tiempo real de Vimeo, sin pasar por React
@@ -411,13 +425,19 @@ export default function InteractiveVideoPlayer() {
 
   // Parse Vimeo ID and hash from various URL formats
   const vimeoData = useMemo(()=>{
-    let id = vimeoId, hash = vimeoHash || null;
-    if(/^\d+$/.test(vimeoId)) return { id, hash };
+    // Con video propio, el "id" sólo sirve de clave del progreso en localStorage:
+    // el GUID de Bunny (…/<guid>/playlist.m3u8) o, si no hay, la URL entera.
+    if(nativeSrc){
+      const g = nativeSrc.match(/\/([0-9a-f]{8}-[0-9a-f-]{27,})\//i);
+      return { id: g ? g[1] : nativeSrc, hash: null };
+    }
+    let id = String(vimeoId || ""), hash = vimeoHash || null;
+    if(/^\d+$/.test(id)) return { id, hash };
     // Parse URL: vimeo.com/ID/HASH or vimeo.com/video/ID/HASH
-    const m = vimeoId.match(/vimeo\.com\/(?:video\/)?(\d+)(?:\/([a-f0-9]+))?/);
+    const m = id.match(/vimeo\.com\/(?:video\/)?(\d+)(?:\/([a-f0-9]+))?/);
     if(m) { id = m[1]; if(m[2]) hash = m[2]; }
     return { id, hash };
-  },[vimeoId, vimeoHash]);
+  },[vimeoId, vimeoHash, nativeSrc]);
 
   useEffect(()=>{
     if(subtitlesUrl) fetch(subtitlesUrl).then(r=>r.text()).then(t=>setCues(parseVTT(t))).catch(()=>{});
@@ -425,16 +445,21 @@ export default function InteractiveVideoPlayer() {
 
   useEffect(()=>{
     if(!vimeoRef.current||playerRef.current) return;
-    const opts = {
-      controls: false, responsive: true,
-      loop: false, muted: false, pip: false, title: false, byline: false, portrait: false, dnt: true,
+    const crearVimeo=()=>{
+      const opts = {
+        controls: false, responsive: true,
+        loop: false, muted: false, pip: false, title: false, byline: false, portrait: false, dnt: true,
+      };
+      if(vimeoData.hash) {
+        opts.url = `https://vimeo.com/${vimeoData.id}/${vimeoData.hash}`;
+      } else {
+        opts.id = parseInt(vimeoData.id);
+      }
+      return new Player(vimeoRef.current, opts);
     };
-    if(vimeoData.hash) {
-      opts.url = `https://vimeo.com/${vimeoData.id}/${vimeoData.hash}`;
-    } else {
-      opts.id = parseInt(vimeoData.id);
-    }
-    const p = new Player(vimeoRef.current, opts);
+    // Misma interfaz en los dos casos (ver nativePlayer.js): el resto del
+    // componente no sabe si atrás hay Vimeo o un <video> propio.
+    const p = nativeSrc ? new NativePlayer(vimeoRef.current, { src: nativeSrc, poster }) : crearVimeo();
     playerRef.current = p;
     p.ready().then(()=>{
       setReady(true);
@@ -456,7 +481,13 @@ export default function InteractiveVideoPlayer() {
       }).catch(()=>{});
     });
     p.on("timeupdate", d=>{currentTimeRef.current=d.seconds;setCurrent(d.seconds);});
+    // La duración puede llegar después de ready() (iOS sin metadata hasta el
+    // primer toque, o un HLS que todavía no la conoce). Vimeo también la emite.
+    p.on("durationchange", d=>{ if(d&&d.duration>0) setDuration(d.duration); });
     p.on("play", ()=>{
+      // Un play que no pidió el reproductor (Centro de control, auriculares) con
+      // una pregunta abierta corría el video por detrás y salteaba interacciones.
+      if(activeIARef.current){ playIntentRef.current=null; p.pause(); return; }
       setPlaying(true);
       // Moodle móvil: el gesto nunca llega al iframe de Vimeo (pointer-events:
       // none) y el navegador fuerza arranque muteado; el ícono decía "sonido
@@ -472,7 +503,20 @@ export default function InteractiveVideoPlayer() {
     p.on("bufferstart", ()=>setBuffering(true));
     p.on("bufferend", ()=>setBuffering(false));
     p.on("seeked", ()=>setBuffering(false));
+    // Sólo los errores definitivos (nativePlayer los marca `fatal`; Vimeo también
+    // emite 'error' por un play rechazado, que no lo es).
+    p.on("error", e=>{
+      if(!e||!e.fatal) return;
+      playIntentRef.current=null;
+      setBuffering(false);
+      setPlaying(false);
+      setVideoError(e);
+    });
     p.on("ended", ()=>{
+      // Sin esto, el watchdog de safePlay (700 ms) veía el video pausado tras el
+      // 'ended' y lo volvía a arrancar desde 0. Con el <video> propio el play es
+      // tan rápido que una interacción en el último segundo lo disparaba.
+      playIntentRef.current=null;
       setPlaying(false);
       setVideoEnded(true);
       if(config.loop){
@@ -491,6 +535,7 @@ export default function InteractiveVideoPlayer() {
   // interacción no disparaba nunca. Un salto grande entre ticks es un seek (lo
   // cubre el clamp de skip/scrub), no un cruce de reproducción.
   const prevTimeRef=useRef(0);
+  useEffect(()=>{ activeIARef.current=activeIA; },[activeIA]);
   useEffect(()=>{
     const prev=prevTimeRef.current;
     prevTimeRef.current=currentTime;
@@ -609,7 +654,7 @@ export default function InteractiveVideoPlayer() {
     };
     document.addEventListener('keydown',handleKey);
     return()=>document.removeEventListener('keydown',handleKey);
-  },[activeIA,playing,volume,muted,subsOn]);
+  },[activeIA,playing,volume,muted,subsOn,duration]);
 
   // Initialize SCORM when ready
   useEffect(()=>{
@@ -638,14 +683,20 @@ export default function InteractiveVideoPlayer() {
         // y, sin esto, pisaba el progreso del servidor con {completed:[], t:0}.
         lastSaveRef.current=Date.now();
         if(data.completed){setCompleted(new Set(data.completed));data.completed.forEach(id=>triggered.current.add(id));}
-        if(data.currentTime&&playerRef.current) playerRef.current.setCurrentTime(data.currentTime);
+        if(data.currentTime&&playerRef.current){
+          // Optimista: si el video todavía no cargó, el estado ya queda en la
+          // posición guardada y no se vuelve a guardar 0 al salir.
+          currentTimeRef.current=data.currentTime;
+          setCurrent(data.currentTime);
+          playerRef.current.setCurrentTime(data.currentTime);
+        }
       }
     }catch(e){}
   },[ready]);
 
   // Save progress to localStorage + Moodle + SCORM (throttled)
   useEffect(()=>{
-    if(!ready) return;
+    if(!ready||videoError) return;   // con el video caído, el tiempo no es confiable
     if(Date.now()-lastSaveRef.current<5000) return;
     lastSaveRef.current=Date.now();
     const snapshot={completed:[...completed],currentTime,updatedAt:Date.now()};
@@ -654,15 +705,15 @@ export default function InteractiveVideoPlayer() {
     }catch(e){}
     moodleSaveProgress({completed:snapshot.completed,currentTime});
     scormSetTime(currentTime);
-  },[completed,currentTime,ready,vimeoData.id]);
+  },[completed,currentTime,ready,vimeoData.id,videoError]);
 
   // Final progress save when leaving the page (sendBeacon survives unload)
   useEffect(()=>{
-    if(!ready) return;
+    if(!ready||videoError) return;
     const onUnload=()=>moodleSaveProgress({completed:[...completed],currentTime},true);
     window.addEventListener("pagehide",onUnload);
     return()=>window.removeEventListener("pagehide",onUnload);
-  },[ready,completed,currentTime]);
+  },[ready,completed,currentTime,videoError]);
 
   // Report completion when the video ends with every interaction done
   // (covers videos with zero interactions and progress restored from a
@@ -748,7 +799,10 @@ export default function InteractiveVideoPlayer() {
     // encadenan ±20s), o el último tiempo real reportado por Vimeo vía ref
     // (los atajos de teclado capturan un currentTime de closure viejo).
     const now=seekTargetRef.current!=null?seekTargetRef.current:currentTimeRef.current;
-    let targetTime=Math.max(0,Math.min(duration,now+seconds));
+    // Sin duración todavía (iOS antes del primer toque), Math.min(0, …) mandaba
+    // siempre a 0 y pisaba la posición restaurada.
+    const tope=duration>0?duration:Infinity;
+    let targetTime=Math.max(0,Math.min(tope,now+seconds));
     if(seconds>0){
       // Las "label" no bloquean (nunca entran a completed): no frenan el skip.
       const next=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&ia.time>now&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
@@ -918,9 +972,15 @@ export default function InteractiveVideoPlayer() {
         <div ref={vimeoRef} className="iv-vimeo-wrap"/>
         {ready&&!activeIA&&<div className="iv-click-layer" onClick={handleClickLayer} onTouchStart={resetCtrl} onTouchEnd={handleTouchEnd}/>}
         {skipFeedback&&<div className={`iv-skip-feedback ${skipFeedback}`}>{skipFeedback==='left'?'⟲ 10s':'10s ⟳'}</div>}
-        {ready&&buffering&&!activeIA&&<div className="iv-buffering"><div className="iv-spinner"/></div>}
-        {!ready&&<div className="iv-loading"><div className="iv-spinner"/><span>Cargando video...</span></div>}
-        {ready&&!playing&&!activeIA&&<button className="iv-big-play" onClick={togglePlay}><PlayIcon/></button>}
+        {ready&&buffering&&!activeIA&&!videoError&&<div className="iv-buffering"><div className="iv-spinner"/></div>}
+        {!ready&&!videoError&&<div className="iv-loading"><div className="iv-spinner"/><span>Cargando video...</span></div>}
+        {ready&&!playing&&!activeIA&&!videoError&&<button className="iv-big-play" onClick={togglePlay}><PlayIcon/></button>}
+        {videoError&&<div className="iv-error" role="alert">
+          <strong>No se pudo cargar el video</strong>
+          <span>{videoError.code===404?"El video no está disponible.":videoError.tipo==="acceso"?"El acceso al video venció.":videoError.tipo==="red"?"Revisá tu conexión.":"Hubo un problema al reproducirlo."} Tu avance está guardado.</span>
+          {/* Recargar pide la página de nuevo, y en Moodle eso firma un acceso nuevo. */}
+          <button className="iv-btn-primary" onClick={()=>window.location.reload()}>Reintentar</button>
+        </div>}
 
         {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA}/>}
 
