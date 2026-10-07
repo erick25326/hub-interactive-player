@@ -75,6 +75,20 @@ The video must allow embedding in Vimeo privacy settings.
 5. Controls bar: z-index 8
 6. Interaction overlays: z-index 10
 
+## Candado de saltos externos (guardia) — reglas
+La guardia del efecto de disparo devuelve a la primera pregunta pendiente cuando
+un salto que NO pidió el reproductor la dejó atrás (±15 s de la pantalla de
+bloqueo, auriculares, hilo trabado). Verificada en oct-2026 con simulador + CDP.
+- 🔴 **La guardia no va sin la restauración optimista** (`currentTimeRef` +
+  `setCurrent` al restaurar el avance). Con Vimeo no llega ningún timeupdate antes
+  del primer play: sin el estado optimista, el primer tick trae prev=0 y la guardia
+  arrastraba al alumno hacia atrás. Si se porta sola a master, llevar las dos.
+- Va ANTES del bucle de disparo. Después, un salto que caía en la ventana de otra
+  pendiente (o en los 8 s de un hotspot) mostraba ésa y perdía las anteriores.
+- Muestra la tarjeta ella misma: con el video quieto no hay render siguiente.
+- `tiempoAGuardar` nunca guarda más allá de una pendiente, y la restauración usa
+  la misma función: un avance viejo pasado una pregunta se retoma en ella.
+
 ## Brand
 - Colors: #0162F5 (primary), #14CCF7 (secondary), #84F4BE (accent), #062E60 (dark)
 - Fonts: Changa (headings), Work Sans (body)

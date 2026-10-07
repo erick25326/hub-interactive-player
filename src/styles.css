@@ -979,3 +979,13 @@ html, body { margin: 0; padding: 0; background: #000; }
   }
 }
 .iv-ctrl-btn.iv-girar-on { color: #84F4BE; }
+
+/* ─── CELULARES ANGOSTOS (≤340 px de reproductor) ─────────── */
+/* Con 320 px (iPhone SE de 1.ª generación), subtítulos, Reiniciar y el botón de
+   girar, la fila medía 335 px en 304 y el botón de salir de pantalla completa
+   quedaba recortado: el alumno no tenía cómo salir. Ese botón no se achica nunca;
+   lo que cede es la duración total y el contador (la barra ya muestra cuánto falta). */
+.iv-fs-btn { flex-shrink: 0; }
+@container ivc (max-width: 340px) {
+  .iv-time-total, .iv-ctrl-progress { display: none; }
+}

@@ -429,9 +429,18 @@ export function debeFrenar(tiempo, prev, t, fin = Infinity) {
  * más de 0,8 s después, y una pregunta del final queda abierta con el video ya
  * rebobinado a 0. En los dos casos, al volver, la restauración no la mostraba más
  * (ni se completaba la actividad). Restaurar en su tiempo la frena por el seek.
+ *
+ * Tampoco se guarda más allá de una pendiente (no-label, sin completar) que quedó
+ * atrás: la guardia la corrige en el MISMO commit en que este efecto guarda el
+ * tiempo saltado, y con la tarjeta abierta no se vuelve a guardar. Al volver, se
+ * restauraba pasada la pregunta y no aparecía más. De paso repara los avances
+ * viejos que ya quedaron más allá de una pendiente: se retoma en ella.
  */
-export function tiempoAGuardar(t, activeIA, fin = Infinity) {
-  return activeIA ? Math.min(activeIA.time, fin - 0.05) : t;
+export function tiempoAGuardar(t, activeIA, fin = Infinity, interactions = [], completed = new Set()) {
+  if (activeIA) return Math.min(activeIA.time, fin - 0.05);
+  let p = Infinity;
+  for (const ia of interactions) if (ia.type !== "label" && !completed.has(ia.id) && ia.time < t && ia.time < p) p = ia.time;
+  return p < t ? Math.max(0, Math.min(p, fin - 0.05)) : t;
 }
 
 export default function InteractiveVideoPlayer() {
@@ -639,31 +648,43 @@ export default function InteractiveVideoPlayer() {
     prevTimeRef.current=t;
     const reanudarBucle=bucleAlCerrarRef.current;
     bucleAlCerrarRef.current=false;
+    const mostrar=(ia)=>{ triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); activeIARef.current=ia; setActiveIA(ia); };
+    // 🔴 GUARDIA de saltos que NO pidió el reproductor: los ±15 s de la pantalla de
+    // bloqueo, el Centro de control o los auriculares (iOS los aplica directo al
+    // medio, sin pasar por la barra) o un hilo trabado largo. Si el salto dejó atrás
+    // una pregunta pendiente, se vuelve a la MÁS TEMPRANA y se la muestra ahí mismo.
+    // Va ANTES del bucle: si el salto aterrizaba en la ventana de otra pendiente (o
+    // dentro de los 8 s de un hotspot), el bucle frenaba ésa y las anteriores
+    // quedaban salteadas para siempre. Si cruzó una sola y el bucle igual la frena
+    // (tick lento, hilo trabado corto), se deja como estaba: sin un seek de más.
+    // La muestra la guardia y no el render siguiente: con el video quieto (salto en
+    // pausa, o que pasó el fin) ese render no llega y el alumno veía el video parado
+    // sin la pregunta.
+    // Los saltos propios (barra, skip, transcripción, restaurar) no pasan por acá.
+    // 🔴 No va sin la restauración optimista de más abajo: sin ella, con Vimeo el
+    // primer tick después de restaurar llega con prev=0 y la guardia arrastraba al
+    // alumno hacia atrás.
+    if(t>prev+DESPUES&&seekTargetRef.current==null&&Date.now()>seekPropioHastaRef.current){
+      const cruzadas=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&!triggered.current.has(ia.id)&&ia.time>prev&&ia.time<t).sort((a,b)=>a.time-b.time);
+      const saltada=cruzadas[0];
+      const laFrenaElBucle=saltada&&(saltada.type==="hotspot"
+        ?currentTime>=saltada.time&&currentTime<=saltada.time+(saltada.duration||8)
+        :debeFrenar(saltada.time,prev,t,finRef.current));
+      if(saltada&&(cruzadas.length>1||!laFrenaElBucle)){
+        const vuelta=Math.max(0,Math.min(saltada.time,finRef.current-0.05));
+        currentTimeRef.current=vuelta;
+        setCurrent(vuelta);
+        seekTo(vuelta);
+        mostrar(saltada);
+        return;
+      }
+    }
     for(const ia of interactions){
       if(ia.type==="label") continue; // Labels don't pause the video.
       if(completed.has(ia.id)||triggered.current.has(ia.id)) continue;
       if(ia.type==="hotspot"){
-        if(currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||8)){
-          triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); activeIARef.current=ia; setActiveIA(ia); return;
-        }
-      } else if(debeFrenar(ia.time,prev,t,finRef.current)){
-        triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); activeIARef.current=ia; setActiveIA(ia); return;
-      }
-    }
-    // 🔴 GUARDIA de saltos que NO pidió el reproductor: los ±15 s de la pantalla de
-    // bloqueo, el Centro de control o los auriculares (iOS los aplica directo al
-    // medio, sin pasar por la barra) o un hilo trabado largo. Si el salto dejó atrás
-    // una pregunta pendiente, se vuelve a ella y se la muestra. Sin esto quedaba
-    // salteada para siempre: el avance se guardaba después y no se completaba.
-    // Los saltos propios (barra, skip, transcripción, restaurar) no pasan por acá.
-    if(t>prev+DESPUES&&seekTargetRef.current==null&&Date.now()>seekPropioHastaRef.current){
-      const saltada=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&!triggered.current.has(ia.id)&&ia.time>prev&&ia.time<t).sort((a,b)=>a.time-b.time)[0];
-      if(saltada){
-        const vuelta=Math.max(0,Math.min(saltada.time,finRef.current-0.05));
-        setCurrent(vuelta);   // optimista: el efecto la frena por la rama de seek
-        seekTo(vuelta);
-        return;
-      }
+        if(currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||8)){ mostrar(ia); return; }
+      } else if(debeFrenar(ia.time,prev,t,finRef.current)){ mostrar(ia); return; }
     }
     if(reanudarBucle) safePlay();
   },[currentTime,ready,completed,interactions,activeIA]);
@@ -679,6 +700,11 @@ export default function InteractiveVideoPlayer() {
   useEffect(()=>{ fakeFSRef.current=fakeFS; },[fakeFS]);
   useEffect(()=>{
     if(window.parent!==window) return;
+    // Recargó estando en pantalla completa: la entrada propia sobrevive a la recarga
+    // y el primer atrás del alumno sólo la consumía, sin nada visible. Se la consume
+    // acá (es del mismo documento: no navega). Desmarcarla no alcanza, la entrada
+    // seguiría estando.
+    try{ if(history.state&&history.state.ivplayerFS) history.back(); }catch(e){}
     const h=(e)=>{
       esperandoBackRef.current=false;
       if(fakeFSRef.current&&!(e.state&&e.state.ivplayerFS)){ setFakeFS(false); setIsFS(false); }
@@ -691,11 +717,13 @@ export default function InteractiveVideoPlayer() {
   const bloquearHorizontal=()=>{
     const so=screen.orientation; let p=null;
     try{ p=so?.lock?.('landscape'); }catch(e){ p=null; }
-    if(!p||!p.then){ aplicarPreferenciaGiro(); return; }
+    // Sólo se llama tras una pantalla completa NATIVA, donde el giro CSS no aplica
+    // (ver fsNativo): si el lock falla no se ofrece nada, se gira el equipo a mano.
+    if(!p||!p.then) return;
     // Con tope: si el sistema ignora el pedido (tablets con Android 16) la promesa
     // queda pendiente para siempre.
     Promise.race([p.then(()=>true,()=>false), new Promise(r=>setTimeout(()=>r(false),1500))])
-      .then(ok=>{ setBloqueoOk(ok); if(!ok) aplicarPreferenciaGiro(); });
+      .then(ok=>setBloqueoOk(ok));
   };
   const toggleFS = useCallback(async()=>{
     // 🔴 Pantalla completa sobre el WRAPPER, no sobre .iv-container. Vimeo con
@@ -871,13 +899,17 @@ export default function InteractiveVideoPlayer() {
         // y, sin esto, pisaba el progreso del servidor con {completed:[], t:0}.
         lastSaveRef.current=Date.now();
         if(data.completed){setCompleted(new Set(data.completed));data.completed.forEach(id=>triggered.current.add(id));}
-        if(data.currentTime&&playerRef.current){
+        // Un avance viejo guardado más allá de una pendiente (de antes de la guardia,
+        // o de un salto que ella no vio) se retoma EN la pendiente: restaurar en su
+        // tiempo la frena por el seek. Si no, esa pregunta no aparecía más.
+        const tRetomar=data.currentTime?tiempoAGuardar(data.currentTime,null,Infinity,interactions,new Set(data.completed||[])):0;
+        if(tRetomar&&playerRef.current){
           // Optimista: si el video todavía no cargó, el estado ya queda en la
           // posición guardada y no se vuelve a guardar 0 al salir.
           seekPropioHastaRef.current=Date.now()+3000; // salto propio: la guardia no lo toca
-          currentTimeRef.current=data.currentTime;
-          setCurrent(data.currentTime);
-          playerRef.current.setCurrentTime(data.currentTime);
+          currentTimeRef.current=tRetomar;
+          setCurrent(tRetomar);
+          playerRef.current.setCurrentTime(tRetomar);
         }
       }
     }catch(e){}
@@ -888,7 +920,7 @@ export default function InteractiveVideoPlayer() {
     if(!ready||videoError) return;   // con el video caído, el tiempo no es confiable
     if(Date.now()-lastSaveRef.current<5000) return;
     lastSaveRef.current=Date.now();
-    const tGuardar=tiempoAGuardar(currentTime,activeIA,finRef.current);
+    const tGuardar=tiempoAGuardar(currentTime,activeIA,finRef.current,interactions,completed);
     const snapshot={completed:[...completed],currentTime:tGuardar,updatedAt:Date.now()};
     try{
       localStorage.setItem(`iv_progress_${vimeoData.id}`,JSON.stringify(snapshot));
@@ -900,7 +932,7 @@ export default function InteractiveVideoPlayer() {
   // Final progress save when leaving the page (sendBeacon survives unload)
   useEffect(()=>{
     if(!ready||videoError) return;
-    const onUnload=()=>moodleSaveProgress({completed:[...completed],currentTime:tiempoAGuardar(currentTime,activeIA,finRef.current)},true);
+    const onUnload=()=>moodleSaveProgress({completed:[...completed],currentTime:tiempoAGuardar(currentTime,activeIA,finRef.current,interactions,completed)},true);
     window.addEventListener("pagehide",onUnload);
     return()=>window.removeEventListener("pagehide",onUnload);
   },[ready,completed,currentTime,videoError,activeIA]);
@@ -1020,7 +1052,7 @@ export default function InteractiveVideoPlayer() {
   // Salto pedido desde afuera (clic en una línea de la transcripción): las mismas
   // reglas que la barra. Hacia adelante no pasa una pregunta pendiente: frena en
   // ella y la muestra. Con una pregunta abierta no hace nada (primero se responde).
-  seekExternoRef.current=(t)=>{
+  seekExternoRef.current=(t,{sinPlay=false}={})=>{
     const p=playerRef.current;
     if(!p||!ready||activeIARef.current||!Number.isFinite(t)) return;
     const now=seekTargetRef.current!=null?seekTargetRef.current:currentTimeRef.current;
@@ -1036,7 +1068,9 @@ export default function InteractiveVideoPlayer() {
     setCurrent(targetTime);
     seekTo(targetTime);
     // Como antes (saltar y seguir), salvo que caiga en una pregunta: la frena el efecto.
-    if(!frena) safePlay();
+    // Desde la pantalla de bloqueo no: el sistema salta y deja el video como estaba
+    // (en pausa, si estaba en pausa); con video propio el seek no corta la reproducción.
+    if(!frena&&!sinPlay) safePlay();
   };
   const skipRef=useRef(null);
   skipRef.current=skip;
@@ -1051,7 +1085,7 @@ export default function InteractiveVideoPlayer() {
     try{ if(window.MediaMetadata) ms.metadata=new window.MediaMetadata({title:title||'Video'}); }catch(e){}
     poner('seekbackward',d=>{ if(!activeIARef.current) skipRef.current?.(-((d&&d.seekOffset)||10)); });
     poner('seekforward',d=>{ if(!activeIARef.current) skipRef.current?.((d&&d.seekOffset)||10); });
-    poner('seekto',d=>{ if(d&&typeof d.seekTime==='number') seekExternoRef.current?.(d.seekTime); });
+    poner('seekto',d=>{ if(d&&typeof d.seekTime==='number') seekExternoRef.current?.(d.seekTime,{sinPlay:true}); });
     return()=>{ ['seekbackward','seekforward','seekto'].forEach(a=>poner(a,null)); };
   },[nativeSrc,title]);
   const toggleMute=()=>{
@@ -1215,7 +1249,12 @@ export default function InteractiveVideoPlayer() {
     playerRef.current?.setCurrentTime(0);
   };
 
-  const girado=girar&&vertical&&(isFS||fakeFS);
+  // En la pantalla completa NATIVA el wrapper es el elemento :fullscreen y la regla del
+  // navegador (transform:none, inset:0, width/height:100% !important) anula el giro:
+  // el video no giraba y fraccionX leía la barra por la altura del dedo (iPad, tablets).
+  // Se mira el documento PROPIO: en el campus la madre manda isFS:true también ahí.
+  const fsNativo=!!(document.fullscreenElement||document.webkitFullscreenElement);
+  const girado=girar&&vertical&&!fsNativo&&(isFS||fakeFS);
   giroRef.current=girado?90:0;
   const progress=scrubPct!=null?scrubPct*100:(duration?(currentTime/duration)*100:0);
   const displayTime=scrubPct!=null?scrubPct*duration:currentTime;
@@ -1278,7 +1317,7 @@ export default function InteractiveVideoPlayer() {
                   value={muted?0:volume} onChange={e=>changeVolume(parseFloat(e.target.value))}/>
               </div>}
             </div>
-            <span className="iv-time">{fmt(displayTime)}/{fmt(duration)}</span>
+            <span className="iv-time">{fmt(displayTime)}<span className="iv-time-total">/{fmt(duration)}</span></span>
             {isEmbedded&&<span className="iv-ctrl-progress">{completed.size}/{completableInteractions.length}</span>}
             <div style={{flex:1}}/>
             {isEmbedded&&completed.size>0&&<button className="iv-ctrl-btn iv-reset-ctrl" onClick={resetProgress} title="Reiniciar progreso">↺</button>}
@@ -1289,8 +1328,8 @@ export default function InteractiveVideoPlayer() {
                 {SPEEDS.map(s=><button key={s} className={`iv-speed-option ${s===speed?'active':''}`} onClick={()=>changeSpeed(s)}>{s}x</button>)}
               </div>}
             </div>
-            {(isFS||fakeFS)&&vertical&&!bloqueoOk&&<button className={`iv-ctrl-btn ${girar?"iv-girar-on":""}`} onClick={()=>{const g=!girar;setGirar(g);try{localStorage.setItem('iv_girar',g?'1':'0');}catch(e){}}} title={girar?"Volver a vertical":"Ver horizontal"} aria-label={girar?"Volver a vertical":"Ver horizontal"} aria-pressed={girar}><RotateIcon/></button>}
-            <button className="iv-ctrl-btn" onClick={toggleFS}>{isFS?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>
+            {(isFS||fakeFS)&&vertical&&!bloqueoOk&&!fsNativo&&<button className={`iv-ctrl-btn ${girar?"iv-girar-on":""}`} onClick={()=>{const g=!girar;setGirar(g);try{localStorage.setItem('iv_girar',g?'1':'0');}catch(e){}}} title={girar?"Volver a vertical":"Ver horizontal"} aria-label={girar?"Volver a vertical":"Ver horizontal"} aria-pressed={girar}><RotateIcon/></button>}
+            <button className="iv-ctrl-btn iv-fs-btn" onClick={toggleFS}>{isFS?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>
           </div>
         </div>
       </div>
