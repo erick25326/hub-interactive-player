@@ -515,9 +515,6 @@ export default function InteractiveVideoPlayer() {
       // principio (el seek aterrizado o el play desde 0), o 1 s de tope.
       if(resetHastaRef.current){ if(d.seconds>1&&Date.now()<resetHastaRef.current) return; resetHastaRef.current=0; }
       if(d.duration>0)finRef.current=d.duration;currentTimeRef.current=d.seconds;setCurrent(d.seconds);
-      // API para la página que nos contiene (la transcripción del campus): en qué
-      // segundo va el video. Sólo el tiempo, nada del alumno.
-      if(window.parent!==window){ try{ window.parent.postMessage({type:'ivplayer-time',t:d.seconds,d:finRef.current<Infinity?finRef.current:0},'*'); }catch(e){} }
     });
     p.on("play", ()=>{
       // Un play que no pidió el reproductor (auriculares, Centro de control) con
@@ -657,18 +654,32 @@ export default function InteractiveVideoPlayer() {
   const seekExternoRef=useRef(null);
   useEffect(()=>{
     const handler=(e)=>{
-      if(e.data?.type==='ivplayer-fullscreen-state'){
+      if(e.data?.type==='ivplayer-fullscreen-state'&&e.source===window.parent&&typeof e.data.isFS==='boolean'){
         setIsFS(e.data.isFS);
         setFakeFS(e.data.isFS);
       }
-      // Sólo de la página que nos contiene y del mismo sitio (el campus).
+      // Sólo de la página que nos contiene y del mismo sitio (el campus), y sólo
+      // un número de segundos válido (nada de '30', null o [30] convertidos).
       if(e.data?.type==='ivplayer-seek'&&e.source===window.parent&&window.parent!==window&&e.origin===location.origin){
-        seekExternoRef.current?.(Number(e.data.t));
+        const t=e.data.t;
+        if(typeof t==='number'&&Number.isFinite(t)&&t>=0) seekExternoRef.current?.(t);
       }
     };
     window.addEventListener('message',handler);
     return()=>window.removeEventListener('message',handler);
   },[]);
+
+  // API para la página que nos contiene (la transcripción del campus): en qué
+  // segundo va el video. Sale del ESTADO, no del timeupdate crudo, así también
+  // sigue los saltos optimistas (barra, transcripción, Reiniciar) aunque el medio
+  // todavía no informe tiempo. Sólo el tiempo, nada del alumno, y sólo al mismo
+  // sitio: los dos que nos incrustan (view.php y el modal de la web) lo son.
+  const ultimoTiempoPublicadoRef=useRef(null);
+  useEffect(()=>{
+    if(window.parent===window||currentTime===ultimoTiempoPublicadoRef.current) return;
+    ultimoTiempoPublicadoRef.current=currentTime;
+    try{ window.parent.postMessage({type:'ivplayer-time',t:currentTime,d:finRef.current<Infinity?finRef.current:(duration||0)},location.origin); }catch(e){}
+  },[currentTime]);
 
   useEffect(()=>{
     const h=()=>setIsFS(!!(document.fullscreenElement||document.webkitFullscreenElement));
@@ -826,6 +837,7 @@ export default function InteractiveVideoPlayer() {
   const seekTo=useCallback((t)=>{
     const p=playerRef.current;if(!p)return;
     terminoRef.current=false; // saltar después del final vuelve a ser ver el video
+    resetHastaRef.current=0;  // un salto pedido termina el filtro de Reiniciar: sus ticks son los buenos
     seekTargetRef.current=t;
     if(seekBusyRef.current){seekNextRef.current=t;return;}
     seekBusyRef.current=true;
@@ -887,8 +899,10 @@ export default function InteractiveVideoPlayer() {
     const p=playerRef.current;
     if(!p||!ready||activeIARef.current||!Number.isFinite(t)) return;
     const now=seekTargetRef.current!=null?seekTargetRef.current:currentTimeRef.current;
-    const tope=duration>0?duration:Infinity;
-    let targetTime=Math.max(0,Math.min(tope,t));
+    // Nunca dentro del último medio segundo: un salto al final terminaba el video
+    // con el <video> nativo y Vimeo lo perdía en silencio. Fin real si ya se conoce.
+    const fin=finRef.current<Infinity?finRef.current:(duration>0?duration:Infinity);
+    let targetTime=Math.max(0,Math.min(fin-0.5,t));
     let frena=false;
     if(targetTime>now){
       const next=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&ia.time>now&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];

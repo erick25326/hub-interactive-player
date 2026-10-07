@@ -105,9 +105,11 @@ echo $OUTPUT->header();
     var frame = document.getElementById('ivplayerFrame');
     var isFSNow = false;
 
-    // Listen for fullscreen requests from the player iframe.
+    // Listen for fullscreen requests from the player iframe (only from it:
+    // the lesson page also embeds activities from other sites).
     window.addEventListener('message', function(e) {
         if (!e.data || e.data.type !== 'ivplayer-fullscreen') return;
+        if (!frame || e.source !== frame.contentWindow) return;
         if (!wrap) return;
 
         if (e.data.action === 'enter' && !isFSNow) {
@@ -163,7 +165,7 @@ echo $OUTPUT->header();
 
     function notifyIframe(isFS) {
         if (frame && frame.contentWindow) {
-            frame.contentWindow.postMessage({ type: 'ivplayer-fullscreen-state', isFS: isFS }, '*');
+            frame.contentWindow.postMessage({ type: 'ivplayer-fullscreen-state', isFS: isFS }, location.origin);
         }
     }
 })();
