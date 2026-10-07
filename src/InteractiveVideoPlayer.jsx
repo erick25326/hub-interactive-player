@@ -373,6 +373,59 @@ function SubtitleDisplay({ cues, currentTime, visible }) {
 }
 
 // Main player
+/**
+ * ¿Hay que frenar el video en una interacción que pausa (nota o pregunta)?
+ *
+ * 🔴 Reproduciendo, frena recién AL LLEGAR a su tiempo, nunca antes. Antes se
+ * disparaba con |t − tiempo| < 0,8 s, así que un tick que caía a 7,3 s frenaba
+ * una pregunta de los 8 s y se comía el final de la frase, justo donde se ubican
+ * las preguntas: al terminar lo que se dice antes de la pausa. Ahora se frena
+ * entre 0 y un tick (≤0,25 s) después, que cae en el silencio que sigue.
+ *
+ * En un seek (salto de más de 2 s entre ticks) se acepta caer un poco antes: el
+ * skip y el scrub aterrizan EXACTO en la próxima interacción pendiente, y el
+ * reproductor puede quedar unas centésimas antes de ese punto. Si no se frenara
+ * ahí, el salto quedaría parado delante de la pregunta sin mostrarla.
+ *
+ * Un salto hacia adelante que CRUZA el tiempo no es un seek del alumno (el skip
+ * y el scrub nunca cruzan una pendiente): es el hilo trabado unos segundos, con
+ * React juntando varios timeupdate en un solo render. Se frena igual si el salto
+ * es de hasta SALTO_CRUCE, o de cualquier tamaño si el render anterior ya estaba
+ * a menos de DESPUES del tiempo (ahí el código viejo frenaba, antes de tiempo).
+ *
+ * `fin` es la duración REAL del medio. Una interacción en el último tramo, o
+ * puesta después del fin (el configurador guarda segundos enteros y Vimeo
+ * informa 79 s para un video de 78,72), se frena con el último tick.
+ *
+ * Exportada para poder probarla aislada.
+ */
+export const SEEK_MIN = 2;          // salto entre ticks que se considera seek
+export const ANTES_SEEK = 0.25;     // tolerancia antes del tiempo, sólo en seeks
+export const DESPUES = 0.8;         // hasta cuánto después todavía se frena
+export const SALTO_CRUCE = 6;       // salto que cruza el tiempo: ticks trabados, no seek
+export function debeFrenar(tiempo, prev, t, fin = Infinity) {
+  tiempo = Math.min(tiempo, fin - 0.05);
+  const salto = t - prev;
+  if (Math.abs(salto) > SEEK_MIN) {
+    if (prev < tiempo && t >= tiempo && (salto <= SALTO_CRUCE || prev >= tiempo - DESPUES)) return true;
+    return t >= tiempo - ANTES_SEEK && t < tiempo + DESPUES;
+  }
+  // Reproducción: llegó o pasó el tiempo y el tick anterior todavía no lo había
+  // dejado atrás por más de DESPUES (cubre también una interacción en el 0).
+  return t >= tiempo && prev < tiempo + DESPUES;
+}
+
+/**
+ * Qué tiempo guardar como avance. Con una pregunta abierta se guarda SU tiempo
+ * (acotado al fin real), no dónde está el video: a 2× con el pause lento queda
+ * más de 0,8 s después, y una pregunta del final queda abierta con el video ya
+ * rebobinado a 0. En los dos casos, al volver, la restauración no la mostraba más
+ * (ni se completaba la actividad). Restaurar en su tiempo la frena por el seek.
+ */
+export function tiempoAGuardar(t, activeIA, fin = Infinity) {
+  return activeIA ? Math.min(activeIA.time, fin - 0.05) : t;
+}
+
 export default function InteractiveVideoPlayer() {
   const config = getConfig();
   const { title, vimeoId, vimeoHash, subtitlesUrl, subtitlesCues, subtitlesOn, interactions } = config;
@@ -455,8 +508,19 @@ export default function InteractiveVideoPlayer() {
         }
       }).catch(()=>{});
     });
-    p.on("timeupdate", d=>{currentTimeRef.current=d.seconds;setCurrent(d.seconds);});
+    p.on("timeupdate", d=>{
+      // Tras Reiniciar, descartar los ticks de la posición vieja que ya venían en
+      // camino: con el tiempo puesto en 0, uno de esos parecía un cruce y mostraba
+      // al instante una pregunta ya respondida. Lo apaga el primer tick del
+      // principio (el seek aterrizado o el play desde 0), o 1 s de tope.
+      if(resetHastaRef.current){ if(d.seconds>1&&Date.now()<resetHastaRef.current) return; resetHastaRef.current=0; }
+      if(d.duration>0)finRef.current=d.duration;currentTimeRef.current=d.seconds;setCurrent(d.seconds);
+    });
     p.on("play", ()=>{
+      // Un play que no pidió el reproductor (auriculares, Centro de control) con
+      // una pregunta abierta corría el video por detrás. Mismo guard que la rama nativa.
+      if(activeIARef.current){ playIntentRef.current=null; p.pause(); return; }
+      terminoRef.current=false;
       setPlaying(true);
       // Moodle móvil: el gesto nunca llega al iframe de Vimeo (pointer-events:
       // none) y el navegador fuerza arranque muteado; el ícono decía "sonido
@@ -472,41 +536,76 @@ export default function InteractiveVideoPlayer() {
     p.on("bufferstart", ()=>setBuffering(true));
     p.on("bufferend", ()=>setBuffering(false));
     p.on("seeked", ()=>setBuffering(false));
-    p.on("ended", ()=>{
-      setPlaying(false);
-      setVideoEnded(true);
-      if(config.loop){
-        p.setCurrentTime(0).then(()=>p.play());
-      } else {
-        // Reset to beginning so play button works after video ends
-        p.setCurrentTime(0);
-      }
-    });
+    p.on("ended", ()=>alTerminarRef.current());
     // No cleanup — Vimeo Player does not survive StrictMode destroy/recreate cycle
   },[vimeoData]);
 
+  // Lo que pasa al terminar el video. Lo llama 'ended' y también dismiss: si el
+  // pause de una pregunta cae justo en el fin, Vimeo a veces deja el medio
+  // terminado SIN emitir 'ended', y un play() ahí arrancaba desde 0 sin
+  // completar la actividad.
+  const alTerminarRef=useRef(()=>{});
+  alTerminarRef.current=()=>{
+    if(terminoRef.current) return; // ya terminó (un 'ended' tardío no rebobina dos veces)
+    // Sin intent, el watchdog de safePlay no relanza el video que acaba de
+    // volver a 0; terminoRef evita que cerrar una pregunta del final lo arranque.
+    terminoRef.current=true;
+    playIntentRef.current=null;
+    setPlaying(false);
+    setVideoEnded(true);
+    const p=playerRef.current; if(!p) return;
+    // Con una pregunta abierta el bucle espera a que la respondan (dismiss).
+    if(config.loop&&!activeIARef.current){
+      // Si mientras rebobinaba se abrió otra interacción del final, no correr
+      // el bucle debajo de ella: lo reanuda dismiss al cerrarla.
+      p.setCurrentTime(0).then(()=>{ if(!activeIARef.current) p.play().catch(()=>{}); });
+    } else {
+      // Reset to beginning so play button works after video ends
+      p.setCurrentTime(0);
+    }
+  };
+
   // Tiempo del tick anterior, para disparar por CRUCE y no solo por proximidad:
   // los timeupdate de Vimeo llegan ~cada 250ms de reloj, así que a 2× (o con la
-  // pestaña throttleada) el cruce podía caer fuera de la ventana de ±0.8s y la
-  // interacción no disparaba nunca. Un salto grande entre ticks es un seek (lo
-  // cubre el clamp de skip/scrub), no un cruce de reproducción.
+  // pestaña throttleada) el cruce podía caer fuera de una ventana fija y la
+  // interacción no disparaba nunca. La decisión vive en debeFrenar().
   const prevTimeRef=useRef(0);
+  const finRef=useRef(Infinity); // duración real del medio, del timeupdate
+  // Al cerrar una pregunta con el video ya terminado (y rebobinado a 0), evaluar
+  // una vez contra el fin: dos interacciones del último tramo vencen con el mismo
+  // tick final y el efecto muestra de a una (break), así que la segunda sólo
+  // aparece si se la mira desde el fin y no desde el 0.
+  const evaluarEnFinRef=useRef(false);
+  // En bucle, el play al cerrar una pregunta del final lo da este efecto y no
+  // dismiss: así sólo sale si la pasada contra el fin no abre otra tarjeta (a 2×,
+  // un play desde dismiss quedaba en vuelo y el video corría debajo de ella).
+  const bucleAlCerrarRef=useRef(false);
+  const activeIARef=useRef(null);
+  useEffect(()=>{ activeIARef.current=activeIA; },[activeIA]);
   useEffect(()=>{
     const prev=prevTimeRef.current;
-    prevTimeRef.current=currentTime;
     if(!ready||activeIA) return;
-    const isSeek=Math.abs(currentTime-prev)>2;
+    const t=evaluarEnFinRef.current&&finRef.current<Infinity?finRef.current:currentTime;
+    evaluarEnFinRef.current=false;
+    // 🔴 Después del return, no antes: con la pregunta abierta prev se queda en
+    // el tick que la disparó. Si avanzara hasta donde terminó de frenar (a 2× con
+    // el pause lento, más de 0,8 s después), una segunda pregunta pegada a la
+    // primera se salteaba al cerrarla.
+    prevTimeRef.current=t;
+    const reanudarBucle=bucleAlCerrarRef.current;
+    bucleAlCerrarRef.current=false;
     for(const ia of interactions){
       if(ia.type==="label") continue; // Labels don't pause the video.
       if(completed.has(ia.id)||triggered.current.has(ia.id)) continue;
       if(ia.type==="hotspot"){
         if(currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||8)){
-          triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); setActiveIA(ia); break;
+          triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); activeIARef.current=ia; setActiveIA(ia); return;
         }
-      } else if(Math.abs(currentTime-ia.time)<0.8||(!isSeek&&prev<ia.time&&currentTime>=ia.time)){
-        triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); setActiveIA(ia); break;
+      } else if(debeFrenar(ia.time,prev,t,finRef.current)){
+        triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); activeIARef.current=ia; setActiveIA(ia); return;
       }
     }
+    if(reanudarBucle) safePlay();
   },[currentTime,ready,completed,interactions,activeIA]);
 
   const toggleFS = useCallback(async()=>{
@@ -648,21 +747,22 @@ export default function InteractiveVideoPlayer() {
     if(!ready) return;
     if(Date.now()-lastSaveRef.current<5000) return;
     lastSaveRef.current=Date.now();
-    const snapshot={completed:[...completed],currentTime,updatedAt:Date.now()};
+    const tGuardar=tiempoAGuardar(currentTime,activeIA,finRef.current);
+    const snapshot={completed:[...completed],currentTime:tGuardar,updatedAt:Date.now()};
     try{
       localStorage.setItem(`iv_progress_${vimeoData.id}`,JSON.stringify(snapshot));
     }catch(e){}
-    moodleSaveProgress({completed:snapshot.completed,currentTime});
+    moodleSaveProgress({completed:snapshot.completed,currentTime:tGuardar});
     scormSetTime(currentTime);
-  },[completed,currentTime,ready,vimeoData.id]);
+  },[completed,currentTime,ready,vimeoData.id,activeIA]);
 
   // Final progress save when leaving the page (sendBeacon survives unload)
   useEffect(()=>{
     if(!ready) return;
-    const onUnload=()=>moodleSaveProgress({completed:[...completed],currentTime},true);
+    const onUnload=()=>moodleSaveProgress({completed:[...completed],currentTime:tiempoAGuardar(currentTime,activeIA,finRef.current)},true);
     window.addEventListener("pagehide",onUnload);
     return()=>window.removeEventListener("pagehide",onUnload);
-  },[ready,completed,currentTime]);
+  },[ready,completed,currentTime,activeIA]);
 
   // Report completion when the video ends with every interaction done
   // (covers videos with zero interactions and progress restored from a
@@ -713,6 +813,7 @@ export default function InteractiveVideoPlayer() {
   const seekTargetRef=useRef(null); // último destino pedido; null si no hay seek pendiente
   const seekTo=useCallback((t)=>{
     const p=playerRef.current;if(!p)return;
+    terminoRef.current=false; // saltar después del final vuelve a ser ver el video
     seekTargetRef.current=t;
     if(seekBusyRef.current){seekNextRef.current=t;return;}
     seekBusyRef.current=true;
@@ -728,6 +829,11 @@ export default function InteractiveVideoPlayer() {
   // estado real a los 700ms y reintentar una vez. El intent se invalida al
   // pausar para no "revivir" un video que el usuario o una interacción pausó.
   const playIntentRef=useRef(null);
+  // true desde 'ended' hasta el próximo play o seek. No sirve videoEnded: ese
+  // estado sólo vuelve a false al reiniciar, y en una segunda vista dejaría el
+  // video frenado después de cada respuesta.
+  const terminoRef=useRef(false);
+  const resetHastaRef=useRef(0); // tras Reiniciar: hasta cuándo descartar timeupdate viejos
   const safePlay=useCallback(()=>{
     const p=playerRef.current;if(!p)return;
     const intent=Symbol();
@@ -735,8 +841,13 @@ export default function InteractiveVideoPlayer() {
     p.play().catch(()=>{});
     setTimeout(()=>{
       if(playIntentRef.current!==intent)return;
-      p.getPaused().then(paused=>{
-        if(paused&&playIntentRef.current===intent) p.play().catch(()=>{});
+      Promise.all([p.getPaused(),p.getCurrentTime()]).then(([paused,t])=>{
+        if(!paused||playIntentRef.current!==intent) return;
+        // Pausado EN el fin = terminó. Vimeo a veces contesta paused=true antes
+        // de mandar 'ended' (y hasta antes del tick final): un play() acá lo
+        // relanzaba desde 0 al responder una pregunta a ~1 s del final.
+        if(Math.max(t,currentTimeRef.current)>=finRef.current-0.3) alTerminarRef.current();
+        else p.play().catch(()=>{});
       }).catch(()=>{});
     },700);
   },[]);
@@ -874,7 +985,19 @@ export default function InteractiveVideoPlayer() {
       const next=new Set([...completed,ia.id]);
       setCompleted(next);
       setActiveIA(null);
-      safePlay();
+      activeIARef.current=null;
+      // Frenó pegado al fin: el medio pudo terminar sin 'ended' (ver alTerminar).
+      // Darlo por terminado en vez de un play() que arrancaría desde 0. Se mira
+      // también el tiempo de la interacción: un play externo con ella abierta
+      // (auriculares, Centro de control) rebobina el medio terminado a 0.
+      // (Reiniciar vacía triggered: una que quedó abierta al reiniciar no cuenta.)
+      if(!terminoRef.current&&Math.max(currentTimeRef.current,triggered.current.has(ia.id)?Math.min(ia.time,finRef.current):0)>=finRef.current-0.3) alTerminarRef.current();
+      else if(!terminoRef.current) safePlay();
+      // Una pregunta del último tramo puede seguir abierta cuando el video ya
+      // terminó y volvió a 0: cerrarla no lo arranca (salvo en bucle, que lo
+      // esperaba) y se revisa contra el fin si quedó otra del mismo tramo.
+      else if(config.loop) bucleAlCerrarRef.current=true;
+      if(terminoRef.current) evaluarEnFinRef.current=true;
       // Report individual interaction to SCORM + Moodle gradebook
       if(result&&(ia.type==="multiple-choice"||ia.type==="true-false")){
         const scormType=ia.type==="multiple-choice"?"choice":"true-false";
@@ -893,7 +1016,12 @@ export default function InteractiveVideoPlayer() {
     setCompleted(new Set());
     triggered.current=new Set();
     setVideoEnded(false);
+    terminoRef.current=false; // reiniciar es volver a ver el video, como un seek
     moodleSaveProgress({completed:[],currentTime:0});
+    // El tiempo del componente pasa a 0 ya, sin esperar el timeupdate del seek:
+    // si se quedaba en el fin, las interacciones del final volvían a vencer.
+    currentTimeRef.current=0; prevTimeRef.current=0; setCurrent(0);
+    resetHastaRef.current=Date.now()+1000;
     playerRef.current?.setCurrentTime(0);
   };
 
