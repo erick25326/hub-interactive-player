@@ -533,8 +533,12 @@ html, body { margin: 0; padding: 0; background: #000; }
   }
   .iv-container {
     aspect-ratio: unset;
-    height: calc(100dvh - 30px);
+    /* 🔴 vh primero (respaldo) y dvh después: gana la última que el navegador
+       entiende. Estaban al revés y ganaba 100vh, que en Chrome de Android
+       incluye la franja de la barra de direcciones: con el celular acostado el
+       video quedaba más alto que la pantalla y los controles, debajo del borde. */
     height: calc(100vh - 30px);
+    height: calc(100dvh - 30px);
     border-radius: 0;
   }
   .iv-legend {
