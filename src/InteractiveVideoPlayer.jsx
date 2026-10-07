@@ -515,6 +515,9 @@ export default function InteractiveVideoPlayer() {
       // principio (el seek aterrizado o el play desde 0), o 1 s de tope.
       if(resetHastaRef.current){ if(d.seconds>1&&Date.now()<resetHastaRef.current) return; resetHastaRef.current=0; }
       if(d.duration>0)finRef.current=d.duration;currentTimeRef.current=d.seconds;setCurrent(d.seconds);
+      // API para la página que nos contiene (la transcripción del campus): en qué
+      // segundo va el video. Sólo el tiempo, nada del alumno.
+      if(window.parent!==window){ try{ window.parent.postMessage({type:'ivplayer-time',t:d.seconds,d:finRef.current<Infinity?finRef.current:0},'*'); }catch(e){} }
     });
     p.on("play", ()=>{
       // Un play que no pidió el reproductor (auriculares, Centro de control) con
@@ -647,11 +650,20 @@ export default function InteractiveVideoPlayer() {
   },[fakeFS]);
 
   // Listen for fullscreen state changes from parent (Moodle plugin)
+  // y pedidos de salto de la página (la transcripción del campus): pasan por
+  // seekExternoRef, que respeta el candado de preguntas igual que la barra.
+  // 🔴 Antes la transcripción manejaba el iframe de Vimeo directo y salteaba
+  // las preguntas pendientes; con Bunny ni siquiera habría iframe de Vimeo.
+  const seekExternoRef=useRef(null);
   useEffect(()=>{
     const handler=(e)=>{
       if(e.data?.type==='ivplayer-fullscreen-state'){
         setIsFS(e.data.isFS);
         setFakeFS(e.data.isFS);
+      }
+      // Sólo de la página que nos contiene y del mismo sitio (el campus).
+      if(e.data?.type==='ivplayer-seek'&&e.source===window.parent&&window.parent!==window&&e.origin===location.origin){
+        seekExternoRef.current?.(Number(e.data.t));
       }
     };
     window.addEventListener('message',handler);
@@ -867,6 +879,25 @@ export default function InteractiveVideoPlayer() {
     }
     setCurrent(targetTime); // optimista, igual que el scrub
     seekTo(targetTime);
+  };
+  // Salto pedido desde afuera (clic en una línea de la transcripción): las mismas
+  // reglas que la barra. Hacia adelante no pasa una pregunta pendiente: frena en
+  // ella y la muestra. Con una pregunta abierta no hace nada (primero se responde).
+  seekExternoRef.current=(t)=>{
+    const p=playerRef.current;
+    if(!p||!ready||activeIARef.current||!Number.isFinite(t)) return;
+    const now=seekTargetRef.current!=null?seekTargetRef.current:currentTimeRef.current;
+    const tope=duration>0?duration:Infinity;
+    let targetTime=Math.max(0,Math.min(tope,t));
+    let frena=false;
+    if(targetTime>now){
+      const next=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&ia.time>now&&ia.time<=targetTime).sort((a,b)=>a.time-b.time)[0];
+      if(next){ targetTime=next.time; frena=true; }
+    }
+    setCurrent(targetTime);
+    seekTo(targetTime);
+    // Como antes (saltar y seguir), salvo que caiga en una pregunta: la frena el efecto.
+    if(!frena) safePlay();
   };
   const toggleMute=()=>{
     const p=playerRef.current;if(!p)return;
