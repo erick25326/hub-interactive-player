@@ -954,3 +954,28 @@ html, body { margin: 0; padding: 0; background: #000; }
 /* En la explicación, el primer párrafo tiene que despegarse del "✓ ¡Correcto!",
    que es el margen que antes daba la regla .iv-explanation p. */
 .iv-explanation .iv-rich { margin-top: 6px; }
+
+/* ─── GIRO SIMULADO ─────────────────────────────────────────
+   Pantalla completa con el celular parado y la rotación automática bloqueada:
+   se gira el wrapper 90° (como el rotateFullscreen de xgplayer). Sólo con el
+   viewport vertical: si la pantalla gira sola, la media query deja de aplicar. */
+@media (orientation: portrait) {
+  .iv-wrapper.fake-fs.girado {
+    inset: auto;
+    top: 0;
+    left: 100%;
+    width: 100vh;
+    width: 100dvh;
+    height: 100vw;
+    transform-origin: top left;
+    transform: rotate(90deg);
+    /* izquierda local = arriba físico (isla/estado); derecha local = abajo físico */
+    padding: 0 env(safe-area-inset-bottom, 0px) 0 env(safe-area-inset-top, 0px) !important;
+  }
+  .iv-wrapper.fake-fs.girado .iv-container {
+    width: min(100%, calc(100vw * 16 / 9));
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+}
+.iv-ctrl-btn.iv-girar-on { color: #84F4BE; }

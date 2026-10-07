@@ -54,10 +54,13 @@ function esApple() {
 }
 
 export default class NativePlayer {
-  constructor(el, { src, poster } = {}) {
+  constructor(el, { src, poster, motor = "auto" } = {}) {
     this.handlers = {};
     this.hls = null;
     this.src = src;
+    this.motorPedido = motor;     // 'auto' | 'hls' | 'nativo' (prueba en iPhone: ?motor=)
+    this.motor = null;            // el que quedó: 'hls' | 'nativo' | 'mp4'
+    this._finEmitido = false;
     this._error = null;           // error fatal ya emitido (se re-entrega a quien se suscriba tarde)
     this._seekPendiente = null;   // posición pedida antes de que llegara la metadata
     this._reintentosRed = 0;
@@ -92,13 +95,31 @@ export default class NativePlayer {
     this._cargar();
   }
 
+  // Qué motor usar. Hoy el iPhone va por defecto al HLS de Safari, que arranca por
+  // la PRIMERA variante del master (Bunny pone 360p) y espera a no cortarse antes
+  // de retomar un salto. hls.js en iPhone usa ManagedMediaSource (iOS 17.1+):
+  // arranca por estimación y retoma con un segmento. Con ?motor= se comparan.
+  _elegirMotor() {
+    const hlsOk = Hls.isSupported();
+    const natOk = !!this.video.canPlayType(HLS_MIME);
+    if (this.motorPedido === "nativo" && natOk) return "nativo";
+    if (this.motorPedido === "hls" && hlsOk) return "hls";
+    if (esApple()) return natOk ? "nativo" : (hlsOk ? "hls" : null);
+    return hlsOk ? "hls" : (natOk ? "nativo" : null);
+  }
+
   _cargar() {
     const v = this.video, src = this.src;
     if (!src) return this._fallar("sin-fuente", { details: "Falta la URL del video" });
-    if (!esHls(src)) { v.src = src; return; }      // MP4 directo
-    if (esApple() && v.canPlayType(HLS_MIME)) { v.src = src; return; }
-    if (Hls.isSupported()) {
+    if (!esHls(src)) { this.motor = "mp4"; v.dataset.motor = "mp4"; v.src = src; return; }      // MP4 directo
+    const motor = this._elegirMotor();
+    this.motor = motor; v.dataset.motor = motor || "";
+    if (motor === "nativo") { v.src = src; return; }
+    if (motor === "hls") {
       const hls = new Hls({
+        // En Apple (iPad/Mac con MSE clásico) preferir ManagedMediaSource: es el que
+        // existe en iPhone y el que Apple recomienda por batería.
+        preferManagedMediaSource: esApple(),
         abrEwmaDefaultEstimate: ARRANQUE_BPS,
         capLevelToPlayerSize: true,   // no bajar 1080p para una ventana chica
         // Un celular de densidad 3 pedía 1080p para un video de 375 px de ancho.
@@ -110,12 +131,22 @@ export default class NativePlayer {
       });
       hls.on(Hls.Events.FRAG_BUFFERED, () => { this._reintentosRed = 0; });
       hls.on(Hls.Events.ERROR, (_e, data) => this._errorHls(data));
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => {
+        const nivel = hls.levels[data.level];
+        if (nivel) v.dataset.nivel = String(nivel.height || "");
+      });
+      // Seguro: con MSE el navegador a veces no despacha 'ended' (hls.js lo
+      // compensa con MEDIA_ENDED). Sin 'ended' no se registra la finalización.
+      hls.on(Hls.Events.MEDIA_ENDED, () => {
+        if (this._finEmitido) return;
+        this._finEmitido = true;
+        this._emit("ended", { seconds: v.currentTime, duration: Number.isFinite(v.duration) ? v.duration : 0, percent: 1 });
+      });
       hls.loadSource(src);
       hls.attachMedia(v);
       this.hls = hls;
       return;
     }
-    if (v.canPlayType(HLS_MIME)) { v.src = src; return; }   // último recurso
     this._fallar("sin-soporte", { details: "Este navegador no puede reproducir el video" });
   }
 
@@ -176,10 +207,12 @@ export default class NativePlayer {
     // 0 aunque el alumno esté en el minuto 3: no reenviarlo o se guarda 0.
     v.addEventListener("timeupdate", () => { if (v.readyState) this._emit("timeupdate", datos()); });
     v.addEventListener("play", () => {
+      this._finEmitido = false;
       // Recién al reproducir se llena el buffer de verdad (ver BUFFER_INICIAL).
       if (this.hls) { this.hls.config.maxBufferLength = BUFFER_REPRODUCIENDO; this.hls.config.maxMaxBufferLength = BUFFER_REPRODUCIENDO; }
       this._emit("play", datos());
     });
+    v.addEventListener("seeking", () => { this._finEmitido = false; });
     v.addEventListener("pause", () => this._emit("pause", datos()));
     // load() (que hace hls.js al recuperarse) pausa sin disparar 'pause': avisar.
     v.addEventListener("emptied", () => { if (v.paused) this._emit("pause", datos()); });
@@ -187,6 +220,8 @@ export default class NativePlayer {
       // Terminó: dejar de bajar. Si no, al volver a 0 (lo hace el componente)
       // hls.js volvía a llenar el buffer con un video que ya se vio.
       if (this.hls) { this.hls.stopLoad(); this._detenido = true; }
+      if (this._finEmitido) return;   // ya lo emitió MEDIA_ENDED de hls.js
+      this._finEmitido = true;
       this._emit("ended", datos());
     });
     v.addEventListener("seeked", () => this._emit("seeked", datos()));

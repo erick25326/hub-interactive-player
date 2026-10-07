@@ -12,6 +12,8 @@ const DEFAULT_CONFIG = {
   // Si está, manda sobre vimeoId y se usa el <video> nativo (ver nativePlayer.js).
   videoUrl: null,
   poster: null,
+  // Motor del video propio: 'auto' (hls.js; HLS de Safari en Apple), 'hls' o 'nativo'.
+  videoMotor: 'auto',
   loop: false,              // true = repetir video al terminar
   subtitlesUrl: null,
   subtitlesCues: [],
@@ -123,6 +125,7 @@ const VolumeIcon = ({ muted }) => muted
 const SkipBackIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="12" y="15.5" textAnchor="middle" fontSize="7.5" fontWeight="700" fontFamily="sans-serif">10</text></svg>;
 const SkipFwdIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="12" y="15.5" textAnchor="middle" fontSize="7.5" fontWeight="700" fontFamily="sans-serif">10</text></svg>;
 const SubsIcon = ({ on }) => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" opacity={on?1:0.4}><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6v-2zm0 4h8v2H6v-2zm10 0h2v2h-2v-2zm-6-4h8v2h-8v-2z"/></svg>;
+const RotateIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0l-.66.03 3.81 3.81 1.33-1.32zm-6.25-.77a1.49 1.49 0 0 0-2.12 0L1.75 8.11a1.49 1.49 0 0 0 0 2.12l12.02 12.02c.59.59 1.54.59 2.12 0l6.36-6.36c.59-.59.59-1.54 0-2.12L10.23 1.75zm4.6 19.44L2.81 9.17l6.36-6.36 12.02 12.02-6.36 6.36zm-7.31.29C4.25 19.94 1.91 16.76 1.55 13H.05C.56 19.16 5.71 24 12 24l.66-.03-3.81-3.81-1.33 1.32z"/></svg>;
 const CheckIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>;
 const CrossIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>;
 const InfoIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>;
@@ -433,7 +436,7 @@ export function tiempoAGuardar(t, activeIA, fin = Infinity) {
 
 export default function InteractiveVideoPlayer() {
   const config = getConfig();
-  const { title, vimeoId, vimeoHash, videoUrl, poster, subtitlesUrl, subtitlesCues, subtitlesOn, interactions } = config;
+  const { title, vimeoId, vimeoHash, videoUrl, poster, videoMotor, subtitlesUrl, subtitlesCues, subtitlesOn, interactions } = config;
   // Video propio (HLS/MP4) en vez de Vimeo. También se acepta pegado en vimeoId,
   // para poder probar sin tocar el formulario de Moodle.
   const nativeSrc = videoUrl
@@ -452,6 +455,12 @@ export default function InteractiveVideoPlayer() {
   const [showVolSlider, setShowVolSlider] = useState(false);
   const [isFS, setIsFS] = useState(false);
   const [fakeFS, setFakeFS] = useState(false);
+  // Giro simulado: el reproductor se gira 90° con CSS cuando la pantalla no gira sola
+  // (rotación automática bloqueada, iPhone sin screen.orientation.lock).
+  const [girar, setGirar] = useState(false);
+  const [vertical, setVertical] = useState(() => !!window.matchMedia?.('(orientation: portrait)').matches);
+  const [bloqueoOk, setBloqueoOk] = useState(false);   // screen.orientation.lock('landscape') resolvió
+  const giroRef = useRef(0);
   const [activeIA, setActiveIA] = useState(null);
   const [completed, setCompleted] = useState(new Set());
   const [showCtrl, setShowCtrl] = useState(true);
@@ -512,7 +521,7 @@ export default function InteractiveVideoPlayer() {
     };
     // Misma interfaz en los dos casos (ver nativePlayer.js): el resto del
     // componente no sabe si atrás hay Vimeo o un <video> propio.
-    const p = nativeSrc ? new NativePlayer(vimeoRef.current, { src: nativeSrc, poster }) : crearVimeo();
+    const p = nativeSrc ? new NativePlayer(vimeoRef.current, { src: nativeSrc, poster, motor: videoMotor }) : crearVimeo();
     playerRef.current = p;
     p.ready().then(()=>{
       setReady(true);
@@ -641,9 +650,53 @@ export default function InteractiveVideoPlayer() {
         triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); activeIARef.current=ia; setActiveIA(ia); return;
       }
     }
+    // 🔴 GUARDIA de saltos que NO pidió el reproductor: los ±15 s de la pantalla de
+    // bloqueo, el Centro de control o los auriculares (iOS los aplica directo al
+    // medio, sin pasar por la barra) o un hilo trabado largo. Si el salto dejó atrás
+    // una pregunta pendiente, se vuelve a ella y se la muestra. Sin esto quedaba
+    // salteada para siempre: el avance se guardaba después y no se completaba.
+    // Los saltos propios (barra, skip, transcripción, restaurar) no pasan por acá.
+    if(t>prev+DESPUES&&seekTargetRef.current==null&&Date.now()>seekPropioHastaRef.current){
+      const saltada=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&!triggered.current.has(ia.id)&&ia.time>prev&&ia.time<t).sort((a,b)=>a.time-b.time)[0];
+      if(saltada){
+        const vuelta=Math.max(0,Math.min(saltada.time,finRef.current-0.05));
+        setCurrent(vuelta);   // optimista: el efecto la frena por la rama de seek
+        seekTo(vuelta);
+        return;
+      }
+    }
     if(reanudarBucle) safePlay();
   },[currentTime,ready,completed,interactions,activeIA]);
 
+  // Gesto o botón de ATRÁS con la pantalla completa simulada (iPhone, página
+  // suelta): cierra la pantalla completa como en YouTube en vez de irse de la
+  // página. Entrada propia en el historial al entrar con un toque (Safari ignora
+  // al volver las entradas agregadas sin gesto del usuario); al salir con el
+  // botón se consume con history.back(). Dentro de un iframe NO se toca el
+  // historial: lo hace la página que lo contiene (view.php / prueba-campus).
+  const esperandoBackRef=useRef(false);
+  const fakeFSRef=useRef(false);
+  useEffect(()=>{ fakeFSRef.current=fakeFS; },[fakeFS]);
+  useEffect(()=>{
+    if(window.parent!==window) return;
+    const h=(e)=>{
+      esperandoBackRef.current=false;
+      if(fakeFSRef.current&&!(e.state&&e.state.ivplayerFS)){ setFakeFS(false); setIsFS(false); }
+    };
+    window.addEventListener("popstate",h);
+    return()=>window.removeEventListener("popstate",h);
+  },[]);
+  const soltarHorizontal=()=>{ setBloqueoOk(false); try{ screen.orientation?.unlock?.(); }catch(e){} };
+  const aplicarPreferenciaGiro=()=>{ try{ if(localStorage.getItem('iv_girar')==='1') setGirar(true); }catch(e){} };
+  const bloquearHorizontal=()=>{
+    const so=screen.orientation; let p=null;
+    try{ p=so?.lock?.('landscape'); }catch(e){ p=null; }
+    if(!p||!p.then){ aplicarPreferenciaGiro(); return; }
+    // Con tope: si el sistema ignora el pedido (tablets con Android 16) la promesa
+    // queda pendiente para siempre.
+    Promise.race([p.then(()=>true,()=>false), new Promise(r=>setTimeout(()=>r(false),1500))])
+      .then(ok=>{ setBloqueoOk(ok); if(!ok) aplicarPreferenciaGiro(); });
+  };
   const toggleFS = useCallback(async()=>{
     // 🔴 Pantalla completa sobre el WRAPPER, no sobre .iv-container. Vimeo con
     // `responsive: true` arma una caja de alto = ancho × 9/16 pegada ARRIBA de su
@@ -658,9 +711,10 @@ export default function InteractiveVideoPlayer() {
     // Try native Fullscreen API on the wrapper (desktop/Android/standalone)
     try{
       if(!document.fullscreenElement&&!document.webkitFullscreenElement&&!fakeFS){
-        if(el.requestFullscreen) { await el.requestFullscreen(); return; }
+        if(el.requestFullscreen) { await el.requestFullscreen({navigationUI:'hide'}); bloquearHorizontal(); return; }
         if(el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); return; }
       } else if(document.fullscreenElement||document.webkitFullscreenElement){
+        soltarHorizontal();
         if(document.exitFullscreen) { await document.exitFullscreen(); return; }
         if(document.webkitExitFullscreen) { document.webkitExitFullscreen(); return; }
       }
@@ -670,16 +724,25 @@ export default function InteractiveVideoPlayer() {
       try{
         const action=fakeFS?'exit':'enter';
         window.parent.postMessage({type:'ivplayer-fullscreen',action},'*');
+        if(action==='enter') aplicarPreferenciaGiro();
         setFakeFS(!fakeFS);
         setIsFS(!fakeFS);
         return;
       }catch(e){}
     }
-    // Last fallback: CSS fake-fullscreen
+    // Last fallback: CSS fake-fullscreen (iPhone en la página suelta)
     const entering=!fakeFS;
+    if(entering&&esperandoBackRef.current) return;   // un toque durante nuestro propio atrás
     setFakeFS(entering);
     setIsFS(entering);
-    try{ if(entering) await screen.orientation?.lock('landscape'); else screen.orientation?.unlock(); }catch(e){}
+    if(entering){
+      aplicarPreferenciaGiro();
+      if(!(history.state&&history.state.ivplayerFS)){ try{ history.pushState({ivplayerFS:1},""); }catch(e){} }
+    } else if(history.state&&history.state.ivplayerFS){
+      esperandoBackRef.current=true;
+      setTimeout(()=>{ esperandoBackRef.current=false; },1000);
+      try{ history.back(); }catch(e){}
+    }
   },[fakeFS]);
 
   // Listen for fullscreen state changes from parent (Moodle plugin)
@@ -718,7 +781,7 @@ export default function InteractiveVideoPlayer() {
   },[currentTime]);
 
   useEffect(()=>{
-    const h=()=>setIsFS(!!(document.fullscreenElement||document.webkitFullscreenElement));
+    const h=()=>{ const en=!!(document.fullscreenElement||document.webkitFullscreenElement); setIsFS(en); if(!en) soltarHorizontal(); };
     document.addEventListener("fullscreenchange",h);
     document.addEventListener("webkitfullscreenchange",h);
     return()=>{document.removeEventListener("fullscreenchange",h);document.removeEventListener("webkitfullscreenchange",h);};
@@ -731,7 +794,10 @@ export default function InteractiveVideoPlayer() {
   // unavailable on some Vimeo plans — failures are silently ignored.
   useEffect(()=>{
     const p=playerRef.current;
-    if(!p||!ready) return;
+    // Sólo Vimeo: con video propio hls.js sube la calidad solo al agrandarse
+    // (capLevelToPlayerSize), y si nativePlayer expone calidades esto recargaría
+    // el video en iPhone en cada entrada y salida de pantalla completa.
+    if(!p||!ready||nativeSrc) return;
     if(isFS||fakeFS){
       p.getQualities().then(qs=>{
         if(!Array.isArray(qs)||!qs.length) return;
@@ -749,6 +815,15 @@ export default function InteractiveVideoPlayer() {
       p.setQuality('auto').catch(()=>{});
     }
   },[isFS,fakeFS,ready]);
+
+  useEffect(()=>{
+    const mq=window.matchMedia?.('(orientation: portrait)'); if(!mq) return;
+    // Si la pantalla gira sola (rotación automática prendida), el giro simulado sobra.
+    const h=()=>{ setVertical(mq.matches); if(!mq.matches) setGirar(false); };
+    mq.addEventListener?.('change',h);
+    return()=>mq.removeEventListener?.('change',h);
+  },[]);
+  useEffect(()=>{ if(!isFS&&!fakeFS){ setGirar(false); setBloqueoOk(false); } },[isFS,fakeFS]);
 
   // Keyboard shortcuts
   useEffect(()=>{
@@ -799,6 +874,7 @@ export default function InteractiveVideoPlayer() {
         if(data.currentTime&&playerRef.current){
           // Optimista: si el video todavía no cargó, el estado ya queda en la
           // posición guardada y no se vuelve a guardar 0 al salir.
+          seekPropioHastaRef.current=Date.now()+3000; // salto propio: la guardia no lo toca
           currentTimeRef.current=data.currentTime;
           setCurrent(data.currentTime);
           playerRef.current.setCurrentTime(data.currentTime);
@@ -876,10 +952,14 @@ export default function InteractiveVideoPlayer() {
   const seekBusyRef=useRef(false);
   const seekNextRef=useRef(null);
   const seekTargetRef=useRef(null); // último destino pedido; null si no hay seek pendiente
+  // Hasta cuándo un salto se considera propio (la guardia de saltos no lo toca):
+  // cubre el tick tardío del medio después de que el seek ya resolvió.
+  const seekPropioHastaRef=useRef(0);
   const seekTo=useCallback((t)=>{
     const p=playerRef.current;if(!p)return;
     terminoRef.current=false; // saltar después del final vuelve a ser ver el video
     resetHastaRef.current=0;  // un salto pedido termina el filtro de Reiniciar: sus ticks son los buenos
+    seekPropioHastaRef.current=Date.now()+1500;
     seekTargetRef.current=t;
     if(seekBusyRef.current){seekNextRef.current=t;return;}
     seekBusyRef.current=true;
@@ -958,6 +1038,22 @@ export default function InteractiveVideoPlayer() {
     // Como antes (saltar y seguir), salvo que caiga en una pregunta: la frena el efecto.
     if(!frena) safePlay();
   };
+  const skipRef=useRef(null);
+  skipRef.current=skip;
+  // Pantalla de bloqueo, Centro de control y auriculares (Media Session): con
+  // video propio, sus saltos pasan por skip/seekExterno, que respetan el candado.
+  // Sin handlers, iOS salta ±15 s directo sobre el medio (para eso queda además
+  // la guardia del efecto de disparo). Con una pregunta abierta no hacen nada.
+  useEffect(()=>{
+    if(!nativeSrc||!('mediaSession' in navigator)) return;
+    const ms=navigator.mediaSession;
+    const poner=(accion,fn)=>{ try{ ms.setActionHandler(accion,fn); }catch(e){} };
+    try{ if(window.MediaMetadata) ms.metadata=new window.MediaMetadata({title:title||'Video'}); }catch(e){}
+    poner('seekbackward',d=>{ if(!activeIARef.current) skipRef.current?.(-((d&&d.seekOffset)||10)); });
+    poner('seekforward',d=>{ if(!activeIARef.current) skipRef.current?.((d&&d.seekOffset)||10); });
+    poner('seekto',d=>{ if(d&&typeof d.seekTime==='number') seekExternoRef.current?.(d.seekTime); });
+    return()=>{ ['seekbackward','seekforward','seekto'].forEach(a=>poner(a,null)); };
+  },[nativeSrc,title]);
   const toggleMute=()=>{
     const p=playerRef.current;if(!p)return;
     const m=!muted;
@@ -975,26 +1071,31 @@ export default function InteractiveVideoPlayer() {
   // the actual (expensive, async) Vimeo seek runs once on release.
   const [scrubPct,setScrubPct]=useState(null);
   const scrubbingRef=useRef(false);
-  const pctFromX=(clientX)=>{
-    const r=progressRef.current?.getBoundingClientRect();
+  // Fracción a lo largo del eje X LOCAL de un elemento. Con el reproductor girado
+  // 90°, el eje X local corre de arriba hacia abajo en la pantalla, y clientX /
+  // getBoundingClientRect() siguen en coordenadas de pantalla.
+  const fraccionX=(el,cx,cy)=>{
+    const r=el?.getBoundingClientRect();
     if(!r) return 0;
-    return Math.max(0,Math.min(1,(clientX-r.left)/r.width));
+    const f=giroRef.current===90?(cy-r.top)/r.height:(cx-r.left)/r.width;
+    return Math.max(0,Math.min(1,f));
   };
+  const pctFromX=(e)=>fraccionX(progressRef.current,e.clientX,e.clientY);
   const onScrubStart=(e)=>{
     if(!duration) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
     scrubbingRef.current=true;
-    setScrubPct(pctFromX(e.clientX));
+    setScrubPct(pctFromX(e));
   };
   const onScrubMove=(e)=>{
     if(!scrubbingRef.current) return;
-    setScrubPct(pctFromX(e.clientX));
+    setScrubPct(pctFromX(e));
   };
   const onScrubEnd=(e)=>{
     if(!scrubbingRef.current) return;
     scrubbingRef.current=false;
     setScrubPct(null);
-    let targetTime=pctFromX(e.clientX)*duration;
+    let targetTime=pctFromX(e)*duration;
     // Forward seeks can't skip past pending interactions (labels don't block:
     // they never enter `completed`, so without the type guard every forward
     // scrub crossing a label landed on it forever).
@@ -1026,11 +1127,10 @@ export default function InteractiveVideoPlayer() {
     if(activeIA) return;
     lastTouchAction.current=Date.now();
     const now=Date.now();
-    const rect=containerRef.current.getBoundingClientRect();
     const touch=e.changedTouches?.[0];
     if(!touch) return;
     const x=touch.clientX;
-    const rel=(x-rect.left)/rect.width;
+    const rel=fraccionX(containerRef.current,touch.clientX,touch.clientY);
     // El 40% del medio NO participa del doble tap: ahí un toque es play/pausa y
     // se ejecuta al instante. Antes todo toque esperaba 300 ms por si venía un
     // segundo, así que el 100% de los alumnos pagaba ese retardo para habilitar
@@ -1115,6 +1215,8 @@ export default function InteractiveVideoPlayer() {
     playerRef.current?.setCurrentTime(0);
   };
 
+  const girado=girar&&vertical&&(isFS||fakeFS);
+  giroRef.current=girado?90:0;
   const progress=scrubPct!=null?scrubPct*100:(duration?(currentTime/duration)*100:0);
   const displayTime=scrubPct!=null?scrubPct*duration:currentTime;
   const hasCues=cues&&cues.length>0;
@@ -1122,7 +1224,7 @@ export default function InteractiveVideoPlayer() {
   const completableInteractions=interactions.filter(ia=>ia.type!=="label");
 
   return (
-    <div ref={wrapperRef} className={`iv-wrapper ${fakeFS||isFS?"fake-fs":""} ${isEmbedded?"embedded":""}`}>
+    <div ref={wrapperRef} className={`iv-wrapper ${fakeFS||isFS?"fake-fs":""} ${girado?"girado":""} ${isEmbedded?"embedded":""}`}>
       <div className="iv-top-bar">
         <span className="iv-top-title">{title}</span>
         <span className="iv-top-progress">
@@ -1187,6 +1289,7 @@ export default function InteractiveVideoPlayer() {
                 {SPEEDS.map(s=><button key={s} className={`iv-speed-option ${s===speed?'active':''}`} onClick={()=>changeSpeed(s)}>{s}x</button>)}
               </div>}
             </div>
+            {(isFS||fakeFS)&&vertical&&!bloqueoOk&&<button className={`iv-ctrl-btn ${girar?"iv-girar-on":""}`} onClick={()=>{const g=!girar;setGirar(g);try{localStorage.setItem('iv_girar',g?'1':'0');}catch(e){}}} title={girar?"Volver a vertical":"Ver horizontal"} aria-label={girar?"Volver a vertical":"Ver horizontal"} aria-pressed={girar}><RotateIcon/></button>}
             <button className="iv-ctrl-btn" onClick={toggleFS}>{isFS?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>
           </div>
         </div>
