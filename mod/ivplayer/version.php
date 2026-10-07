@@ -2,7 +2,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'mod_ivplayer';
-$plugin->version = 2026100700;
+$plugin->version = 2026100701;
 $plugin->requires = 2022112800; // Moodle 4.1+
 $plugin->maturity = MATURITY_BETA;
-$plugin->release = '1.2.8'; // Las preguntas y notas frenan el video al llegar a su tiempo, no hasta 0,8 s antes (cortaban la última palabra). Además: el final del video no vuelve a arrancar solo al responder, y Reiniciar, el bucle y la restauración del avance se portan bien en los bordes.
+$plugin->release = '1.2.9'; // La transcripción ya no puede saltear preguntas: el reproductor ofrece una API de tiempo y salto (postMessage) con el mismo candado que la barra. Además, con el celular acostado los controles ya no quedan debajo del borde.
