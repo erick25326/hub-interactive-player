@@ -251,6 +251,16 @@ export default class NativePlayer {
     const d = v.duration;
     const destino = Number.isFinite(d) && d > 0 ? Math.min(d - 0.05, destino0) : destino0;
     v.currentTime = destino;
+    // Después de 'ended' hls.js quedó detenido (stopLoad) y el principio ya no
+    // está en el buffer: sin esto el seek no terminaba nunca (ni 'seeked' ni
+    // timeupdate) y el reloj, la transcripción y el avance quedaban en el final.
+    // Pausado alcanza con un segmento; el listener de 'play' sube el buffer.
+    if (this.hls && this._detenido) {
+      this._detenido = false;
+      this.hls.config.maxBufferLength = BUFFER_INICIAL;
+      this.hls.config.maxMaxBufferLength = BUFFER_INICIAL;
+      this.hls.startLoad(destino);
+    }
     return Promise.resolve(destino);
   }
 
