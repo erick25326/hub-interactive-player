@@ -6,8 +6,11 @@ class backup_ivplayer_activity_structure_step extends backup_activity_structure_
     protected function define_structure() {
         $userinfo = $this->get_setting_value('userinfo');
 
+        // videourl (1.3.0) es el GUID de Bunny. Viaja como dato de la actividad: el host
+        // y la clave son ajustes del sitio y NO van en el backup, así que al restaurar
+        // en otro Moodle el video anda si ese sitio apunta a la misma biblioteca.
         $ivplayer = new backup_nested_element('ivplayer', ['id'], [
-            'name', 'intro', 'introformat', 'vimeoid', 'vimeohash',
+            'name', 'intro', 'introformat', 'vimeoid', 'vimeohash', 'videourl',
             'videoloop', 'interactions', 'completioninteractions',
             'grade', 'timecreated', 'timemodified',
         ]);

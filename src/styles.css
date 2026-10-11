@@ -8,6 +8,11 @@ html, body { margin: 0; padding: 0; background: #000; }
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
+  /* Sin zoom por DOBLE toque (los bordes del video usan el doble toque para ±10 s)
+     pero CON pellizco: se sacó user-scalable=no del viewport (accesibilidad; iOS
+     igual lo ignoraba). touch-action se intersecta con los ancestros, así que
+     esto vale para todo lo de adentro; la barra de avance sigue en none. */
+  touch-action: manipulation;
 }
 /* When embedded in an iframe (SCORM/Moodle) */
 .iv-wrapper.embedded {
@@ -518,7 +523,6 @@ html, body { margin: 0; padding: 0; background: #000; }
   .iv-ctrl-btn svg { width: 18px; height: 18px; }
   .iv-time { font-size: 11px; white-space: nowrap; }
   .iv-volume-group { display: none; }
-  .iv-speed-btn { font-size: 11px; min-width: 24px; }
   .iv-ctrl-progress { font-size: 10px; }
   .iv-reset-ctrl { font-size: 14px; }
 }
@@ -578,6 +582,11 @@ html, body { margin: 0; padding: 0; background: #000; }
   inset: 0;
   z-index: 3;
   cursor: pointer;
+  /* Un toque largo en el video no selecciona ni abre el menú de "copiar" de iOS. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ─── BUFFERING (spinner durante seeks/stalls) ─────────────── */
@@ -717,42 +726,137 @@ html, body { margin: 0; padding: 0; background: #000; }
   .iv-subtitle-container { bottom: 22%; max-width: 92%; }
 }
 
-/* ─── SPEED CONTROL ───────────────────────────────────────── */
-.iv-speed-group {
-  position: relative;
-}
-.iv-speed-btn {
-  font-size: 13px;
-  font-weight: 600;
-  min-width: 36px;
-}
-.iv-speed-menu {
+/* ─── AJUSTES (velocidad y calidad) ───────────────────────── */
+/* Reemplaza al viejo botón "1x" con su menú. El engranaje mide lo mismo que los
+   demás botones de la fila (el "1.25x" medía ~36 px), y la marca de velocidad
+   va encima, en posición absoluta: no ocupa ancho. */
+.iv-ajustes-btn { position: relative; }
+.iv-ajustes-btn svg { transition: transform 0.2s; }
+.iv-ajustes-btn.abierto svg { transform: rotate(30deg); }
+.iv-ajustes-marca {
   position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(6, 46, 96, 0.95);
-  border-radius: 8px;
-  padding: 4px;
-  margin-bottom: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  animation: ivFadeIn 0.15s ease;
-}
-.iv-speed-option {
-  background: none;
-  border: none;
-  color: rgba(255,255,255,0.7);
-  padding: 6px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  font-family: inherit;
+  top: -3px;
+  right: -5px;
+  background: #84F4BE;
+  color: #062E60;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 4px;
+  pointer-events: none;
   white-space: nowrap;
 }
-.iv-speed-option:hover { background: rgba(255,255,255,0.1); }
-.iv-speed-option.active { color: #84F4BE; font-weight: 600; }
+/* Capa del tamaño del contenedor, transparente al dedo, que existe sólo para que el
+   panel pueda preguntar por el ALTO disponible. 🔴 .iv-container mide sólo el ancho
+   (container-type: inline-size) y el alto no sale del ancho en todos los modos: con
+   el celular acostado sin pantalla completa mide el alto de la pantalla menos 30.
+   Esta capa sí puede medir los dos (size): su tamaño lo dan los inset, no el
+   contenido, así que la contención no la colapsa. */
+.iv-ajustes-capa {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  pointer-events: none;
+  container-type: size;
+  container-name: ivaj;
+}
+/* El panel cuelga del contenedor, abajo a la derecha, sobre la fila de controles. */
+.iv-ajustes {
+  position: absolute;
+  right: 10px;
+  bottom: 56px;
+  z-index: 11;
+  pointer-events: auto;
+  width: 240px;
+  max-width: calc(100% - 20px);
+  max-height: calc(100% - 66px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: rgba(6, 25, 56, 0.96);
+  color: #fff;
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+  animation: ivFadeIn 0.15s ease;
+  cursor: default;
+  font-size: 13px;
+}
+.iv-ajustes-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 0 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.12);
+}
+.iv-ajustes-titulo {
+  flex: 1;
+  font-weight: 600;
+  padding-left: 8px;
+  color: rgba(255,255,255,0.9);
+}
+.iv-ajustes-atras + .iv-ajustes-titulo { padding-left: 2px; color: rgba(255,255,255,0.6); font-weight: 500; }
+.iv-ajustes-atras, .iv-ajustes-cerrar, .iv-ajustes-fila, .iv-ajustes-opcion {
+  background: none;
+  border: none;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.iv-ajustes-atras { padding: 6px 8px; font-weight: 600; white-space: nowrap; }
+.iv-ajustes-cerrar { padding: 6px; display: flex; color: rgba(255,255,255,0.75); }
+.iv-ajustes-filas { display: flex; flex-direction: column; gap: 2px; }
+.iv-ajustes-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 8px 10px;
+  text-align: left;
+}
+.iv-ajustes-valor { color: rgba(255,255,255,0.65); white-space: nowrap; }
+.iv-ajustes-opciones { display: grid; grid-template-columns: 1fr; gap: 2px; }
+.iv-ajustes-opcion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  text-align: left;
+  color: rgba(255,255,255,0.8);
+  white-space: nowrap;
+}
+/* El tilde ocupa su lugar siempre (así los textos quedan alineados), visible sólo en la elegida. */
+.iv-ajustes-opcion svg { flex-shrink: 0; width: 16px; height: 16px; visibility: hidden; }
+.iv-ajustes-opcion.activa { color: #84F4BE; font-weight: 600; }
+.iv-ajustes-opcion.activa svg { visibility: visible; }
+.iv-ajustes-atras:hover, .iv-ajustes-cerrar:hover, .iv-ajustes-fila:hover, .iv-ajustes-opcion:hover { background: rgba(255,255,255,0.1); }
+/* Reproductor angosto (celular parado, o el iframe chico del campus) o BAJO: el panel
+   tapa el video entero y las opciones van de a dos. A 320 px el reproductor mide 180
+   de alto: encabezado + 3 filas de 34 entran; 6 opciones en columna, no.
+   El recuadro necesita su contenido (265 px con 6 calidades o 6 velocidades) más los
+   66 que deja libres: 331 de alto. Con sólo el ancho como medida, entre 481 y 599 px
+   (y acostado, 568×320) quedaba cortado y la opción tildada, "Automática", fuera de
+   la vista. Con más de 6 opciones (Vimeo en 4K) el recuadro se desplaza y el
+   componente lleva la tildada a la vista. */
+@container ivaj (max-width: 480px) or (max-height: 340px) {
+  .iv-ajustes {
+    inset: 0;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    padding: 6px 10px 8px;
+    background: rgba(6, 25, 56, 0.97);
+    box-shadow: none;
+  }
+  .iv-ajustes-opciones { grid-template-columns: 1fr 1fr; column-gap: 6px; }
+  .iv-ajustes-fila { min-height: 38px; }
+}
 
 /* ─── SKIP FEEDBACK (double-tap) ──────────────────────────── */
 .iv-skip-feedback {
@@ -988,4 +1092,29 @@ html, body { margin: 0; padding: 0; background: #000; }
 .iv-fs-btn { flex-shrink: 0; }
 @container ivc (max-width: 340px) {
   .iv-time-total, .iv-ctrl-progress { display: none; }
+}
+
+/* ─── ACCESIBILIDAD ───────────────────────────────────────── */
+/* Foco visible sólo con teclado (:focus-visible), en menta: con el mouse o el dedo
+   no aparece ningún contorno. */
+.iv-wrapper :focus-visible { outline: 2px solid #84F4BE; outline-offset: 2px; }
+.iv-progress-container:focus-visible { outline-offset: 0; border-radius: 4px; }
+/* Las tarjetas reciben el foco por código al aparecer (tabIndex -1): sin contorno. */
+.iv-card:focus, .iv-card:focus-visible { outline: none; }
+/* Con el foco de teclado adentro, los controles no se esconden: quedaban con
+   opacidad 0 y se podía tabular por botones invisibles. (:has no existe en iOS
+   15.0-15.3: ahí la regla se ignora sola.) */
+.iv-controls:has(:focus-visible) { opacity: 1; pointer-events: auto; }
+/* Texto sólo para el lector de pantalla. */
+.iv-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }

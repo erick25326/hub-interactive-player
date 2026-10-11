@@ -2,6 +2,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/course/moodleform_mod.php');
+require_once($CFG->dirroot . '/mod/ivplayer/lib.php');
 
 class mod_ivplayer_mod_form extends moodleform_mod {
 
@@ -20,10 +21,19 @@ class mod_ivplayer_mod_form extends moodleform_mod {
 
         // Video section.
         $mform->addElement('header', 'videosection', 'Video');
+        // Moodle abre solas las secciones con un campo obligatorio. Al sacarle el
+        // 'required' a Vimeo, ésta iba a arrancar plegada: se abre a mano.
+        $mform->setExpanded('videosection');
+
+        // Bunny primero porque, si están los dos, gana Bunny (ver player.php). Ninguno
+        // de los dos es obligatorio por separado: hace falta uno, y eso lo controla
+        // validation(). Un 'required' en Vimeo impedía las actividades sólo con Bunny.
+        $mform->addElement('text', 'videourl', get_string('videourl', 'ivplayer'), ['size' => '64']);
+        $mform->setType('videourl', PARAM_TEXT);
+        $mform->addHelpButton('videourl', 'videourl', 'ivplayer');
 
         $mform->addElement('text', 'vimeoid', get_string('vimeoid', 'ivplayer'), ['size' => '64']);
         $mform->setType('vimeoid', PARAM_TEXT);
-        $mform->addRule('vimeoid', null, 'required', null, 'client');
         $mform->addHelpButton('vimeoid', 'vimeoid', 'ivplayer');
 
         $mform->addElement('advcheckbox', 'videoloop', 'Loop', 'Reproducir en bucle al terminar');
@@ -199,5 +209,40 @@ class mod_ivplayer_mod_form extends moodleform_mod {
             $defaultvalues['vimeoid'] = 'https://vimeo.com/' .
                 $defaultvalues['vimeoid'] . '/' . $defaultvalues['vimeohash'];
         }
+        // El de Bunny se muestra como se guardó: el GUID solo. No se rearma ninguna URL
+        // porque el host es un ajuste del sitio y la firma vence.
+    }
+
+    /**
+     * Hace falta un video, de Bunny o de Vimeo. El de Bunny tiene que reconocerse, ser
+     * de la biblioteca del sitio y, si va solo, el sitio tiene que tener Bunny configurado.
+     *
+     * @param array $data
+     * @param array $files
+     * @return array
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        // Lo que hace falta para que el video de Bunny se reproduzca se controla ACÁ, al
+        // guardar: si no, el docente no ve ningún problema y el error (un 404, o el cartel
+        // de "Bunny no está configurado") lo encuentra recién el alumno.
+        $error = ivplayer_bunny_error_de_entrada($data['videourl'] ?? '', $data['vimeoid'] ?? '',
+            ivplayer_bunny_host(), ivplayer_bunny_biblioteca());
+        if ($error !== null) {
+            // 🔴 'a' es lo que pegó el docente (el host de un enlace ajeno) y los errores
+            // del formulario se pintan como HTML ({{{error}}} en la plantilla): va escapado.
+            $errors['videourl'] = get_string($error['clave'], 'ivplayer',
+                $error['a'] === null ? null : s($error['a']));
+        }
+
+        // Un enlace de Bunny pegado en el campo de Vimeo se guardaría como "ID de Vimeo"
+        // (y uno largo ni entra en la columna): mejor decir dónde va.
+        $vimeo = trim((string) ($data['vimeoid'] ?? ''));
+        if ($vimeo !== '' && ivplayer_bunny_normalizar_guid($vimeo) !== null) {
+            $errors['vimeoid'] = get_string('errorvimeoesbunny', 'ivplayer');
+        }
+
+        return $errors;
     }
 }

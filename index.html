@@ -2,7 +2,12 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <!-- Sin maximum-scale ni user-scalable=no: impedir el zoom es una barrera de
+       accesibilidad (WCAG 1.4.4) e iOS igual lo ignora para el pellizco. El zoom
+       por DOBLE toque, que sí molestaba (el video usa el doble toque para ±10 s),
+       lo apaga touch-action: manipulation en .iv-wrapper. Dentro del iframe del
+       campus esta meta no aplica: manda la página madre. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Hub Education — Video Interactivo</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

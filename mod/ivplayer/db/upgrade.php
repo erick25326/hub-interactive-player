@@ -73,5 +73,23 @@ function xmldb_ivplayer_upgrade($oldversion) {
         upgrade_mod_savepoint(true, 2026061001, 'ivplayer');
     }
 
+    if ($oldversion < 2026101000) {
+        // Video de Bunny Stream: guarda SÓLO el GUID, en minúsculas (el host y la clave
+        // son ajustes del sitio). NULL en todas las actividades existentes, así que
+        // después del upgrade todas siguen reproduciendo Vimeo como antes.
+        $table = new xmldb_table('ivplayer');
+        $field = new xmldb_field('videourl', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'vimeohash');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // La clave de token de Bunny (ajuste nuevo de esta versión) no tiene que salir en
+        // la exportación de presets del sitio. Una instalación nueva lo hace en install.php.
+        require_once(__DIR__ . '/upgradelib.php');
+        mod_ivplayer_marcar_clave_sensible();
+
+        upgrade_mod_savepoint(true, 2026101000, 'ivplayer');
+    }
+
     return true;
 }

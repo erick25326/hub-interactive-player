@@ -89,6 +89,69 @@ bloqueo, auriculares, hilo trabado). Verificada en oct-2026 con simulador + CDP.
 - `tiempoAGuardar` nunca guarda más allá de una pendiente, y la restauración usa
   la misma función: un avance viejo pasado una pregunta se retoma en ella.
 
+## Bunny Stream en el plugin (mod_ivplayer 1.3.0) — trampas
+La actividad guarda sólo el GUID (columna `videourl`, minúsculas; el nombre quedó
+genérico). Host, clave y duración son ajustes del sitio (`settings.php`), y
+`player.php` firma en cada carga con las funciones `ivplayer_bunny_*` de `lib.php`.
+- 🔴 **El repo es PÚBLICO.** Nada de host de producción, GUIDs reales, IDs de
+  biblioteca, claves ni tokens en el código, los docs o los ejemplos: usar
+  sintéticos (`11111111-2222-4333-8444-555555555555`, `vz-ejemplo.b-cdn.net`).
+- 🔴 **La clave sólo vive en el servidor** (ajuste `bunnytokenkey`). Al navegador
+  sale la URL firmada; la clave no va en `PLAYER_CONFIG`, ni en logs, ni en errores.
+- 🔴 **El GUID tiene que quedar como tramo `/<guid>/` de `videoUrl`**: de ahí saca el
+  reproductor la clave del avance en localStorage (regex de `vimeoData`). En la URL
+  firmada el tramo `/bcdn_token=…/` va antes y `token_path` va codificado (`%2F`), así
+  que el primer `/<guid>/` literal es el bueno y la clave no cambia al renovar el token.
+- 🔴 **Si una actividad tiene Bunny y Vimeo, gana Bunny** (con host configurado). Sin
+  host, todas siguen con Vimeo: así se instala sin cambiar nada y se vuelve atrás.
+- 🔴 **HLS firmado en la RUTA, sueltos en la query.** Las variantes y los `.ts` del
+  playlist son relativos: con el token en la ruta lo heredan; en la query se pierde
+  y la variante da 403. La miniatura va en la query porque responde 200 con la
+  autenticación de Bunny prendida o apagada.
+- 🔴 **No hay estado que sirva para los dos lados**: firmado en la ruta con la
+  autenticación de Bunny APAGADA da 404 (medido oct-2026); sin firmar con la
+  autenticación PRENDIDA da 403. La clave en Moodle y el interruptor en Bunny van juntos.
+- 🔴 **Validar el GUID antes de firmar, con barra final y sin `\n`.** El GUID arma la
+  ruta firmada (`token_path=/<guid>/`): uno vacío firmaría `/` y abriría la biblioteca
+  entera. Las expresiones llevan `/D` (sin ella `$` calza antes de un salto final) y
+  la barra final evita que `/<guid>` cubra `/<guid>xyz/`.
+- 🔴 **Algoritmo HS256, no confundir con el del iframe.** Mensaje del HMAC =
+  `/<guid>/` + expires + `token_path=/<guid>/` (token_path crudo en el HMAC, codificado
+  en la URL); clave como clave del HMAC; digest BINARIO a base64url. El token del
+  iframe embebido (`SHA256_HEX(key+video_id+expires)`) es otra cosa y no sirve para el CDN.
+- Las funciones puras (de `ivplayer_bunny_normalizar_guid` a `ivplayer_bunny_expires`,
+  incluidas `ivplayer_bunny_analizar` y `ivplayer_bunny_error_de_entrada`) no tocan
+  Moodle a propósito: se copian tal cual a un script de prueba con los vectores de
+  Bunny. Si se cambian, regenerar esa copia y volver a correrla.
+- Pendiente: el reproductor muestra siempre `thumbnail.jpg`; una miniatura
+  personalizada de Bunny tiene otro nombre de archivo (`thumbnailFileName`) y no se ve.
+- El vencimiento se lleva a la hora en punto siguiente (`ivplayer_bunny_expires`):
+  las recargas de la misma hora dan la misma URL y reusan la caché del navegador.
+  O sea que el token dura entre el TTL y el TTL + 1 h, no "el TTL".
+- 🔴 **`player.html` viejo = Bunny roto en silencio.** Es copia de `dist/index.html` y
+  sólo se actualiza con `npm run build:plugin`. `player.php` usa Bunny sólo si
+  `ivplayer_reproductor_soporta_bunny()` encuentra `loadSource` (hls.js) en el HTML;
+  si no, cae a Vimeo o muestra un cartel, y el estado de los ajustes lo avisa. Si el
+  bundle se parte y el JS deja de ir adentro de `player.html`, esa marca desaparece y
+  TODO vuelve a Vimeo: cambiarla en el mismo momento por una marca explícita.
+- 🔴 **El GUID solo no dice de qué biblioteca es.** Se guarda sólo el GUID y se pide
+  siempre al host del sitio, así que el formulario (`ivplayer_bunny_error_de_entrada`,
+  pura) rechaza enlaces de otro host o de otra biblioteca (esta última sólo con el
+  ajuste opcional `bunnylibraryid`), y Bunny-sin-Vimeo en un sitio sin host.
+- 🔴 **Los errores de `mod_form` se pintan como HTML** (`{{{error}}}` en la plantilla
+  de core): todo lo que venga de lo pegado por el docente va con `s()`.
+- 🔴 **Password unmask NO saca la clave de la exportación de presets** del sitio: ésa
+  saltea sólo la lista `adminpresets | sensiblesettings`. `db/upgradelib.php` le agrega
+  `bunnytokenkey@@mod_ivplayer` en install y upgrade (mismo idioma que core en su paso
+  2024080500). Sin la lista no la crea: una lista con sólo esa entrada dejaría
+  exportables las claves de core.
+- Los topes del TTL se validan al guardar (`set_validate_function` del ajuste de
+  duración, existe desde 4.1 y recibe segundos). `ivplayer_bunny_ttl()` los vuelve a
+  aplicar de red para valores cargados por CLI o `config.php`.
+- Pendiente: el reproductor todavía no renueva el token (al vencer, se corta y hay
+  que recargar); con Bunny no hay subtítulos (los de Vimeo venían de su iframe); el
+  configurador visual sólo previsualiza Vimeo.
+
 ## Brand
 - Colors: #0162F5 (primary), #14CCF7 (secondary), #84F4BE (accent), #062E60 (dark)
 - Fonts: Changa (headings), Work Sans (body)

@@ -21,6 +21,8 @@ class restore_ivplayer_activity_structure_step extends restore_activity_structur
 
         $data = (object)$data;
         $data->course = $this->get_courseid();
+        // videourl (GUID de Bunny) entra tal cual con el resto. Un backup de antes de
+        // 1.3.0 no lo trae y queda NULL: la actividad sigue con Vimeo.
 
         $newitemid = $DB->insert_record('ivplayer', $data);
         $this->apply_activity_instance($newitemid);

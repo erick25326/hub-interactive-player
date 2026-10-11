@@ -7,6 +7,11 @@
  * interacciones). Este provider los declara y permite exportarlos/borrarlos
  * ante un pedido de datos (GDPR / Ley 25.326 AR).
  *
+ * Bunny Stream (1.3.0) no cambia nada acá: el GUID (ivplayer.videourl) es
+ * configuración de la actividad, y la URL firmada no lleva nada del alumno (ni
+ * su id ni su IP: la validación por IP de Bunny queda apagada a propósito). El
+ * navegador baja el video del CDN igual que antes lo bajaba de Vimeo.
+ *
  * @package    mod_ivplayer
  * @copyright  Hub Education
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later

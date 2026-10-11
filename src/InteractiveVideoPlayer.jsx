@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, Fragment } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useId, Fragment } from "react";
 import Player from "@vimeo/player";
 import NativePlayer from "./nativePlayer.js";
 import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
@@ -115,22 +115,47 @@ function parseVTT(text) {
 }
 
 // Icons
-const PlayIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>;
-const PauseIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>;
-const FullscreenIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>;
-const ExitFullscreenIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>;
+const PlayIcon = () => <svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>;
+const PauseIcon = () => <svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>;
+const FullscreenIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>;
+const ExitFullscreenIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>;
 const VolumeIcon = ({ muted }) => muted
-  ? <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
-  : <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>;
-const SkipBackIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="12" y="15.5" textAnchor="middle" fontSize="7.5" fontWeight="700" fontFamily="sans-serif">10</text></svg>;
-const SkipFwdIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="12" y="15.5" textAnchor="middle" fontSize="7.5" fontWeight="700" fontFamily="sans-serif">10</text></svg>;
-const SubsIcon = ({ on }) => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" opacity={on?1:0.4}><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6v-2zm0 4h8v2H6v-2zm10 0h2v2h-2v-2zm-6-4h8v2h-8v-2z"/></svg>;
-const RotateIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0l-.66.03 3.81 3.81 1.33-1.32zm-6.25-.77a1.49 1.49 0 0 0-2.12 0L1.75 8.11a1.49 1.49 0 0 0 0 2.12l12.02 12.02c.59.59 1.54.59 2.12 0l6.36-6.36c.59-.59.59-1.54 0-2.12L10.23 1.75zm4.6 19.44L2.81 9.17l6.36-6.36 12.02 12.02-6.36 6.36zm-7.31.29C4.25 19.94 1.91 16.76 1.55 13H.05C.56 19.16 5.71 24 12 24l.66-.03-3.81-3.81-1.33 1.32z"/></svg>;
-const CheckIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>;
-const CrossIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>;
-const InfoIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>;
+  ? <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+  : <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>;
+const SkipBackIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="12" y="15.5" textAnchor="middle" fontSize="7.5" fontWeight="700" fontFamily="sans-serif">10</text></svg>;
+const SkipFwdIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="12" y="15.5" textAnchor="middle" fontSize="7.5" fontWeight="700" fontFamily="sans-serif">10</text></svg>;
+const SubsIcon = ({ on }) => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" opacity={on?1:0.4}><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6v-2zm0 4h8v2H6v-2zm10 0h2v2h-2v-2zm-6-4h8v2h-8v-2z"/></svg>;
+const RotateIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0l-.66.03 3.81 3.81 1.33-1.32zm-6.25-.77a1.49 1.49 0 0 0-2.12 0L1.75 8.11a1.49 1.49 0 0 0 0 2.12l12.02 12.02c.59.59 1.54.59 2.12 0l6.36-6.36c.59-.59.59-1.54 0-2.12L10.23 1.75zm4.6 19.44L2.81 9.17l6.36-6.36 12.02 12.02-6.36 6.36zm-7.31.29C4.25 19.94 1.91 16.76 1.55 13H.05C.56 19.16 5.71 24 12 24l.66-.03-3.81-3.81-1.33 1.32z"/></svg>;
+const CheckIcon = () => <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>;
+const CrossIcon = () => <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>;
+const InfoIcon = () => <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>;
+
+// Engranaje de Ajustes (velocidad y calidad, como YouTube): reemplaza al botón "1x".
+const GearIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>;
+const CloseIcon = () => <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>;
 
 const fmt = (s) => { const m=Math.floor(s/60); return `${m}:${Math.floor(s%60).toString().padStart(2,"0")}`; };
+// El tiempo dicho en palabras, para el lector de pantalla ("1 minuto, 23 segundos"):
+// "1:23" se lee "uno dos tres" o "una y veintitrés".
+const hablado = (s) => {
+  s = Math.max(0, Math.floor(s || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60, p = [];
+  if (h) p.push(`${h} ${h === 1 ? "hora" : "horas"}`);
+  if (m) p.push(`${m} ${m === 1 ? "minuto" : "minutos"}`);
+  if (x || !p.length) p.push(`${x} ${x === 1 ? "segundo" : "segundos"}`);
+  return p.join(", ");
+};
+// Texto plano de una interacción para avisarla sin mover el foco (sin el markdown).
+const textoAviso = (ia) => {
+  const d = ia?.data || {};
+  const limpio = (t) => String(t || "").replace(/[*_]/g, "").replace(/\s+/g, " ").trim();
+  if (ia?.type === "note") return `Nota: ${limpio(d.title || d.text)}`;
+  if (ia?.type === "multiple-choice") return `Pregunta: ${limpio(d.question)}`;
+  if (ia?.type === "true-false") return `Verdadero o falso: ${limpio(d.statement)}`;
+  if (ia?.type === "hotspot") return "Tocá los puntos del video para seguir";
+  return "";
+};
+const etiquetaVelocidad = (s) => (s === 1 ? "Normal" : `${s}x`);
 
 /* ─── TEXTO CON FORMATO ─────────────────────────────────────────
  * Las etiquetas, notas y explicaciones se escriben a mano en el JSON de
@@ -185,13 +210,13 @@ function conFormato(linea, base) {
   return partes;
 }
 
-export function RichText({ children, className = "" }) {
+export function RichText({ children, className = "", id }) {
   const texto = typeof children === "string" ? children : "";
   if (!texto.trim()) return null;
   // Una o más líneas en blanco separan párrafos; un solo salto es <br>.
   const parrafos = texto.trim().split(/\n[ \t]*\n+/);
   return (
-    <div className={`iv-rich ${className}`.trim()}>
+    <div id={id} className={`iv-rich ${className}`.trim()}>
       {parrafos.map((parrafo, p) => {
         const lineas = parrafo.split("\n");
         return (
@@ -210,14 +235,25 @@ export function RichText({ children, className = "" }) {
 }
 
 // Interaction overlays
+// Accesibilidad de las tarjetas: son role="dialog" con tabIndex -1 para que el
+// componente les pueda llevar el foco al aparecer (ver el efecto de activeIA). La
+// corrección ("Correcto / Incorrecto") vive en una región role="status" que existe
+// desde el principio: si la región aparece junto con el texto, el lector de
+// pantalla muchas veces no lo anuncia.
+const Siguiente = () => <>Continuar<span aria-hidden="true"> ▸</span></>;
+const Correccion = ({ ok }) => <strong>{ok
+  ? <><span aria-hidden="true">✓ </span>¡Correcto!</>
+  : <><span aria-hidden="true">✗ </span>Incorrecto</>}</strong>;
+
 function NoteOverlay({ data, onDismiss }) {
+  const idTitulo = useId();
   return (
     <div className="iv-overlay-backdrop">
-      <div className="iv-card iv-note-card">
-        <div className="iv-note-header"><InfoIcon /><span className="iv-note-title">{data.title}</span></div>
+      <div className="iv-card iv-note-card" role="dialog" aria-labelledby={idTitulo} tabIndex={-1}>
+        <div className="iv-note-header"><InfoIcon /><span id={idTitulo} className="iv-note-title">{data.title}</span></div>
         {data.image && <img className="iv-interaction-image" src={data.image} alt="" />}
         <RichText className="iv-note-text">{data.text}</RichText>
-        <button className="iv-btn-primary" onClick={onDismiss}>Continuar ▸</button>
+        <button className="iv-btn-primary" onClick={onDismiss}><Siguiente/></button>
       </div>
     </div>
   );
@@ -226,19 +262,20 @@ function NoteOverlay({ data, onDismiss }) {
 function MCOverlay({ data, onDismiss }) {
   const [sel, setSel] = useState(null);
   const [done, setDone] = useState(false);
+  const idPregunta = useId();
   const ok = sel === data.correctId;
   return (
     <div className="iv-overlay-backdrop">
-      <div className="iv-card iv-quiz-card">
+      <div className="iv-card iv-quiz-card" role="dialog" aria-labelledby={idPregunta} tabIndex={-1}>
         <div className="iv-badge">PREGUNTA</div>
         {data.image && <img className="iv-interaction-image" src={data.image} alt="" />}
-        <RichText className="iv-question">{data.question}</RichText>
+        <RichText id={idPregunta} className="iv-question">{data.question}</RichText>
         <div className="iv-options">
           {data.options.map(o => {
             let c="iv-option";
             if(done){if(o.id===data.correctId)c+=" correct";else if(o.id===sel)c+=" wrong";else c+=" disabled";}
             else if(o.id===sel)c+=" selected";
-            return <button key={o.id} className={c} onClick={()=>!done&&setSel(o.id)} disabled={done}>
+            return <button key={o.id} className={c} onClick={()=>!done&&setSel(o.id)} disabled={done} aria-pressed={o.id===sel}>
               <span className="iv-option-id">{o.id.toUpperCase()}</span>
               <span className="iv-option-text">{o.text}</span>
               {done&&o.id===data.correctId&&<span className="iv-option-icon correct"><CheckIcon/></span>}
@@ -246,10 +283,12 @@ function MCOverlay({ data, onDismiss }) {
             </button>;
           })}
         </div>
-        {done&&<div className={`iv-explanation ${ok?"correct":"wrong"}`}><strong>{ok?"✓ ¡Correcto!":"✗ Incorrecto"}</strong><RichText>{data.explanation}</RichText></div>}
+        <div role="status">
+          {done&&<div className={`iv-explanation ${ok?"correct":"wrong"}`}><Correccion ok={ok}/><RichText>{data.explanation}</RichText></div>}
+        </div>
         {!done
           ? <button className="iv-btn-primary" style={{opacity:sel?1:0.4}} onClick={()=>sel&&setDone(true)} disabled={!sel}>Confirmar respuesta</button>
-          : <button className="iv-btn-primary" onClick={()=>onDismiss({answer:sel,correct:ok})}>Continuar ▸</button>}
+          : <button className="iv-btn-primary" onClick={()=>onDismiss({answer:sel,correct:ok})}><Siguiente/></button>}
       </div>
     </div>
   );
@@ -258,22 +297,25 @@ function MCOverlay({ data, onDismiss }) {
 function TFOverlay({ data, onDismiss }) {
   const [ans, setAns] = useState(null);
   const [done, setDone] = useState(false);
+  const idTipo = useId(), idEnunciado = useId();
   const ok = ans === data.correct;
   const bc = v => { let c="iv-tf-btn"; if(done){if(v===data.correct)c+=" correct";else if(v===ans)c+=" wrong";else c+=" disabled";}else if(v===ans)c+=" selected"; return c; };
   return (
     <div className="iv-overlay-backdrop">
-      <div className="iv-card iv-quiz-card iv-tf-card">
-        <div className="iv-badge tf">VERDADERO O FALSO</div>
+      <div className="iv-card iv-quiz-card iv-tf-card" role="dialog" aria-labelledby={`${idTipo} ${idEnunciado}`} tabIndex={-1}>
+        <div id={idTipo} className="iv-badge tf">VERDADERO O FALSO</div>
         {data.image && <img className="iv-interaction-image" src={data.image} alt="" />}
-        <RichText className="iv-question">{data.statement}</RichText>
+        <RichText id={idEnunciado} className="iv-question">{data.statement}</RichText>
         <div className="iv-tf-row">
-          <button className={bc(true)} onClick={()=>!done&&setAns(true)} disabled={done}>Verdadero</button>
-          <button className={bc(false)} onClick={()=>!done&&setAns(false)} disabled={done}>Falso</button>
+          <button className={bc(true)} onClick={()=>!done&&setAns(true)} disabled={done} aria-pressed={ans===true}>Verdadero</button>
+          <button className={bc(false)} onClick={()=>!done&&setAns(false)} disabled={done} aria-pressed={ans===false}>Falso</button>
         </div>
-        {done&&<div className={`iv-explanation ${ok?"correct":"wrong"}`}><strong>{ok?"✓ ¡Correcto!":"✗ Incorrecto"}</strong><RichText>{data.explanation}</RichText></div>}
+        <div role="status">
+          {done&&<div className={`iv-explanation ${ok?"correct":"wrong"}`}><Correccion ok={ok}/><RichText>{data.explanation}</RichText></div>}
+        </div>
         {!done
           ? <button className="iv-btn-primary" style={{opacity:ans!==null?1:0.4}} onClick={()=>ans!==null&&setDone(true)} disabled={ans===null}>Confirmar</button>
-          : <button className="iv-btn-primary" onClick={()=>onDismiss({answer:String(ans),correct:ok})}>Continuar ▸</button>}
+          : <button className="iv-btn-primary" onClick={()=>onDismiss({answer:String(ans),correct:ok})}><Siguiente/></button>}
       </div>
     </div>
   );
@@ -282,19 +324,21 @@ function TFOverlay({ data, onDismiss }) {
 function HotspotOverlay({ data, onDismiss }) {
   const [active, setActive] = useState(null);
   const [viewed, setViewed] = useState(new Set());
+  const base = useId();
   const tap = s => { setActive(active?.id===s.id?null:s); setViewed(p=>new Set([...p,s.id])); };
   const allDone = viewed.size===data.spots.length;
   return (
-    <div className="iv-hotspot-container">
+    <div className="iv-hotspot-container" role="group" aria-label={`Tocá los puntos (${viewed.size}/${data.spots.length})`}>
       {data.spots.map(s=>(
         <div key={s.id}>
           <button className={`iv-hotspot-dot ${viewed.has(s.id)?"viewed":""} ${active?.id===s.id?"active":""}`}
-            style={{left:`${s.x}%`,top:`${s.y}%`}} onClick={()=>tap(s)}>
-            <span className="iv-hotspot-pulse"/><span className="iv-hotspot-label">{s.label}</span>
+            style={{left:`${s.x}%`,top:`${s.y}%`}} onClick={()=>tap(s)}
+            aria-expanded={active?.id===s.id} aria-controls={`${base}-${s.id}`}>
+            <span className="iv-hotspot-pulse" aria-hidden="true"/><span className="iv-hotspot-label">{s.label}</span>
           </button>
           {/* Con el punto bajo (y>60) el popup va ARRIBA del punto: abajo lo
               cortaba el overflow:hidden del contenedor, sobre todo en mobile. */}
-          {active?.id===s.id&&<div className="iv-hotspot-info" style={
+          {active?.id===s.id&&<div id={`${base}-${s.id}`} className="iv-hotspot-info" style={
             s.y>60
               ? {left:`${Math.min(s.x,55)}%`,top:`${s.y-6}%`,transform:'translateY(-100%)'}
               : {left:`${Math.min(s.x,55)}%`,top:`${s.y+6}%`}
@@ -304,8 +348,8 @@ function HotspotOverlay({ data, onDismiss }) {
         </div>
       ))}
       <div className="iv-hotspot-bar">
-        <span className="iv-hotspot-hint">Tocá los puntos ({viewed.size}/{data.spots.length})</span>
-        {allDone&&<button className="iv-btn-primary iv-btn-small" onClick={onDismiss}>Continuar ▸</button>}
+        <span className="iv-hotspot-hint" aria-hidden="true">Tocá los puntos ({viewed.size}/{data.spots.length})</span>
+        {allDone&&<button className="iv-btn-primary iv-btn-small" onClick={onDismiss}><Siguiente/></button>}
       </div>
     </div>
   );
@@ -354,7 +398,7 @@ function LabelOverlay({ interactions, currentTime, playerRef }) {
     const popupCls = `iv-label-popup iv-label-popup-h-${hAlign} iv-label-popup-v-${vAlign}`;
     return (
       <div key={ia.id} className={pinCls} style={{left:`${x}%`,top:`${y}%`}}>
-        <button className="iv-label-btn" onClick={(e)=>{e.stopPropagation();toggleOpen(ia);}}>
+        <button className="iv-label-btn" onClick={(e)=>{e.stopPropagation();toggleOpen(ia);}} aria-expanded={openId===ia.id}>
           {ia.data.text}
         </button>
         {openId===ia.id&&<div className={popupCls} onClick={e=>e.stopPropagation()}>
@@ -411,6 +455,10 @@ export const SEEK_MIN = 2;          // salto entre ticks que se considera seek
 export const ANTES_SEEK = 0.25;     // tolerancia antes del tiempo, sólo en seeks
 export const DESPUES = 0.8;         // hasta cuánto después todavía se frena
 export const SALTO_CRUCE = 6;       // salto que cruza el tiempo: ticks trabados, no seek
+// Después de un salto propio, hasta cuánto más allá de su destino puede caer el
+// primer tick y seguir siendo de ese salto: a 2× con el tick de Vimeo atrasado
+// ~1 s en un celular, el video ya avanzó un par de segundos.
+export const PROPIO_TOLERANCIA = 3;
 export function debeFrenar(tiempo, prev, t, fin = Infinity) {
   tiempo = Math.min(tiempo, fin - 0.05);
   const salto = t - prev;
@@ -477,7 +525,31 @@ export default function InteractiveVideoPlayer() {
   const [cues, setCues] = useState(subtitlesCues || []);
   const [hasVimeoSubs, setHasVimeoSubs] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  // Menú de Ajustes (engranaje): null | 'principal' | 'velocidad' | 'calidad'. El
+  // ref acompaña al estado porque lo leen manejadores de toque y de teclado que
+  // no se vuelven a crear en cada render.
+  const [menu, setMenuEstado] = useState(null);
+  const menuRef = useRef(null);
+  const setMenu = useCallback((m)=>{ menuRef.current=m; setMenuEstado(m); },[]);
+  const ajustesBtnRef = useRef(null);
+  const ajustesPanelRef = useRef(null);
+  const moverFocoMenuRef = useRef(false);
+  // Calidad: lo que ofrece el motor (getQualities, misma forma en Vimeo y en el
+  // video propio), la elegida y el alto que se ve en automático.
+  const [calidades, setCalidades] = useState([]);   // [{ id, label, alto }] de mayor a menor, sin 'auto'
+  const [calidad, setCalidad] = useState('auto');
+  const [calidadViendo, setCalidadViendo] = useState(null);
+  const [calidadNoDisponible, setCalidadNoDisponible] = useState(false);
+  const calidadElegidaRef = useRef(null);   // lo que eligió el alumno en el menú (null: nunca tocó)
+  const refrescarCalidadesRef = useRef(()=>{});
+  const calidadPendienteRef = useRef(null); // elegida con un salto en vuelo: la aplica seekTo al aterrizar
+  const aplicarCalidadRef = useRef(()=>{});
+  const playBtnRef = useRef(null);
+  // Aviso para el lector de pantalla cuando aparece una interacción y el foco no
+  // se puede mover a ella (ver el efecto de activeIA).
+  const [aviso, setAviso] = useState('');
+  const devolverFocoRef = useRef(false);
+  const [anunciarTotal, setAnunciarTotal] = useState(false);
   const [skipFeedback, setSkipFeedback] = useState(null);
   const [videoEnded, setVideoEnded] = useState(false);
   const [buffering, setBuffering] = useState(false);
@@ -592,8 +664,38 @@ export default function InteractiveVideoPlayer() {
       setVideoError(e);
     });
     p.on("ended", ()=>alTerminarRef.current());
+    // Calidad: el video propio avisa la elegida y lo que se ve ('viendo', para
+    // "Automática (480p)"); Vimeo emite el evento sin 'viendo'. En los dos casos se
+    // vuelve a leer la lista, que es la fuente de verdad del menú.
+    p.on("qualitychange", d=>{
+      if(d&&typeof d.viendo==='number'&&d.viendo>0) setCalidadViendo(d.viendo);
+      refrescarCalidadesRef.current();
+    });
     // No cleanup — Vimeo Player does not survive StrictMode destroy/recreate cycle
   },[vimeoData]);
+
+  // Lee las calidades del motor y las deja listas para el menú: de mayor a menor,
+  // sin duplicados, y sólo si hay algo que elegir (dos o más). Vimeo nombra '4K' y
+  // '2K'; el video propio, siempre '<alto>p'.
+  refrescarCalidadesRef.current=()=>{
+    const p=playerRef.current; if(!p||!p.getQualities) return;
+    p.getQualities().then(qs=>{
+      if(!Array.isArray(qs)) qs=[];
+      const altoDeId=(id)=>id==='4K'?2160:id==='2K'?1440:(parseInt(id,10)||0);
+      const vistos=new Set();
+      const lista=qs
+        .filter(q=>q&&q.id&&q.id!=='auto')
+        .map(q=>({id:String(q.id),label:String(q.label||q.id),alto:altoDeId(String(q.id))}))
+        .filter(q=>q.alto>0&&!vistos.has(q.id)&&vistos.add(q.id))
+        .sort((a,b)=>b.alto-a.alto);
+      setCalidades(lista.length>=2?lista:[]);
+      const activa=qs.find(q=>q&&q.active);
+      // Con una elección esperando que aterrice un salto (ver elegirCalidad), la
+      // etiqueta ya dice la elegida: no volver a la vieja por un instante.
+      if(activa&&calidadPendienteRef.current==null) setCalidad(String(activa.id));
+    }).catch(()=>{});
+  };
+  useEffect(()=>{ if(ready) refrescarCalidadesRef.current(); },[ready]);
 
   // Lo que pasa al terminar el video. Lo llama 'ended' y también dismiss: si el
   // pause de una pregunta cae justo en el fin, Vimeo a veces deja el medio
@@ -636,6 +738,24 @@ export default function InteractiveVideoPlayer() {
   // un play desde dismiss quedaba en vuelo y el video corría debajo de ella).
   const bucleAlCerrarRef=useRef(false);
   useEffect(()=>{ activeIARef.current=activeIA; },[activeIA]);
+  // Foco a la interacción que aparece, así el teclado y el lector de pantalla
+  // quedan EN la pregunta y no en un botón que ya no se ve. preventScroll: sin eso
+  // focus() también desplaza la página del campus para traer el iframe a la vista.
+  // Sólo si el reproductor tiene el foco: si el alumno está escribiendo en la
+  // página madre (la búsqueda de la transcripción) no se le roba; se avisa por la
+  // región role="status".
+  useEffect(()=>{
+    if(!activeIA){
+      setAviso('');
+      if(devolverFocoRef.current){ devolverFocoRef.current=false; try{ playBtnRef.current?.focus({preventScroll:true}); }catch(e){} }
+      return;
+    }
+    const raiz=containerRef.current;
+    const destino=raiz&&(activeIA.type==='hotspot'?raiz.querySelector('.iv-hotspot-dot'):raiz.querySelector('.iv-card'));
+    let movido=false;
+    try{ if(destino&&document.hasFocus()){ destino.focus({preventScroll:true}); movido=document.activeElement===destino; } }catch(e){}
+    setAviso(movido?'':textoAviso(activeIA));
+  },[activeIA]);
   useEffect(()=>{
     const prev=prevTimeRef.current;
     if(!ready||activeIA) return;
@@ -660,11 +780,16 @@ export default function InteractiveVideoPlayer() {
     // La muestra la guardia y no el render siguiente: con el video quieto (salto en
     // pausa, o que pasó el fin) ese render no llega y el alumno veía el video parado
     // sin la pregunta.
-    // Los saltos propios (barra, skip, transcripción, restaurar) no pasan por acá.
+    // Los saltos propios (barra, skip, transcripción, restaurar) no pasan por acá:
+    // en vuelo (seekTargetRef) o ya resueltos, mientras el tick caiga cerca de SU
+    // destino (ver seekPropioDestinoRef). Lejos del destino es otro salto.
     // 🔴 No va sin la restauración optimista de más abajo: sin ella, con Vimeo el
     // primer tick después de restaurar llega con prev=0 y la guardia arrastraba al
     // alumno hacia atrás.
-    if(t>prev+DESPUES&&seekTargetRef.current==null&&Date.now()>seekPropioHastaRef.current){
+    const destinoPropio=seekPropioDestinoRef.current;
+    const tickPropio=Date.now()<=seekPropioHastaRef.current&&destinoPropio!=null
+      &&t>=destinoPropio-1&&t<=destinoPropio+PROPIO_TOLERANCIA;
+    if(t>prev+DESPUES&&seekTargetRef.current==null&&!tickPropio){
       const cruzadas=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&!triggered.current.has(ia.id)&&ia.time>prev&&ia.time<t).sort((a,b)=>a.time-b.time);
       const saltada=cruzadas[0];
       const laFrenaElBucle=saltada&&(saltada.type==="hotspot"
@@ -822,10 +947,16 @@ export default function InteractiveVideoPlayer() {
   // unavailable on some Vimeo plans — failures are silently ignored.
   useEffect(()=>{
     const p=playerRef.current;
-    // Sólo Vimeo: con video propio hls.js sube la calidad solo al agrandarse
-    // (capLevelToPlayerSize), y si nativePlayer expone calidades esto recargaría
-    // el video en iPhone en cada entrada y salida de pantalla completa.
+    // Sólo Vimeo. Con video propio: hls.js sube la calidad solo al agrandarse
+    // (capLevelToPlayerSize), y con el HLS nativo de iPhone fijar una calidad es
+    // cambiar de FUENTE (ver nativePlayer.setQuality): hacerlo en cada entrada y
+    // salida de pantalla completa sería un corte cada vez. Ahí la calidad fija la
+    // elige el alumno en el menú, y sólo él.
     if(!p||!ready||nativeSrc) return;
+    // 🔴 Lo que eligió el alumno en el menú manda, también "Automática": no se
+    // fuerza 720p/1080p al entrar ni se vuelve a 'auto' al salir (así, al salir,
+    // queda SU elección). Dura lo que dura la página.
+    if(calidadElegidaRef.current!=null) return;
     if(isFS||fakeFS){
       p.getQualities().then(qs=>{
         if(!Array.isArray(qs)||!qs.length) return;
@@ -837,10 +968,10 @@ export default function InteractiveVideoPlayer() {
         const coarse=window.matchMedia?.('(pointer: coarse)').matches;
         const order=coarse?['720p','1080p','540p']:['1080p','720p','540p'];
         const best=order.find(q=>qs.some(x=>x.id===q));
-        if(best) p.setQuality(best).catch(()=>{});
+        if(best) p.setQuality(best).catch(()=>{}).then(()=>refrescarCalidadesRef.current());
       }).catch(()=>{});
     } else {
-      p.setQuality('auto').catch(()=>{});
+      p.setQuality('auto').catch(()=>{}).then(()=>refrescarCalidadesRef.current());
     }
   },[isFS,fakeFS,ready]);
 
@@ -856,9 +987,21 @@ export default function InteractiveVideoPlayer() {
   // Keyboard shortcuts
   useEffect(()=>{
     const handleKey=(e)=>{
+      // 🔴 Con modificadores no son atajos nuestros: Ctrl+C prendía los subtítulos
+      // y Ctrl+F entraba a pantalla completa. Lo que ya atendió otro (la barra de
+      // avance, que maneja sus propias flechas) tampoco.
+      if(e.defaultPrevented||e.ctrlKey||e.metaKey||e.altKey) return;
+      if(menuRef.current){
+        if(e.key==='Escape'){ e.preventDefault(); cerrarMenuRef.current(true); }
+        return;   // con el menú abierto las teclas son del menú (Tab, Enter, espacio)
+      }
       if(activeIA) return;
+      const el=e.target, tag=el&&el.tagName;
+      // Escribiendo, o en un control que usa esas teclas (el volumen, un slider).
+      if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||el?.isContentEditable||el?.getAttribute?.('role')==='slider') return;
       switch(e.key){
-        case ' ': e.preventDefault(); togglePlay(); break;
+        // En un botón enfocado, el espacio es de ese botón (subtítulos, ajustes…).
+        case ' ': if(tag==='BUTTON'||tag==='A') return; e.preventDefault(); togglePlay(); break;
         case 'ArrowLeft': e.preventDefault(); skip(-10); break;
         case 'ArrowRight': e.preventDefault(); skip(10); break;
         case 'ArrowUp': e.preventDefault(); changeVolume(Math.min(1,volume+0.1)); break;
@@ -906,7 +1049,7 @@ export default function InteractiveVideoPlayer() {
         if(tRetomar&&playerRef.current){
           // Optimista: si el video todavía no cargó, el estado ya queda en la
           // posición guardada y no se vuelve a guardar 0 al salir.
-          seekPropioHastaRef.current=Date.now()+3000; // salto propio: la guardia no lo toca
+          marcarSaltoPropio(tRetomar,3000); // salto propio: la guardia no lo toca
           currentTimeRef.current=tRetomar;
           setCurrent(tRetomar);
           playerRef.current.setCurrentTime(tRetomar);
@@ -946,14 +1089,16 @@ export default function InteractiveVideoPlayer() {
     if(pending.length===0) scormSetComplete();
   },[videoEnded,completed,interactions]);
 
+  // Con el menú de Ajustes abierto los controles no se ocultan: el menú cuelga del
+  // engranaje y se desvanecía con la barra (lo hacía el viejo menú de velocidad).
   const resetCtrl = useCallback(()=>{
     setShowCtrl(true); clearTimeout(ctrlTimer.current);
-    if(playing&&!activeIA) ctrlTimer.current=setTimeout(()=>setShowCtrl(false), fakeFS?2500:3000);
+    if(playing&&!activeIA&&!menuRef.current) ctrlTimer.current=setTimeout(()=>setShowCtrl(false), fakeFS?2500:3000);
   },[playing,activeIA,fakeFS]);
 
   // Auto-hide controls when playing starts or fullscreen changes
   useEffect(()=>{
-    if(playing&&!activeIA){
+    if(playing&&!activeIA&&!menu){
       clearTimeout(ctrlTimer.current);
       ctrlTimer.current=setTimeout(()=>setShowCtrl(false), fakeFS?2500:3000);
     } else {
@@ -961,7 +1106,73 @@ export default function InteractiveVideoPlayer() {
       clearTimeout(ctrlTimer.current);
     }
     return()=>clearTimeout(ctrlTimer.current);
-  },[playing,activeIA,fakeFS]);
+  },[playing,activeIA,fakeFS,menu]);
+
+  // ─── Menú de Ajustes ───────────────────────────────────────────
+  const hayCalidad=calidades.length>=2&&!calidadNoDisponible;
+  const altoElegido=calidad!=='auto'?(calidades.find(q=>q.id===calidad)?.alto||parseInt(calidad,10)||0):0;
+  const etiquetaAuto=calidadViendo?`Automática (${calidadViendo}p)`:'Automática';
+  const etiquetaCalidad=calidad==='auto'?etiquetaAuto:(calidades.find(q=>q.id===calidad)?.label||calidad);
+  // Marca chica sobre el engranaje (no ocupa ancho en la fila): la velocidad si no
+  // es la normal —antes se leía en el botón "1x"— o HD si se fijó una calidad alta.
+  const marcaAjustes=speed!==1?`${speed}x`:(altoElegido>=720?'HD':'');
+  // A dónde va el foco al abrir o cambiar de vista: sólo si ya estaba en el menú o
+  // en el engranaje (teclado, o el clic de escritorio, que enfoca el botón). En un
+  // celular el toque no enfoca nada y así se queda.
+  const irAMenu=(m)=>{
+    const a=document.activeElement;
+    moverFocoMenuRef.current=!!a&&(a===ajustesBtnRef.current||!!ajustesPanelRef.current?.contains(a));
+    setMenu(m);
+  };
+  const cerrarMenu=(devolverFoco)=>{
+    const a=document.activeElement;
+    const enMenu=!!a&&(!!ajustesPanelRef.current?.contains(a));
+    setMenu(null);
+    if(devolverFoco||enMenu){ try{ ajustesBtnRef.current?.focus({preventScroll:true}); }catch(e){} }
+  };
+  const cerrarMenuRef=useRef(cerrarMenu);
+  cerrarMenuRef.current=cerrarMenu;
+  const toggleAjustes=()=>{
+    if(menuRef.current){ cerrarMenu(true); return; }
+    // Con una pregunta abierta, no: el menú quedaba encima de la tarjeta (con
+    // teclado se llegaba al engranaje; ahora los controles están inert, ver abajo).
+    if(activeIARef.current||videoError) return;
+    refrescarCalidadesRef.current();
+    // Sin calidades para elegir (MP4, Vimeo sin la opción) se abre directo en Velocidad.
+    irAMenu(hayCalidad?'principal':'velocidad');
+  };
+  useEffect(()=>{
+    if(!menu) return;
+    const panel=ajustesPanelRef.current; if(!panel) return;
+    // Si el panel no entra entero (reproductor bajo, o un video con muchas
+    // calidades), la opción elegida a la vista, también con el dedo o el mouse:
+    // "Automática", que va al final, quedaba tapada justo cuando es la tildada. A
+    // mano y no con scrollIntoView, que además desplaza la página del campus.
+    const activa=panel.querySelector('[aria-pressed="true"]');
+    if(activa&&panel.scrollHeight>panel.clientHeight+1){
+      const arriba=activa.offsetTop, abajo=arriba+activa.offsetHeight;   // relativos al panel (su offsetParent)
+      if(abajo>panel.scrollTop+panel.clientHeight) panel.scrollTop=abajo-panel.clientHeight+6;
+      else if(arriba<panel.scrollTop) panel.scrollTop=Math.max(0,arriba-6);
+    }
+    if(!moverFocoMenuRef.current) return;
+    const destino=activa||panel.querySelector('.iv-ajustes-fila, .iv-ajustes-opcion');
+    try{ destino?.focus({preventScroll:true}); }catch(e){}
+  },[menu]);
+  // Un toque o clic afuera lo cierra. La capa de toques no: lo cierra ella misma
+  // y SIN pausar (ver handleTouchEnd / handleClickLayer).
+  useEffect(()=>{
+    if(!menu) return;
+    const h=(e)=>{
+      const t=e.target;
+      if(ajustesPanelRef.current?.contains(t)||ajustesBtnRef.current?.contains(t)) return;
+      if(t?.classList?.contains('iv-click-layer')) return;
+      setMenu(null);
+    };
+    document.addEventListener('pointerdown',h,true);
+    return()=>document.removeEventListener('pointerdown',h,true);
+  },[menu]);
+  // Una pregunta o un error tapan todo: el menú no queda abierto debajo.
+  useEffect(()=>{ if(activeIA||videoError) setMenu(null); },[activeIA,videoError]);
 
   const togglePlay=()=>{
     const p=playerRef.current;if(!p||!ready)return;
@@ -984,14 +1195,20 @@ export default function InteractiveVideoPlayer() {
   const seekBusyRef=useRef(false);
   const seekNextRef=useRef(null);
   const seekTargetRef=useRef(null); // último destino pedido; null si no hay seek pendiente
-  // Hasta cuándo un salto se considera propio (la guardia de saltos no lo toca):
-  // cubre el tick tardío del medio después de que el seek ya resolvió.
+  // Hasta cuándo, y A DÓNDE, un salto se considera propio (la guardia de saltos no
+  // lo toca): cubre el tick tardío del medio después de que el seek ya resolvió.
+  // 🔴 El destino importa tanto como el reloj: con sólo la ventana de tiempo, un
+  // salto EXTERNO que llegaba en esos 1,5 s (3 s después de restaurar) —pantalla
+  // de bloqueo, auriculares, Vimeo— pasaba sin guardia y salteaba preguntas. Un
+  // tick que cae lejos del destino pedido es externo aunque llegue en la ventana.
   const seekPropioHastaRef=useRef(0);
+  const seekPropioDestinoRef=useRef(null);
+  const marcarSaltoPropio=(t,ms)=>{ seekPropioHastaRef.current=Date.now()+ms; seekPropioDestinoRef.current=t; };
   const seekTo=useCallback((t)=>{
     const p=playerRef.current;if(!p)return;
     terminoRef.current=false; // saltar después del final vuelve a ser ver el video
     resetHastaRef.current=0;  // un salto pedido termina el filtro de Reiniciar: sus ticks son los buenos
-    seekPropioHastaRef.current=Date.now()+1500;
+    marcarSaltoPropio(t,1500);
     seekTargetRef.current=t;
     if(seekBusyRef.current){seekNextRef.current=t;return;}
     seekBusyRef.current=true;
@@ -1001,6 +1218,8 @@ export default function InteractiveVideoPlayer() {
       seekTargetRef.current=null;
       // Verificación: si Vimeo se tragó el seek, re-emitirlo UNA vez.
       if(Math.abs(actual-t)>1.5) p.setCurrentTime(t).catch(()=>{});
+      const q=calidadPendienteRef.current;
+      if(q!=null){ calidadPendienteRef.current=null; aplicarCalidadRef.current(q); }
     });
   },[]);
   // Watchdog de play: si el play se pierde (carrera con un seek), verificar el
@@ -1142,7 +1361,61 @@ export default function InteractiveVideoPlayer() {
     scrubbingRef.current=false;
     setScrubPct(null);
   };
-  const changeSpeed=(rate)=>{playerRef.current?.setPlaybackRate(rate);setSpeed(rate);setShowSpeedMenu(false);};
+  // La barra con teclado (patrón "Media Seek Slider" de la APG). 🔴 Todo pasa por
+  // skip / seekExterno, que frenan en la próxima pregunta pendiente: NUNCA
+  // setCurrentTime directo, que la saltearía. preventDefault + stopPropagation para
+  // que el atajo global de las flechas no salte otros 10 s encima.
+  const onBarraKey=(e)=>{
+    if(e.ctrlKey||e.metaKey||e.altKey||!ready||activeIARef.current) return;
+    let accion=null;
+    switch(e.key){
+      case 'ArrowLeft': case 'ArrowDown': accion=()=>skip(-10); break;
+      case 'ArrowRight': case 'ArrowUp': accion=()=>skip(10); break;
+      case 'PageDown': accion=()=>skip(-60); break;
+      case 'PageUp': accion=()=>skip(60); break;
+      case 'Home': accion=()=>seekExternoRef.current?.(0,{sinPlay:true}); break;
+      // Al final no: seekExterno lo deja medio segundo antes (y en la pregunta pendiente).
+      case 'End': accion=()=>seekExternoRef.current?.(Math.max(duration||0,finRef.current<Infinity?finRef.current:0),{sinPlay:true}); break;
+      default: return;
+    }
+    e.preventDefault(); e.stopPropagation();
+    setAnunciarTotal(false);
+    accion();
+  };
+  const changeSpeed=(rate)=>{playerRef.current?.setPlaybackRate(rate);setSpeed(rate);cerrarMenu();};
+  // Calidad elegida en el menú. 🔴 setQuality va DENTRO del toque, sin await antes:
+  // con el HLS nativo de iPhone cambia la fuente y retoma con play(), que iOS sólo
+  // acepta dentro de un gesto. El candado no se toca: con hls.js el tiempo no se
+  // mueve, y con el HLS nativo nativePlayer no deja salir los eventos del cambio
+  // (la caída a 0 y la vuelta) y retoma en el mismo segundo; si aterrizara más
+  // allá de una pregunta, la guardia de saltos la frena (no es un salto propio).
+  const elegirCalidad=(id)=>{
+    const p=playerRef.current; if(!p||!ready||!p.setQuality) return;
+    if(activeIARef.current) return;
+    calidadElegidaRef.current=id;
+    setCalidad(id);
+    cerrarMenu();
+    // 🔴 Con un salto en vuelo, el pedido se GUARDA y lo aplica seekTo al aterrizar:
+    // el cambio tiene que partir del segundo ya aterrizado (el HLS nativo recarga la
+    // fuente y retoma en el tiempo de ESE momento; con Vimeo, seekTo verifica el
+    // salto leyendo el tiempo y no conviene cruzarlo con una recarga). Antes se
+    // descartaba en silencio: el menú quedaba abierto y el toque, perdido. Con el
+    // video propio el salto resuelve en microtareas, dentro del mismo toque, así
+    // que el play del cambio de fuente sigue valiendo para iOS.
+    if(seekTargetRef.current!=null){ calidadPendienteRef.current=id; return; }
+    calidadPendienteRef.current=null;
+    aplicarCalidadRef.current(id);
+  };
+  aplicarCalidadRef.current=(id)=>{
+    const p=playerRef.current; if(!p||!p.setQuality) return;
+    p.setQuality(id)
+      .then(()=>refrescarCalidadesRef.current())
+      .catch(()=>{
+        // Vimeo sin la opción en el plan: la etiqueta mentiría. Se saca la fila.
+        if(!nativeSrc) setCalidadNoDisponible(true);
+        refrescarCalidadesRef.current();
+      });
+  };
   const toggleSubs=()=>{
     const next=!subsOn;
     setSubsOn(next);
@@ -1160,6 +1433,9 @@ export default function InteractiveVideoPlayer() {
   const handleTouchEnd=(e)=>{
     if(activeIA) return;
     lastTouchAction.current=Date.now();
+    // 🔴 Con el menú de Ajustes abierto, un toque en el video SÓLO lo cierra: no
+    // pausa ni salta (YouTube igual).
+    if(menuRef.current){ clearTimeout(singleTapTimer.current); lastTapRef.current={time:0,x:0}; setMenu(null); return; }
     const now=Date.now();
     const touch=e.changedTouches?.[0];
     if(!touch) return;
@@ -1200,6 +1476,7 @@ export default function InteractiveVideoPlayer() {
   const handleClickLayer=()=>{
     // On mobile, touchEnd already handles it; block click for 500ms after any touch
     if(Date.now()-lastTouchAction.current<500) return;
+    if(menuRef.current){ setMenu(null); return; }   // sólo cierra el menú, no pausa
     togglePlay();
   };
 
@@ -1207,6 +1484,9 @@ export default function InteractiveVideoPlayer() {
     if(activeIA){
       const ia=activeIA;
       const next=new Set([...completed,ia.id]);
+      // El foco estaba en la tarjeta que se va: devolverlo al reproducir/pausar
+      // (si no, cae al <body> y quien usa teclado vuelve a empezar desde arriba).
+      devolverFocoRef.current=!!containerRef.current?.contains(document.activeElement);
       setCompleted(next);
       setActiveIA(null);
       activeIARef.current=null;
@@ -1276,10 +1556,14 @@ export default function InteractiveVideoPlayer() {
 
         <div ref={vimeoRef} className="iv-vimeo-wrap"/>
         {ready&&!activeIA&&<div className="iv-click-layer" onClick={handleClickLayer} onTouchStart={resetCtrl} onTouchEnd={handleTouchEnd}/>}
-        {skipFeedback&&<div className={`iv-skip-feedback ${skipFeedback}`}>{skipFeedback==='left'?'⟲ 10s':'10s ⟳'}</div>}
+        {skipFeedback&&<div className={`iv-skip-feedback ${skipFeedback}`} aria-hidden="true">{skipFeedback==='left'?'⟲ 10s':'10s ⟳'}</div>}
         {ready&&buffering&&!activeIA&&!videoError&&<div className="iv-buffering"><div className="iv-spinner"/></div>}
         {!ready&&!videoError&&<div className="iv-loading"><div className="iv-spinner"/><span>Cargando video...</span></div>}
-        {ready&&!playing&&!activeIA&&!videoError&&<button className="iv-big-play" onClick={togglePlay}><PlayIcon/></button>}
+        {ready&&!playing&&!activeIA&&!videoError&&<button className="iv-big-play" onClick={togglePlay} aria-label="Reproducir video"><PlayIcon/></button>}
+        {/* Avisos para el lector de pantalla (una interacción que aparece sin poder
+            llevarle el foco). Existe siempre: una región que aparece junto con su
+            texto muchas veces no se anuncia. */}
+        <div className="iv-sr" role="status" aria-live="polite">{aviso}</div>
         {videoError&&<div className="iv-error" role="alert">
           <strong>No se pudo cargar el video</strong>
           <span>{videoError.code===404?"El video no está disponible.":videoError.tipo==="acceso"?"El acceso al video venció.":videoError.tipo==="red"?"Revisá tu conexión.":"Hubo un problema al reproducirlo."} Tu avance está guardado.</span>
@@ -1296,8 +1580,20 @@ export default function InteractiveVideoPlayer() {
         {activeIA?.type==="true-false"&&<TFOverlay data={activeIA.data} onDismiss={dismiss}/>}
         {activeIA?.type==="hotspot"&&<HotspotOverlay data={activeIA.data} onDismiss={dismiss}/>}
 
-        <div className={`iv-controls ${showCtrl||!playing||activeIA||scrubPct!=null?"visible":""}`}>
+        {/* 🔴 inert con una pregunta abierta: la tarjeta tapa los controles para el
+            dedo, pero con Tab se llegaba a reproducir, a ±10 s y a Ajustes detrás de
+            ella. Así el foco queda en la pregunta. (Safari < 15.5 ignora inert: ahí
+            sigue valiendo el freno de 'play' con la pregunta abierta.) */}
+        <div className={`iv-controls ${showCtrl||!playing||activeIA||scrubPct!=null||menu?"visible":""}`} inert={activeIA?true:undefined}>
+          {/* La barra es también un slider de teclado (ver onBarraKey). El total se
+              agrega a lo que se lee sólo al enfocarla, como en el ejemplo de la APG,
+              para no repetirlo en cada segundo. */}
           <div ref={progressRef} className="iv-progress-container"
+            role="slider" tabIndex={0} aria-label="Avance del video"
+            aria-valuemin={0} aria-valuemax={Math.max(1,Math.round(duration))}
+            aria-valuenow={Math.min(Math.max(1,Math.round(duration)),Math.max(0,Math.floor(displayTime)))}
+            aria-valuetext={`${hablado(displayTime)}${anunciarTotal&&duration?` de ${hablado(duration)}`:''}`}
+            onKeyDown={onBarraKey} onFocus={()=>setAnunciarTotal(true)} onBlur={()=>setAnunciarTotal(false)}
             onPointerDown={onScrubStart} onPointerMove={onScrubMove}
             onPointerUp={onScrubEnd} onPointerCancel={onScrubCancel}>
             <div className="iv-progress-track">
@@ -1307,36 +1603,77 @@ export default function InteractiveVideoPlayer() {
             </div>
           </div>
           <div className="iv-controls-row">
-            <button className="iv-ctrl-btn" onClick={togglePlay}>{playing?<PauseIcon/>:<PlayIcon/>}</button>
-            <button className="iv-ctrl-btn" onClick={()=>skip(-10)}><SkipBackIcon/></button>
-            <button className="iv-ctrl-btn" onClick={()=>skip(10)}><SkipFwdIcon/></button>
+            <button ref={playBtnRef} className="iv-ctrl-btn" onClick={togglePlay} aria-label={playing?"Pausar":"Reproducir"}>{playing?<PauseIcon/>:<PlayIcon/>}</button>
+            <button className="iv-ctrl-btn" onClick={()=>skip(-10)} aria-label="Retroceder 10 segundos"><SkipBackIcon/></button>
+            <button className="iv-ctrl-btn" onClick={()=>skip(10)} aria-label="Adelantar 10 segundos"><SkipFwdIcon/></button>
             <div className="iv-volume-group" onMouseEnter={()=>setShowVolSlider(true)} onMouseLeave={()=>setShowVolSlider(false)}>
-              <button className="iv-ctrl-btn" onClick={toggleMute}><VolumeIcon muted={muted}/></button>
+              <button className="iv-ctrl-btn" onClick={toggleMute} aria-label={muted?"Activar sonido":"Silenciar"}><VolumeIcon muted={muted}/></button>
               {showVolSlider&&<div className="iv-volume-slider-wrap">
-                <input type="range" className="iv-volume-slider" min="0" max="1" step="0.05"
+                <input type="range" className="iv-volume-slider" min="0" max="1" step="0.05" aria-label="Volumen"
                   value={muted?0:volume} onChange={e=>changeVolume(parseFloat(e.target.value))}/>
               </div>}
             </div>
-            <span className="iv-time">{fmt(displayTime)}<span className="iv-time-total">/{fmt(duration)}</span></span>
-            {isEmbedded&&<span className="iv-ctrl-progress">{completed.size}/{completableInteractions.length}</span>}
+            <span className="iv-time" aria-hidden="true">{fmt(displayTime)}<span className="iv-time-total">/{fmt(duration)}</span></span>
+            {isEmbedded&&<span className="iv-ctrl-progress" aria-label={`${completed.size} de ${completableInteractions.length} actividades`}>{completed.size}/{completableInteractions.length}</span>}
             <div style={{flex:1}}/>
-            {isEmbedded&&completed.size>0&&<button className="iv-ctrl-btn iv-reset-ctrl" onClick={resetProgress} title="Reiniciar progreso">↺</button>}
-            {(hasCues||hasVimeoSubs)&&<button className="iv-ctrl-btn" onClick={toggleSubs}><SubsIcon on={subsOn}/></button>}
-            <div className="iv-speed-group">
-              <button className="iv-ctrl-btn iv-speed-btn" onClick={()=>setShowSpeedMenu(!showSpeedMenu)}>{speed}x</button>
-              {showSpeedMenu&&<div className="iv-speed-menu">
-                {SPEEDS.map(s=><button key={s} className={`iv-speed-option ${s===speed?'active':''}`} onClick={()=>changeSpeed(s)}>{s}x</button>)}
-              </div>}
-            </div>
+            {isEmbedded&&completed.size>0&&<button className="iv-ctrl-btn iv-reset-ctrl" onClick={resetProgress} title="Reiniciar progreso" aria-label="Reiniciar progreso"><span aria-hidden="true">↺</span></button>}
+            {(hasCues||hasVimeoSubs)&&<button className="iv-ctrl-btn" onClick={toggleSubs} aria-label="Subtítulos" aria-pressed={subsOn}><SubsIcon on={subsOn}/></button>}
+            {/* Ajustes (velocidad y calidad) en un solo botón, como YouTube: a 320 px
+                la fila no admite uno más, y el de salir de pantalla completa no se
+                puede recortar. Ocupa menos que el viejo "1x" / "1.25x". */}
+            <button ref={ajustesBtnRef} className={`iv-ctrl-btn iv-ajustes-btn ${menu?'abierto':''}`} onClick={toggleAjustes}
+              aria-label="Ajustes" aria-haspopup="dialog" aria-expanded={!!menu} aria-controls="iv-ajustes">
+              <GearIcon/>{marcaAjustes&&<span className="iv-ajustes-marca" aria-hidden="true">{marcaAjustes}</span>}
+            </button>
             {(isFS||fakeFS)&&vertical&&!bloqueoOk&&!fsNativo&&<button className={`iv-ctrl-btn ${girar?"iv-girar-on":""}`} onClick={()=>{const g=!girar;setGirar(g);try{localStorage.setItem('iv_girar',g?'1':'0');}catch(e){}}} title={girar?"Volver a vertical":"Ver horizontal"} aria-label={girar?"Volver a vertical":"Ver horizontal"} aria-pressed={girar}><RotateIcon/></button>}
-            <button className="iv-ctrl-btn iv-fs-btn" onClick={toggleFS}>{isFS?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>
+            <button className="iv-ctrl-btn iv-fs-btn" onClick={toggleFS} aria-label={isFS?"Salir de pantalla completa":"Pantalla completa"}>{isFS?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>
           </div>
         </div>
+
+        {/* Panel de Ajustes. Vive en el contenedor y no en la fila: el reproductor va
+            en un iframe y el panel no puede salirse de él. En reproductores angostos
+            (≤480 px) o bajos (≤340 px) tapa el video entero y las opciones van de a
+            dos por fila: a 320 px el reproductor mide 180 de alto y seis opciones en
+            columna no entran. La capa que lo envuelve ocupa el contenedor entero y
+            es la que se mide (ver .iv-ajustes-capa en styles.css). Opciones =
+            botones con aria-pressed (sin role="menu", que pide manejo de flechas). */}
+        {menu&&!activeIA&&<div className="iv-ajustes-capa">
+        <div ref={ajustesPanelRef} id="iv-ajustes" className={`iv-ajustes iv-ajustes-${menu}`} role="dialog"
+          aria-label={menu==='calidad'?'Calidad':menu==='velocidad'?'Velocidad':'Ajustes'}
+          onClick={e=>e.stopPropagation()} onTouchEnd={e=>e.stopPropagation()}>
+          <div className="iv-ajustes-cabecera">
+            {menu!=='principal'&&hayCalidad
+              ? <button className="iv-ajustes-atras" onClick={()=>irAMenu('principal')}><span aria-hidden="true">‹ </span>Atrás</button>
+              : null}
+            <span className="iv-ajustes-titulo">{menu==='calidad'?'Calidad':menu==='velocidad'?'Velocidad':'Ajustes'}</span>
+            <button className="iv-ajustes-cerrar" onClick={()=>cerrarMenu(true)} aria-label="Cerrar ajustes"><CloseIcon/></button>
+          </div>
+          {menu==='principal'&&<div className="iv-ajustes-filas">
+            <button className="iv-ajustes-fila" onClick={()=>irAMenu('velocidad')}>
+              <span>Velocidad</span><span className="iv-ajustes-valor">{etiquetaVelocidad(speed)}<span aria-hidden="true"> ›</span></span>
+            </button>
+            {hayCalidad&&<button className="iv-ajustes-fila" onClick={()=>irAMenu('calidad')}>
+              <span>Calidad</span><span className="iv-ajustes-valor">{etiquetaCalidad}<span aria-hidden="true"> ›</span></span>
+            </button>}
+          </div>}
+          {menu==='velocidad'&&<div className="iv-ajustes-opciones">
+            {SPEEDS.map(s=><button key={s} className={`iv-ajustes-opcion ${s===speed?'activa':''}`} aria-pressed={s===speed} onClick={()=>changeSpeed(s)}>
+              <CheckIcon/>{etiquetaVelocidad(s)}
+            </button>)}
+          </div>}
+          {/* Calidad de mayor a menor y "Automática" al final, como YouTube. */}
+          {menu==='calidad'&&<div className="iv-ajustes-opciones">
+            {[...calidades,{id:'auto',label:etiquetaAuto}].map(q=><button key={q.id} className={`iv-ajustes-opcion ${q.id===calidad?'activa':''}`} aria-pressed={q.id===calidad} onClick={()=>elegirCalidad(q.id)}>
+              <CheckIcon/>{q.label}
+            </button>)}
+          </div>}
+        </div>
+        </div>}
       </div>
       {!isEmbedded&&<div className="iv-legend">
         <span className="iv-legend-title">Marcadores:</span>
         {Object.entries(TYPE_COLORS).map(([t,c])=><span key={t} className="iv-legend-item">
-          <span className="iv-legend-dot" style={{background:c}}/>{t==="multiple-choice"?"MC":t==="true-false"?"V/F":t==="hotspot"?"Hotspot":"Nota"}
+          <span className="iv-legend-dot" style={{background:c}}/>{t==="multiple-choice"?"MC":t==="true-false"?"V/F":t==="hotspot"?"Hotspot":t==="label"?"Etiqueta":"Nota"}
         </span>)}
       </div>}
     </div>
