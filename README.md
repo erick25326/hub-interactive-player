@@ -266,6 +266,10 @@ propio**: una página nuestra que corre en la TV, registrada en la consola de Go
 Cast (un registro de USD 5, no reembolsable) y servida por HTTPS. Cuando exista, su ID va en
 `castAppId` del `PLAYER_CONFIG` (8 hexadecimales); hoy queda en `null`.
 
+**Decisión (11-oct-2026): las preguntas NO van en la TV**, ni con Chromecast ni con
+AirPlay (desde una página web, AirPlay sólo manda el video; haría falta una app de
+Apple TV). Se responden siempre en el celular. `castAppId` queda en el código, sin uso.
+
 ### Requisitos para que no se rompa
 
 - **HTTPS** en la página del reproductor (el campus ya lo es; `localhost` sirve para
