@@ -106,11 +106,14 @@ export function variantesDelMaster(texto, urlMaster) {
 }
 
 // WebKit de Apple (Safari de escritorio y cualquier navegador en iOS/iPadOS).
+function esIOS() {
+  const ua = navigator.userAgent || "";
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
 function esApple() {
   const ua = navigator.userAgent || "";
-  const ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const safariMac = /^((?!chrome|chromium|crios|fxios|android|edg).)*safari/i.test(ua);
-  return ios || safariMac;
+  return esIOS() || safariMac;
 }
 
 export default class NativePlayer {
@@ -168,6 +171,8 @@ export default class NativePlayer {
     this._conectarEventos();
     this._apagarPistasNativas();
     this._cargar();
+    // Después de _cargar: hls.js con ManagedMediaSource ya puso disableRemotePlayback.
+    this._iniciarAirPlay();
   }
 
   // Qué motor usar. Hoy el iPhone va por defecto al HLS de Safari, que arranca por
@@ -410,6 +415,10 @@ export default class NativePlayer {
     (this.handlers[evento] ||= []).push(h);
     // Un error que pasó antes de suscribirse igual le llega.
     if (evento === "error" && this._error) { const e = this._error; queueMicrotask(() => h(e)); }
+    // AirPlay: la disponibilidad pudo llegar antes de que el componente se suscriba.
+    if (evento === "remotechange" && this._airplay && (this._airplay.disponible || this._airplay.estado !== "disconnected")) {
+      const d = this._estadoAirPlay(); queueMicrotask(() => h(d));
+    }
   }
   off(evento, h) { this.handlers[evento] = (this.handlers[evento] || []).filter((x) => x !== h); }
   ready() { return this._readyPromise; }
@@ -438,6 +447,10 @@ export default class NativePlayer {
 
   getDuration() { const d = this.video.duration; return Promise.resolve(Number.isFinite(d) ? d : 0); }
   getCurrentTime() { return Promise.resolve(this._seekPendiente ?? this.video.currentTime); }
+  // Sincrónico, para pasarle a la TV el segundo EXACTO: el último timeupdate que vio
+  // el componente puede estar ~250 ms atrás. Durante un cambio de fuente, su segundo
+  // (el <video> pasa por 0 mientras recarga).
+  tiempo() { return this._cambio ? this._cambio.t : (this._seekPendiente ?? this.video.currentTime); }
   setCurrentTime(t) {
     const v = this.video;
     const destino0 = Math.max(0, Number(t) || 0);
@@ -467,6 +480,13 @@ export default class NativePlayer {
       this.hls.startLoad(destino);
     }
     return Promise.resolve(destino);
+  }
+
+  // La TV (Chromecast) tomó la reproducción: el <video> queda en pausa y sin bajar
+  // nada, pero VIVO, así la vuelta al celular es inmediata. play() y
+  // setCurrentTime() ya saben retomar la carga (ver _detenido).
+  detenerCarga() {
+    if (this.hls && !this._detenido) { this.hls.stopLoad(); this._detenido = true; }
   }
 
   getVolume() { return Promise.resolve(this.video.volume); }
@@ -813,9 +833,102 @@ export default class NativePlayer {
     this._emitirCalidad();
   }
 
+  // --- AirPlay (sólo WebKit de Apple) ------------------------------------------
+  // Con AirPlay el <video> SIGUE siendo el dueño: play, pausa y saltos van a la TV
+  // por el mismo elemento, y lo que pasa en la TV (el control del Apple TV, el
+  // Centro de control) vuelve como sus eventos de siempre (play/pause/timeupdate).
+  // Por eso el candado de preguntas no necesita nada: lo único nuevo es el botón y
+  // avisarle al componente el estado ('remotechange' { disponible, estado }).
+  // Se usa la Remote Playback API estándar (Safari 13.1 / iOS 13.4) y, si no está
+  // (Modo Aislamiento la apaga), las webkit* de siempre.
+  // 🔴 Sólo en WebKit: en Chrome `video.remote` también existe pero transmite a
+  // CHROMECAST, y eso lo maneja cast.js con su propio receptor.
+  // 🔴 hls.js con ManagedMediaSource (?motor=hls en Apple) pone
+  // disableRemotePlayback y AirPlay queda apagado: no se ofrece. No hay "parche":
+  // agregar un <source> HLS después de attachMedia lo deshace la recuperación
+  // interna de hls.js (MEDIA_SOURCE_REQUIRES_RESET → recoverMediaError).
+  _iniciarAirPlay() {
+    this._airplay = { disponible: false, estado: "disconnected", id: null, oyentes: [] };
+    if (typeof window === "undefined" || !window.WebKitPlaybackTargetAvailabilityEvent) return;
+    const v = this.video, a = this._airplay;
+    const avisar = () => this._emit("remotechange", this._estadoAirPlay());
+    const escuchar = (obj, ev, fn) => { obj.addEventListener(ev, fn); a.oyentes.push([obj, ev, fn]); };
+    const r = v.remote;
+    if (r && typeof r.watchAvailability === "function") {
+      escuchar(r, "connecting", () => { a.estado = "connecting"; avisar(); });
+      escuchar(r, "connect", () => { a.estado = "connected"; this._alConectarAirPlay(); avisar(); });
+      escuchar(r, "disconnect", () => { a.estado = "disconnected"; avisar(); });
+      if (v.disableRemotePlayback) return;
+      // 🔴 Sin esto prompt() rechaza siempre (WebKit arranca con m_available en
+      // false). Y sirve para mostrar el botón sólo con una TV a la vista. Apple pide
+      // escuchar sólo mientras haga falta (batería): se cancela en destroy().
+      r.watchAvailability((disp) => { a.disponible = !!disp; avisar(); })
+        .then((id) => { if (this.video) a.id = id; }, () => {});   // InvalidStateError / NotSupportedError: sin botón
+      return;
+    }
+    escuchar(v, "webkitplaybacktargetavailabilitychanged", (e) => { a.disponible = e.availability === "available"; avisar(); });
+    escuchar(v, "webkitcurrentplaybacktargetiswirelesschanged", () => {
+      a.estado = v.webkitCurrentPlaybackTargetIsWireless ? "connected" : "disconnected";
+      if (a.estado === "connected") this._alConectarAirPlay();
+      avisar();
+    });
+  }
+
+  _estadoAirPlay() {
+    return { disponible: this.transmisionDisponible(), estado: this._airplay ? this._airplay.estado : "disconnected" };
+  }
+
+  transmisionDisponible() {
+    return !!(this._airplay && this._airplay.disponible && !this.video.disableRemotePlayback);
+  }
+
+  // Con una variante fija (calidad elegida a mano en el HLS nativo) la TV recibiría
+  // ESA playlist sola, sin ABR, y el menú de Calidad no se ve mientras se transmite:
+  // se vuelve a automático (el master). En iPhone/iPad ya se hizo antes del
+  // selector (ver transmitir); esto cubre la Mac.
+  _alConectarAirPlay() {
+    if (this.motor === "nativo" && this._calidad !== "auto") this.setQuality("auto");
+  }
+
+  // Abre el selector de AirPlay. 🔴 Llamarla DENTRO del toque y SIN await antes:
+  // prompt() toma el gesto en el momento de la llamada (RemotePlayback.cpp), igual
+  // que setQuality con el HLS nativo. Cerrar el selector sin elegir rechaza con
+  // NotAllowedError: el estado lo dan los eventos, no esta promesa.
+  transmitir() {
+    const v = this.video;
+    const a = this._airplay;
+    if (!a || (!a.disponible && a.estado === "disconnected")) return Promise.resolve(false);
+    try {
+      // En iPhone/iPad prompt() no pide metadata, así que el master puede ir ANTES
+      // del selector: la TV arranca con ABR y no hay que recargar en plena
+      // transmisión. En la Mac sí la pide (readyState ≥ HAVE_METADATA): ahí se
+      // cambia al conectar.
+      const previa = this._calidad;
+      const alMaster = esIOS() && this.motor === "nativo" && previa !== "auto" && a.estado === "disconnected";
+      if (alMaster) this.setQuality("auto");
+      if (v.remote && typeof v.remote.prompt === "function") {
+        return v.remote.prompt().then(() => true, () => {
+          // 🔴 Cerró el selector sin elegir TV: se vuelve a la calidad que había fijado.
+          // Si no, quedaba en Automática sin haberlo pedido (con datos móviles, puede
+          // subir a 1080p). Fuera del toque: si iOS rechaza el play del cambio, queda
+          // en pausa con el botón grande, como cualquier cambio de calidad que falla.
+          if (alMaster && this._airplay && this._airplay.estado === "disconnected" && this._calidad === "auto") this.setQuality(previa);
+          return false;
+        });
+      }
+      if (typeof v.webkitShowPlaybackTargetPicker === "function") { v.webkitShowPlaybackTargetPicker(); return Promise.resolve(true); }
+    } catch (e) {}
+    return Promise.resolve(false);
+  }
+
   destroy() {
     clearTimeout(this._readyFallback);
     clearTimeout(this._tReintento);
+    if (this._airplay) {
+      try { if (this._airplay.id != null) this.video.remote.cancelWatchAvailability(this._airplay.id); } catch (e) {}
+      this._airplay.oyentes.forEach(([o, ev, fn]) => { try { o.removeEventListener(ev, fn); } catch (e) {} });
+      this._airplay = null;
+    }
     this._sinConfirmar = null;
     if (this._cambio) { clearTimeout(this._cambio.timer); clearTimeout(this._cambio.vigia); this._cambio = null; }
     if (this.hls) { this.hls.destroy(); this.hls = null; }

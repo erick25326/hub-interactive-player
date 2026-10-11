@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useId, Fragment } from "react";
 import Player from "@vimeo/player";
 import NativePlayer from "./nativePlayer.js";
+import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, mismoVideo, CastPlayer } from "./cast.js";
 import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
 
 const DEFAULT_CONFIG = {
@@ -14,6 +15,10 @@ const DEFAULT_CONFIG = {
   poster: null,
   // Motor del video propio: 'auto' (hls.js; HLS de Safari en Apple), 'hls' o 'nativo'.
   videoMotor: 'auto',
+  // Chromecast: null = receptor por defecto de Google (sin registro; la TV sólo
+  // muestra el video y las preguntas salen en el celular). Un ID de 8 hexadecimales
+  // = receptor propio registrado en la consola de Cast (ver cast.js y el README).
+  castAppId: null,
   loop: false,              // true = repetir video al terminar
   subtitlesUrl: null,
   subtitlesCues: [],
@@ -133,6 +138,9 @@ const InfoIcon = () => <svg aria-hidden="true" focusable="false" width="16" heig
 // Engranaje de Ajustes (velocidad y calidad, como YouTube): reemplaza al botón "1x".
 const GearIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>;
 const CloseIcon = () => <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>;
+// Transmitir a la TV: el mismo ícono para Chromecast y AirPlay (un solo botón).
+const CastIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"/></svg>;
+const CastOnIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm18-7H5v1.63c3.96 1.28 7.09 4.41 8.37 8.37H19V7zM1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>;
 
 const fmt = (s) => { const m=Math.floor(s/60); return `${m}:${Math.floor(s%60).toString().padStart(2,"0")}`; };
 // El tiempo dicho en palabras, para el lector de pantalla ("1 minuto, 23 segundos"):
@@ -493,7 +501,7 @@ export function tiempoAGuardar(t, activeIA, fin = Infinity, interactions = [], c
 
 export default function InteractiveVideoPlayer() {
   const config = getConfig();
-  const { title, vimeoId, vimeoHash, videoUrl, poster, videoMotor, subtitlesUrl, subtitlesCues, subtitlesOn, interactions } = config;
+  const { title, vimeoId, vimeoHash, videoUrl, poster, videoMotor, subtitlesUrl, subtitlesCues, subtitlesOn, interactions, castAppId } = config;
   // Video propio (HLS/MP4) en vez de Vimeo. También se acepta pegado en vimeoId,
   // para poder probar sin tocar el formulario de Moodle.
   const nativeSrc = videoUrl
@@ -505,6 +513,8 @@ export default function InteractiveVideoPlayer() {
   const playerRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const playingRef = useRef(false);
+  playingRef.current = playing;
   const [currentTime, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
@@ -557,6 +567,20 @@ export default function InteractiveVideoPlayer() {
   // Vimeo lo mostraba su propio iframe; con el <video> propio, si no lo dibujamos
   // nosotros, el alumno ve un spinner eterno.
   const [videoError, setVideoError] = useState(null);
+  // Transmisión a la TV (sólo con video propio). `tv`: null o { tipo: 'cast' |
+  // 'airplay', estado: 'conectando' | 'conectado', nombre } (AirPlay no da nombre).
+  // `tvDisp`: si hay una TV a la vista, para mostrar el botón sólo entonces.
+  const [tv, setTv] = useState(null);
+  const tvRef = useRef(null);
+  const [tvDisp, setTvDisp] = useState({ cast: false, airplay: false });
+  const [tvAviso, setTvAviso] = useState('');   // aviso breve ("Se dejó de transmitir…")
+  const tvAvisoTimer = useRef(null);
+  const [tvEnMenu, setTvEnMenu] = useState(false);   // reproductor angosto: el botón va en Ajustes
+  const castCtxRef = useRef(null);
+  // Con Chromecast, playerRef apunta al adaptador (CastPlayer) y el <video> espera
+  // acá, en pausa y vivo, para la vuelta.
+  const localPlayerRef = useRef(null);
+  const errorLocalRef = useRef(null);   // error del <video> mientras transmitía: se muestra al volver
   const activeIARef = useRef(null);
   const ctrlTimer = useRef(null);
   const triggered = useRef(new Set());
@@ -623,7 +647,35 @@ export default function InteractiveVideoPlayer() {
         }
       }).catch(()=>{});
     });
+    suscribirRef.current(p);
+    // AirPlay (sólo el <video> en WebKit): el <video> sigue siendo el dueño, así que
+    // sólo hace falta saber si hay una TV y si se está transmitiendo.
+    if(p.transmisionDisponible){
+      p.on("remotechange", d=>{
+        if(!d) return;
+        setTvDisp(x=>x.airplay===!!d.disponible?x:{...x,airplay:!!d.disponible});
+        if(d.estado==='connected') setTv({tipo:'airplay',estado:'conectado',nombre:null});
+        else if(d.estado==='connecting') setTv({tipo:'airplay',estado:'conectando',nombre:null});
+        else if(tvRef.current?.tipo==='airplay'){
+          if(tvRef.current.estado==='conectado') avisarTVRef.current('Se dejó de transmitir a la TV.');
+          setTv(null);
+        }
+      });
+    }
+    // No cleanup — Vimeo Player does not survive StrictMode destroy/recreate cycle
+  },[vimeoData]);
+
+  // Suscribe el componente a los eventos de un motor: el de arranque (Vimeo o el
+  // <video>) y el adaptador de Chromecast mientras se transmite (ver cast.js).
+  // 🔴 Sólo el motor ACTIVO (playerRef.current) le habla al componente. Al pasar a
+  // la TV, el <video> queda en pausa y su 'pause' pondría el botón en "Reproducir"
+  // con la TV andando; al volver, un tick tardío del adaptador movería el reloj. Los
+  // manejadores sólo usan refs y setters: no importa en qué render se suscriben.
+  const suscribirRef=useRef(null);
+  suscribirRef.current=(p)=>{
+    const activo=()=>playerRef.current===p;
     p.on("timeupdate", d=>{
+      if(!activo()) return;
       // Tras Reiniciar, descartar los ticks de la posición vieja que ya venían en
       // camino: con el tiempo puesto en 0, uno de esos parecía un cruce y mostraba
       // al instante una pregunta ya respondida. Lo apaga el primer tick del
@@ -633,10 +685,20 @@ export default function InteractiveVideoPlayer() {
     });
     // La duración puede llegar después de ready() (iOS sin metadata hasta el
     // primer toque, o un HLS que todavía no la conoce). Vimeo también la emite.
-    p.on("durationchange", d=>{ if(d&&d.duration>0) setDuration(d.duration); });
+    p.on("durationchange", d=>{ if(activo()&&d&&d.duration>0) setDuration(d.duration); });
     p.on("play", ()=>{
-      // Un play que no pidió el reproductor (Centro de control, auriculares) con
-      // una pregunta abierta corría el video por detrás y salteaba interacciones.
+      if(!activo()){
+        // 🔴 Transmitiendo con Chromecast, el <video> del celular espera en pausa pero
+        // VIVO, y su sesión de medios sigue activa: la notificación de Android, el
+        // botón de un auricular o los controles de medios de Chrome le hacen play
+        // directo. Sonaba en el celular detrás del cartel, a la vez que la TV, y el
+        // reloj no se enteraba. Se lo vuelve a pausar en el acto.
+        if(!p.esTV&&playerRef.current?.esTV){ try{ p.pause(); }catch(e){} }
+        return;
+      }
+      // Un play que no pidió el reproductor (Centro de control, auriculares, el
+      // control remoto de la TV o Google Home) con una pregunta abierta corría el
+      // video por detrás y salteaba interacciones.
       if(activeIARef.current){ playIntentRef.current=null; p.pause(); return; }
       terminoRef.current=false;
       setPlaying(true);
@@ -644,35 +706,37 @@ export default function InteractiveVideoPlayer() {
       // none) y el navegador fuerza arranque muteado; el ícono decía "sonido
       // activo" con audio en silencio. Leer el estado REAL y reflejarlo.
       Promise.all([p.getVolume(), p.getMuted ? p.getMuted() : Promise.resolve(false)])
-        .then(([v,m])=>{ if(m||v===0) setMuted(true); })
+        .then(([v,m])=>{ if(activo()&&(m||v===0)) setMuted(true); })
         .catch(()=>{});
     });
-    p.on("pause", ()=>setPlaying(false));
+    p.on("pause", ()=>{ if(activo()) setPlaying(false); });
     // Con controls:false el spinner propio de Vimeo no existe: un buffering
     // normal tras un seek se veía como "se congeló el video". Exponer el
     // estado para mostrar nuestro propio spinner.
-    p.on("bufferstart", ()=>setBuffering(true));
-    p.on("bufferend", ()=>setBuffering(false));
-    p.on("seeked", ()=>setBuffering(false));
+    p.on("bufferstart", ()=>{ if(activo()) setBuffering(true); });
+    p.on("bufferend", ()=>{ if(activo()) setBuffering(false); });
+    p.on("seeked", ()=>{ if(activo()) setBuffering(false); });
     // Sólo los errores definitivos (nativePlayer los marca `fatal`; Vimeo también
-    // emite 'error' por un play rechazado, que no lo es).
+    // emite 'error' por un play rechazado, que no lo es). Uno del <video> mientras
+    // transmite (no debería: está quieto) se guarda para mostrarlo al volver.
     p.on("error", e=>{
       if(!e||!e.fatal) return;
+      if(!activo()){ if(!p.esTV) errorLocalRef.current=e; return; }
       playIntentRef.current=null;
       setBuffering(false);
       setPlaying(false);
       setVideoError(e);
     });
-    p.on("ended", ()=>alTerminarRef.current());
+    p.on("ended", ()=>{ if(activo()) alTerminarRef.current(); });
     // Calidad: el video propio avisa la elegida y lo que se ve ('viendo', para
     // "Automática (480p)"); Vimeo emite el evento sin 'viendo'. En los dos casos se
     // vuelve a leer la lista, que es la fuente de verdad del menú.
     p.on("qualitychange", d=>{
+      if(!activo()) return;
       if(d&&typeof d.viendo==='number'&&d.viendo>0) setCalidadViendo(d.viendo);
       refrescarCalidadesRef.current();
     });
-    // No cleanup — Vimeo Player does not survive StrictMode destroy/recreate cycle
-  },[vimeoData]);
+  };
 
   // Lee las calidades del motor y las deja listas para el menú: de mayor a menor,
   // sin duplicados, y sólo si hay algo que elegir (dos o más). Vimeo nombra '4K' y
@@ -707,6 +771,15 @@ export default function InteractiveVideoPlayer() {
     // Sin intent, el watchdog de safePlay no relanza el video que acaba de
     // volver a 0; terminoRef evita que cerrar una pregunta del final lo arranque.
     terminoRef.current=true;
+    // 🔴 Evaluar una vez contra el fin (lo mismo que hace dismiss): si 'ended' llega
+    // antes de que el efecto de disparo vea el último segundo, la pregunta del final
+    // se perdía. Pasa transmitiendo: la TV avisa que terminó (el último segundo y
+    // 'ended' en la misma tarea), el setCurrentTime(0) de abajo informa el 0 en una
+    // microtarea, React junta los dos en un solo render y el efecto sólo veía el 0.
+    // Con el celular bloqueado (timers alineados al segundo) o una TV que termina un
+    // poco antes de la duración que informa, el FINISHED le gana al freno: se perdía
+    // en 7 de 11 corridas. Con una pregunta ya abierta no hace falta.
+    if(!activeIARef.current) evaluarEnFinRef.current=true;
     playIntentRef.current=null;
     setPlaying(false);
     setVideoEnded(true);
@@ -1006,14 +1079,15 @@ export default function InteractiveVideoPlayer() {
         case 'ArrowRight': e.preventDefault(); skip(10); break;
         case 'ArrowUp': e.preventDefault(); changeVolume(Math.min(1,volume+0.1)); break;
         case 'ArrowDown': e.preventDefault(); changeVolume(Math.max(0,volume-0.1)); break;
-        case 'f': case 'F': toggleFS(); break;
+        // Transmitiendo no se entra a pantalla completa (el video está en la TV).
+        case 'f': case 'F': if(!tv) toggleFS(); break;
         case 'm': case 'M': toggleMute(); break;
         case 'c': case 'C': toggleSubs(); break;
       }
     };
     document.addEventListener('keydown',handleKey);
     return()=>document.removeEventListener('keydown',handleKey);
-  },[activeIA,playing,volume,muted,subsOn,duration]);
+  },[activeIA,playing,volume,muted,subsOn,duration,tv]);
 
   // Initialize SCORM when ready
   useEffect(()=>{
@@ -1109,8 +1183,31 @@ export default function InteractiveVideoPlayer() {
   },[playing,activeIA,fakeFS,menu]);
 
   // ─── Menú de Ajustes ───────────────────────────────────────────
-  const hayCalidad=calidades.length>=2&&!calidadNoDisponible;
-  const altoElegido=calidad!=='auto'?(calidades.find(q=>q.id===calidad)?.alto||parseInt(calidad,10)||0):0;
+  // Transmitiendo no se ofrece Calidad: la elige la TV (ABR del receptor o del
+  // Apple TV). Con AirPlay el <video> todavía tendría la lista: se oculta igual.
+  const hayCalidad=calidades.length>=2&&!calidadNoDisponible&&!tv;
+  const altoElegido=hayCalidad&&calidad!=='auto'?(calidades.find(q=>q.id===calidad)?.alto||parseInt(calidad,10)||0):0;
+  // Botón de la TV: con una TV a la vista, o transmitiendo (para cortar).
+  const tvBoton=!!nativeSrc&&(tvDisp.cast||tvDisp.airplay||!!tv);
+  // Transmitiendo no hay botón de pantalla completa (ni de girar), salvo que siga
+  // en pantalla completa: ahí el de SALIR no se esconde nunca.
+  const fsVisible=!tv||isFS||fakeFS;
+  // Sin el de pantalla completa sobra lugar: el de la TV entra también a ≤340 px.
+  const tvSiempre=!!tv&&!(isFS||fakeFS);
+  // En la pantalla completa NATIVA el wrapper es el elemento :fullscreen y la regla del
+  // navegador (transform:none, inset:0, width/height:100% !important) anula el giro:
+  // el video no giraba y fraccionX leía la barra por la altura del dedo (iPad, tablets).
+  // Se mira el documento PROPIO: en el campus la madre manda isFS:true también ahí.
+  const fsNativo=!!(document.fullscreenElement||document.webkitFullscreenElement);
+  // Botón de girar: pantalla completa simulada con el celular parado.
+  const girarVisible=(isFS||fakeFS)&&vertical&&!bloqueoOk&&!fsNativo&&!tv;
+  // 🔴 Con el de girar en la fila, el corte del botón de la TV sube de 340 a 372 px:
+  // entre 341 y ~365 vuelven el total y el contador, y el de la TV recortaba el de
+  // SALIR de pantalla completa (iPhone parado en el campus, con subtítulos y
+  // Reiniciar). El mismo corte que .con-girar en styles.css.
+  const anchoTvEnMenu=girarVisible?372:340;
+  const etiquetaTV=tv?.tipo==='cast'?(tv.estado==='conectando'?'Cancelar la conexión con la TV':'Dejar de transmitir')
+    :tv?.tipo==='airplay'?'Dejar de transmitir o elegir otra TV':'Transmitir a la TV';
   const etiquetaAuto=calidadViendo?`Automática (${calidadViendo}p)`:'Automática';
   const etiquetaCalidad=calidad==='auto'?etiquetaAuto:(calidades.find(q=>q.id===calidad)?.label||calidad);
   // Marca chica sobre el engranaje (no ocupa ancho en la fila): la velocidad si no
@@ -1138,8 +1235,15 @@ export default function InteractiveVideoPlayer() {
     // teclado se llegaba al engranaje; ahora los controles están inert, ver abajo).
     if(activeIARef.current||videoError) return;
     refrescarCalidadesRef.current();
-    // Sin calidades para elegir (MP4, Vimeo sin la opción) se abre directo en Velocidad.
-    irAMenu(hayCalidad?'principal':'velocidad');
+    // Reproductor angosto (≤340 px, o ≤372 con el botón de girar: el mismo corte de
+    // los container query ivc): el botón de la TV no entra en la fila sin recortar el
+    // de pantalla completa, y va acá.
+    const ancho=containerRef.current?containerRef.current.clientWidth:Infinity;
+    const enMenu=tvBoton&&!tvSiempre&&ancho<=anchoTvEnMenu;
+    setTvEnMenu(enMenu);
+    // Sin calidades para elegir (MP4, Vimeo sin la opción) ni TV en el menú, se abre
+    // directo en Velocidad.
+    irAMenu(hayCalidad||enMenu?'principal':'velocidad');
   };
   useEffect(()=>{
     if(!menu) return;
@@ -1307,6 +1411,308 @@ export default function InteractiveVideoPlayer() {
     poner('seekto',d=>{ if(d&&typeof d.seekTime==='number') seekExternoRef.current?.(d.seekTime,{sinPlay:true}); });
     return()=>{ ['seekbackward','seekforward','seekto'].forEach(a=>poner(a,null)); };
   },[nativeSrc,title]);
+
+  // ─── Transmitir a la TV ────────────────────────────────────────
+  // Dos caminos con UN botón:
+  //  - AirPlay (Safari/iPhone con HLS nativo): el <video> sigue siendo el dueño y
+  //    la TV es sólo a dónde sale la imagen. El candado no cambia en nada.
+  //  - Chromecast (Chrome/Edge de escritorio y Android): la TV baja el video sola.
+  //    playerRef pasa a un adaptador (CastPlayer) con la MISMA forma que el <video>,
+  //    que emite lo que pasa en la TV; el <video> espera en pausa (localPlayerRef).
+  //    Así debeFrenar, la guardia, el freno de 'play' y tiempoAGuardar no cambian.
+  // Con Vimeo no se ofrece nada.
+  useEffect(()=>{ tvRef.current=tv; },[tv]);
+  const avisarTVRef=useRef(null);
+  avisarTVRef.current=(txt)=>{
+    clearTimeout(tvAvisoTimer.current);
+    setTvAviso(txt);
+    tvAvisoTimer.current=setTimeout(()=>setTvAviso(''),5000);
+  };
+
+  // El SDK de Cast (~90 KB) se baja con el reproductor listo, en un rato libre (no
+  // compite con el primer segmento), sólo donde existe (ver cargarCast) y sólo si el
+  // navegador ve una TV con Cast en la red (ver cuandoHayaTV): sin TV, ni un pedido
+  // a Google. Si la TV aparece después, se baja en ese momento.
+  const alCambiarSesionCastRef=useRef(()=>{});
+  useEffect(()=>{
+    if(!ready||!nativeSrc) return;
+    let vivo=true, quitar=null, soltarVigia=null;
+    const conectarContexto=()=>cargarCast().then(ok=>{
+      if(!vivo||!ok) return;
+      let ctx=null;
+      try{ ctx=contextoCast(castAppId); }catch(e){ ctx=null; }
+      if(!ctx||!vivo) return;
+      castCtxRef.current=ctx;
+      quitar=observarCast(ctx,{
+        onDisponible:(d)=>setTvDisp(x=>x.cast===d?x:{...x,cast:d}),
+        onSesion:(estado,sesion,error)=>alCambiarSesionCastRef.current(estado,sesion,error),
+      });
+    });
+    const arrancar=()=>{ if(vivo) soltarVigia=cuandoHayaTV(castAppId,conectarContexto); };
+    const idle=typeof window.requestIdleCallback==='function';
+    const id=idle?window.requestIdleCallback(arrancar,{timeout:3000}):setTimeout(arrancar,1500);
+    return()=>{ vivo=false; if(soltarVigia) soltarVigia(); if(quitar) quitar(); if(idle) window.cancelIdleCallback(id); else clearTimeout(id); };
+  },[ready,nativeSrc]);
+
+  // 🔴 "Cancelar la conexión con la TV" mientras la app arranca en la TV
+  // (SESSION_STARTING): endCurrentSession no hace nada todavía (el SDK recién tiene
+  // la sesión en SESSION_STARTED), así que la TV igual recibía el video y el celular
+  // se pausaba, contra lo que pidió el alumno. Se marca acá y se corta al llegar.
+  const cancelarCastRef=useRef(false);
+  alCambiarSesionCastRef.current=(estado,sesion,error)=>{
+    const SS=(window.cast&&window.cast.framework&&window.cast.framework.SessionState)||{};
+    const transmitiendo=!!playerRef.current?.esTV;
+    if(estado===SS.SESSION_STARTING){ if(!transmitiendo&&!cancelarCastRef.current) setTv({tipo:'cast',estado:'conectando',nombre:null}); }
+    else if(estado===SS.SESSION_STARTED){
+      if(cancelarCastRef.current){
+        cancelarCastRef.current=false;
+        try{ castCtxRef.current?.endCurrentSession(true); }catch(e){}
+        return;
+      }
+      conectarCast(sesion,false);
+    }
+    else if(estado===SS.SESSION_RESUMED) conectarCast(sesion,true);
+    else if(estado===SS.SESSION_START_FAILED){
+      const cancelado=cancelarCastRef.current;
+      cancelarCastRef.current=false;
+      if(!transmitiendo) setTv(null);
+      if(!cancelado&&error&&error!=='cancel') avisarTVRef.current('No se pudo conectar con la TV.');
+    }
+    else if(estado===SS.SESSION_ENDED){
+      cancelarCastRef.current=false;
+      if(transmitiendo) volverALocalRef.current('sesion');
+      else setTv(x=>x&&x.tipo==='cast'?null:x);
+    }
+  };
+
+  // La TV toma la reproducción. `reanudada`: Chrome reenganchó una sesión que ya
+  // existía (se recargó la lección, o se pasó a otra del mismo campus). Se adopta
+  // sólo si la TV tiene ESTE video; si tiene otro no se toca, y el botón carga éste.
+  const conectarCast=(sesion,reanudada)=>{
+    // Si no se transmite, que no quede el "Conectando…" de SESSION_STARTING.
+    const noSeTransmite=()=>{ if(!playerRef.current?.esTV) setTv(x=>x&&x.tipo==='cast'?null:x); };
+    const actual=playerRef.current;
+    if(!sesion||!actual||!nativeSrc||videoError) return noSeTransmite();
+    if(actual.esTV){
+      if(actual.session===sesion) return;
+      volverALocalRef.current('sesion');
+    }
+    const local=playerRef.current;
+    if(!local||local.esTV) return noSeTransmite();
+    let adoptar=false;
+    if(reanudada){
+      const m=sesion.getMediaSession&&sesion.getMediaSession();
+      const id=m&&m.media&&(m.media.contentId||m.media.contentUrl);
+      if(!(m&&m.playerState!=='IDLE'&&mismoVideo(id,nativeSrc))) return noSeTransmite();
+      adoptar=true;
+    }
+    const seguia=!adoptar&&playingRef.current&&!activeIARef.current&&!terminoRef.current;
+    // El segundo de arranque: el destino de un salto en vuelo, o donde está el
+    // <video> AHORA (el último tick puede estar ~250 ms atrás; se pausa en este mismo
+    // turno, más abajo). Con una pregunta abierta, el de la pregunta
+    // (tiempoAGuardar), así la TV muestra ese cuadro.
+    let t0=seekTargetRef.current!=null?seekTargetRef.current:(local.tiempo?local.tiempo():currentTimeRef.current);
+    if(!Number.isFinite(t0)) t0=currentTimeRef.current;
+    if(activeIARef.current) t0=tiempoAGuardar(t0,activeIARef.current,finRef.current);
+    const ad=new CastPlayer(sesion,{
+      src:nativeSrc, titulo:title, poster, inicio:t0, reproducir:seguia, velocidad:speed,
+      duracion:finRef.current<Infinity?finRef.current:duration, adoptar,
+      onListo:()=>{ if(playerRef.current===ad) setTv(x=>x&&x.tipo==='cast'?{...x,estado:'conectado'}:x); },
+      onFin:(motivo,est)=>{ if(playerRef.current===ad) volverALocalRef.current(motivo,est); },
+    });
+    // El watchdog de un play local en vuelo no tiene que relanzar el <video>.
+    playIntentRef.current=null;
+    localPlayerRef.current=local;
+    suscribirRef.current(ad);
+    // 🔴 ANTES de pausar el <video>: su 'pause' ya no le llega al componente. El
+    // botón sigue diciendo lo que hace la TV (que arranca reproduciendo si seguía).
+    playerRef.current=ad;
+    // 🔴 Y el botón se pone YA en lo que va a hacer la TV. Una sesión reanudada (se
+    // recargó la página transmitiendo) llega con la TV en pausa —pagehide la pausó—
+    // y si el alumno había tocado play en el celular mientras Chrome la reenganchaba,
+    // el botón quedaba en "Pausar" para siempre: cada toque llamaba pause() sobre una
+    // TV ya quieta. Si la TV en realidad reproduce, su primer aviso emite 'play'.
+    setPlaying(!ad.pausado());
+    // El ícono del sonido dice lo que pasa en la TV, no en el celular: con el celular
+    // silenciado, la TV sonaba y el ícono decía "Activar sonido" (el primer toque no
+    // hacía nada). Al volver, el del <video> (ver volverALocal).
+    ad.getMuted().then(m=>{ if(playerRef.current===ad) setMuted(!!m); }).catch(()=>{});
+    try{ local.pause(); }catch(e){}
+    if(local.detenerCarga) local.detenerCarga();
+    setBuffering(false);
+    setTv({tipo:'cast',estado:adoptar?'conectado':'conectando',nombre:nombreDelEquipo(sesion)});
+    setMenu(null);
+    refrescarCalidadesRef.current();   // la calidad la elige la TV: el menú no la ofrece
+  };
+
+  // Vuelve al <video> en el segundo donde quedó la TV (el último tick del adaptador,
+  // más fino que el savedPlayerState del SDK, que atrasa hasta 1 s). Como salto
+  // PROPIO: ni la guardia ni debeFrenar lo leen como un salto de afuera. Si la TV
+  // reproducía y no hay pregunta, sigue reproduciendo (si el navegador rechaza el
+  // play, queda en pausa con el botón grande).
+  const volverALocalRef=useRef(null);
+  volverALocalRef.current=(motivo,est)=>{
+    const ad=playerRef.current, local=localPlayerRef.current;
+    if(!ad||!ad.esTV||!local) return;
+    const t=est&&Number.isFinite(est.t)?est.t:ad.tiempo();
+    const seguia=est?!!est.seguia:!ad.pausado();
+    playIntentRef.current=null;
+    playerRef.current=local;   // ANTES de destruirlo: lo que emita el adaptador ya no cuenta
+    localPlayerRef.current=null;
+    ad.destroy();
+    setTv(null);
+    setBuffering(false);
+    refrescarCalidadesRef.current();
+    // El ícono del sonido vuelve a ser el del <video>, que conservó el suyo.
+    Promise.all([local.getVolume(),local.getMuted?local.getMuted():Promise.resolve(false)])
+      .then(([v,m])=>{ if(playerRef.current===local) setMuted(!!m||v===0); }).catch(()=>{});
+    if(errorLocalRef.current){ const e=errorLocalRef.current; errorLocalRef.current=null; setPlaying(false); setVideoError(e); return; }
+    const fin=finRef.current<Infinity?finRef.current:(duration>0?duration:Infinity);
+    const tt=Math.max(0,Math.min(t,fin-0.05));
+    marcarSaltoPropio(tt,3000);
+    currentTimeRef.current=tt;
+    setCurrent(tt);
+    seekTo(tt);
+    if(seguia&&!activeIARef.current&&!terminoRef.current) safePlay();
+    else setPlaying(false);
+    if(motivo==='error') avisarTVRef.current('La TV no pudo reproducir el video. Sigue en esta pantalla.');
+    else if(motivo!=='usuario') avisarTVRef.current('Se dejó de transmitir a la TV.');
+  };
+
+  // El botón "Transmitir a la TV" (o su fila en Ajustes).
+  // 🔴 Todo dentro del toque y SIN await antes: el selector de Chrome
+  // (PresentationRequest.start) y el de AirPlay (remote.prompt) exigen el gesto.
+  const tocarTV=()=>{
+    const p=playerRef.current;
+    if(p&&p.esTV){
+      // Dejar de transmitir. El <video> retoma ya, dentro del toque (el play vale
+      // como gesto). 🔴 endCurrentSession(TRUE): con false la TV se desconecta pero
+      // SIGUE reproduciendo, sin nadie que frene en las preguntas.
+      volverALocalRef.current('usuario');
+      try{ castCtxRef.current?.endCurrentSession(true); }catch(e){}
+      return;
+    }
+    if(tv&&tv.tipo==='cast'){
+      // Cancelar "Conectando…": la sesión todavía no existe y endCurrentSession no la
+      // corta; se corta al llegar SESSION_STARTED (ver cancelarCastRef).
+      cancelarCastRef.current=true;
+      try{ castCtxRef.current?.endCurrentSession(true); }catch(e){}
+      setTv(null);
+      return;
+    }
+    if(p&&p.transmitir&&(tvDisp.airplay||tv?.tipo==='airplay')){ p.transmitir(); return; }
+    const ctx=castCtxRef.current;
+    if(!ctx) return;
+    // Ya hay una sesión (la reenganchó Chrome con otra lección en la TV): cargar ésta
+    // ahí mismo, sin selector.
+    const s=ctx.getCurrentSession&&ctx.getCurrentSession();
+    if(s){ conectarCast(s,false); return; }
+    // Un pedido nuevo: lo que se haya cancelado antes ya no corre.
+    cancelarCastRef.current=false;
+    try{
+      const r=ctx.requestSession();
+      if(r&&r.catch) r.catch(err=>{
+        const cancelado=cancelarCastRef.current;
+        cancelarCastRef.current=false;
+        // 🔴 Sin esto el "Conectando…" podía quedar fijo: el SDK sólo despacha
+        // SESSION_START_FAILED si al pedir no había otra conexión en curso.
+        if(!playerRef.current?.esTV) setTv(x=>x&&x.tipo==='cast'?null:x);
+        if(!cancelado&&err&&err!=='cancel'&&!playerRef.current?.esTV) avisarTVRef.current('No se pudo conectar con la TV.');
+      });
+    }catch(e){}
+  };
+
+  // Freno anticipado (sólo Chromecast): el adaptador pausa la TV un ida y vuelta
+  // ANTES de la próxima pendiente, así frena en su segundo y no con el audio de la
+  // frase siguiente sonando. La decisión de mostrarla sigue siendo de debeFrenar.
+  useEffect(()=>{
+    const p=playerRef.current;
+    if(!p||!p.frenarEn) return;
+    if(activeIA){ p.frenarEn(null); return; }
+    const fin=finRef.current;
+    let prox=null;
+    for(const ia of interactions){
+      if(ia.type==="label"||completed.has(ia.id)||triggered.current.has(ia.id)) continue;
+      const t=Math.min(ia.time,fin-0.05);
+      if(t>currentTime&&(prox==null||t<prox)) prox=t;
+    }
+    p.frenarEn(prox);
+  },[currentTime,completed,activeIA,tv,interactions]);
+
+  // 🔴 Con una pregunta abierta, un salto hecho desde la TV (control remoto, Google
+  // Home, el control del Apple TV) se deshace YA: la TV se ve, y el alumno estaría
+  // mirando lo que viene después. En el celular la guardia lo corregiría recién al
+  // responder (el efecto de disparo no corre con la tarjeta abierta).
+  useEffect(()=>{
+    if(!tv||tv.estado!=='conectado'||!activeIA||seekTargetRef.current!=null) return;
+    const desde=Math.min(activeIA.time,finRef.current-0.05);
+    const hasta=activeIA.type==='hotspot'?activeIA.time+(activeIA.duration||8):desde+1.5;
+    if(currentTime>=desde-1.5&&currentTime<=hasta) return;
+    seekTo(desde);
+    playerRef.current?.pause();
+  },[currentTime,activeIA,tv]);
+
+  // Hotspot con Chromecast: los puntos se dibujan sobre el cuadro del CELULAR, que
+  // quedó en el segundo en que se conectó. Se lleva el <video> (quieto) al cuadro de
+  // la TV para que cada punto caiga sobre lo que marca. (Con AirPlay el celular no
+  // dibuja el video: los puntos quedan sobre negro. Ver README.)
+  useEffect(()=>{
+    if(activeIA?.type!=='hotspot'||tv?.tipo!=='cast') return;
+    const local=localPlayerRef.current;
+    if(local) local.setCurrentTime(Math.max(0,currentTimeRef.current)).catch(()=>{});
+  },[activeIA,tv?.tipo]);
+
+  // Transmitiendo, la pantalla completa del celular no sirve (el video está en la
+  // TV): se sale al conectar y el botón no se ofrece (ver la fila de controles).
+  const tvActiva=!!tv;
+  useEffect(()=>{ if(tvActiva&&(isFS||fakeFS)) toggleFS(); },[tvActiva]);
+
+  // Pantalla encendida mientras se transmite: con la pantalla apagada o la página
+  // oculta, los timers se frenan (1 por minuto después de 5 min) y la TV pasaría
+  // las preguntas de largo. Se libera sola al ocultarse; se vuelve a pedir al volver.
+  // En el iframe del campus (mismo origen) la política 'screen-wake-lock' ya lo
+  // permite; si falla, no pasa nada.
+  const tvConectada=tv?.estado==='conectado';
+  useEffect(()=>{
+    if(!tvConectada||!navigator.wakeLock||typeof navigator.wakeLock.request!=='function') return;
+    let lock=null, vivo=true;
+    const pedir=()=>{
+      if(document.visibilityState!=='visible') return;
+      navigator.wakeLock.request('screen').then(l=>{ if(!vivo){ l.release().catch(()=>{}); return; } lock=l; }).catch(()=>{});
+    };
+    const alVolver=()=>{ if(document.visibilityState==='visible'&&(!lock||lock.released)) pedir(); };
+    pedir();
+    document.addEventListener('visibilitychange',alVolver);
+    return()=>{ vivo=false; document.removeEventListener('visibilitychange',alVolver); try{ if(lock) lock.release().catch(()=>{}); }catch(e){} };
+  },[tvConectada]);
+
+  // Transmitiendo con Chromecast, play y pausa de la sesión de medios (la
+  // notificación de Android, un auricular, los controles de medios de Chrome) van a
+  // la TV por el mismo camino que el botón, y no al <video> escondido del celular. Con
+  // una pregunta abierta, play no hace nada (primero se responde). El estado que
+  // muestran sale del botón: el <video> del celular está siempre en pausa.
+  const tvCast=tv?.tipo==='cast';
+  useEffect(()=>{
+    if(!tvCast||!('mediaSession' in navigator)) return;
+    const ms=navigator.mediaSession;
+    const poner=(accion,fn)=>{ try{ ms.setActionHandler(accion,fn); }catch(e){} };
+    poner('play',()=>{ if(!activeIARef.current&&playerRef.current?.esTV) safePlay(); });
+    poner('pause',()=>{ const p=playerRef.current; if(p&&p.esTV){ playIntentRef.current=null; p.pause(); } });
+    return()=>{ poner('play',null); poner('pause',null); try{ ms.playbackState='none'; }catch(e){} };
+  },[tvCast]);
+  useEffect(()=>{
+    if(!tvCast||!('mediaSession' in navigator)) return;
+    try{ navigator.mediaSession.playbackState=playing?'playing':'paused'; }catch(e){}
+  },[tvCast,playing]);
+
+  // Al irse de la lección con Chromecast, la TV queda en PAUSA: si siguiera, nadie
+  // frenaría en las preguntas. Al volver, Chrome reengancha la sesión y, si es este
+  // video, se retoma desde ahí (ver conectarCast).
+  useEffect(()=>{
+    const h=()=>{ const p=playerRef.current; if(p&&p.esTV) p.pausarAlSalir(); };
+    window.addEventListener('pagehide',h);
+    return()=>window.removeEventListener('pagehide',h);
+  },[]);
   const toggleMute=()=>{
     const p=playerRef.current;if(!p)return;
     const m=!muted;
@@ -1529,11 +1935,7 @@ export default function InteractiveVideoPlayer() {
     playerRef.current?.setCurrentTime(0);
   };
 
-  // En la pantalla completa NATIVA el wrapper es el elemento :fullscreen y la regla del
-  // navegador (transform:none, inset:0, width/height:100% !important) anula el giro:
-  // el video no giraba y fraccionX leía la barra por la altura del dedo (iPad, tablets).
-  // Se mira el documento PROPIO: en el campus la madre manda isFS:true también ahí.
-  const fsNativo=!!(document.fullscreenElement||document.webkitFullscreenElement);
+  // fsNativo: ver arriba, junto al botón de girar.
   const girado=girar&&vertical&&!fsNativo&&(isFS||fakeFS);
   giroRef.current=girado?90:0;
   const progress=scrubPct!=null?scrubPct*100:(duration?(currentTime/duration)*100:0);
@@ -1555,15 +1957,29 @@ export default function InteractiveVideoPlayer() {
         onMouseMove={resetCtrl} onTouchStart={resetCtrl}>
 
         <div ref={vimeoRef} className="iv-vimeo-wrap"/>
+        {/* Transmitiendo: tapa el video del celular (con Chromecast quedó quieto en el
+            segundo en que se conectó; con AirPlay el celular no lo dibuja). Debajo de
+            la capa de toques: tocar sigue pausando y reproduciendo la TV. Con un
+            hotspot no, que sus puntos van sobre el cuadro (ver el efecto del hotspot). */}
+        {tv&&activeIA?.type!=='hotspot'&&<div className="iv-tv-capa" aria-hidden="true">
+          <CastOnIcon/>
+          <span className="iv-tv-capa-titulo">{tv.estado==='conectando'?'Conectando con la TV…':`Reproduciendo en ${tv.nombre||'la TV'}`}</span>
+          {tv.estado!=='conectando'&&<span className="iv-tv-capa-sub">Las preguntas aparecen en esta pantalla.</span>}
+        </div>}
         {ready&&!activeIA&&<div className="iv-click-layer" onClick={handleClickLayer} onTouchStart={resetCtrl} onTouchEnd={handleTouchEnd}/>}
         {skipFeedback&&<div className={`iv-skip-feedback ${skipFeedback}`} aria-hidden="true">{skipFeedback==='left'?'⟲ 10s':'10s ⟳'}</div>}
         {ready&&buffering&&!activeIA&&!videoError&&<div className="iv-buffering"><div className="iv-spinner"/></div>}
         {!ready&&!videoError&&<div className="iv-loading"><div className="iv-spinner"/><span>Cargando video...</span></div>}
-        {ready&&!playing&&!activeIA&&!videoError&&<button className="iv-big-play" onClick={togglePlay} aria-label="Reproducir video"><PlayIcon/></button>}
+        {/* Transmitiendo, sin el botón grande: taparía el cartel de la TV, y la fila de
+            controles ya queda visible con el video en pausa. */}
+        {ready&&!playing&&!activeIA&&!videoError&&!tv&&<button className="iv-big-play" onClick={togglePlay} aria-label="Reproducir video"><PlayIcon/></button>}
         {/* Avisos para el lector de pantalla (una interacción que aparece sin poder
             llevarle el foco). Existe siempre: una región que aparece junto con su
             texto muchas veces no se anuncia. */}
         <div className="iv-sr" role="status" aria-live="polite">{aviso}</div>
+        {/* Lo mismo para la TV: el cartel de arriba es aria-hidden y lo dice éste. */}
+        <div className="iv-sr" role="status" aria-live="polite">{tv?(tv.estado==='conectando'?'Conectando con la TV':`Reproduciendo en ${tv.nombre||'la TV'}. Las preguntas aparecen en esta pantalla.`):''}</div>
+        <div className={`iv-tv-aviso ${tvAviso?'visible':''}`} role="status" aria-live="polite">{tvAviso}</div>
         {videoError&&<div className="iv-error" role="alert">
           <strong>No se pudo cargar el video</strong>
           <span>{videoError.code===404?"El video no está disponible.":videoError.tipo==="acceso"?"El acceso al video venció.":videoError.tipo==="red"?"Revisá tu conexión.":"Hubo un problema al reproducirlo."} Tu avance está guardado.</span>
@@ -1602,7 +2018,7 @@ export default function InteractiveVideoPlayer() {
               <div className="iv-progress-thumb" style={{left:`${progress}%`}}/>
             </div>
           </div>
-          <div className="iv-controls-row">
+          <div className={`iv-controls-row ${girarVisible?'con-girar':''}`}>
             <button ref={playBtnRef} className="iv-ctrl-btn" onClick={togglePlay} aria-label={playing?"Pausar":"Reproducir"}>{playing?<PauseIcon/>:<PlayIcon/>}</button>
             <button className="iv-ctrl-btn" onClick={()=>skip(-10)} aria-label="Retroceder 10 segundos"><SkipBackIcon/></button>
             <button className="iv-ctrl-btn" onClick={()=>skip(10)} aria-label="Adelantar 10 segundos"><SkipFwdIcon/></button>
@@ -1618,6 +2034,10 @@ export default function InteractiveVideoPlayer() {
             <div style={{flex:1}}/>
             {isEmbedded&&completed.size>0&&<button className="iv-ctrl-btn iv-reset-ctrl" onClick={resetProgress} title="Reiniciar progreso" aria-label="Reiniciar progreso"><span aria-hidden="true">↺</span></button>}
             {(hasCues||hasVimeoSubs)&&<button className="iv-ctrl-btn" onClick={toggleSubs} aria-label="Subtítulos" aria-pressed={subsOn}><SubsIcon on={subsOn}/></button>}
+            {/* Transmitir a la TV: sólo con una TV a la vista. A ≤340 px no entra sin
+                recortar el de pantalla completa: ahí se esconde por CSS y va como fila
+                en Ajustes (salvo transmitiendo, que pantalla completa no está). */}
+            {tvBoton&&<button className={`iv-ctrl-btn iv-tv-btn ${tv?'activo':''} ${tvSiempre?'siempre':''}`} onClick={tocarTV} aria-label={etiquetaTV} title={etiquetaTV}>{tv?<CastOnIcon/>:<CastIcon/>}</button>}
             {/* Ajustes (velocidad y calidad) en un solo botón, como YouTube: a 320 px
                 la fila no admite uno más, y el de salir de pantalla completa no se
                 puede recortar. Ocupa menos que el viejo "1x" / "1.25x". */}
@@ -1625,8 +2045,8 @@ export default function InteractiveVideoPlayer() {
               aria-label="Ajustes" aria-haspopup="dialog" aria-expanded={!!menu} aria-controls="iv-ajustes">
               <GearIcon/>{marcaAjustes&&<span className="iv-ajustes-marca" aria-hidden="true">{marcaAjustes}</span>}
             </button>
-            {(isFS||fakeFS)&&vertical&&!bloqueoOk&&!fsNativo&&<button className={`iv-ctrl-btn ${girar?"iv-girar-on":""}`} onClick={()=>{const g=!girar;setGirar(g);try{localStorage.setItem('iv_girar',g?'1':'0');}catch(e){}}} title={girar?"Volver a vertical":"Ver horizontal"} aria-label={girar?"Volver a vertical":"Ver horizontal"} aria-pressed={girar}><RotateIcon/></button>}
-            <button className="iv-ctrl-btn iv-fs-btn" onClick={toggleFS} aria-label={isFS?"Salir de pantalla completa":"Pantalla completa"}>{isFS?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>
+            {girarVisible&&<button className={`iv-ctrl-btn ${girar?"iv-girar-on":""}`} onClick={()=>{const g=!girar;setGirar(g);try{localStorage.setItem('iv_girar',g?'1':'0');}catch(e){}}} title={girar?"Volver a vertical":"Ver horizontal"} aria-label={girar?"Volver a vertical":"Ver horizontal"} aria-pressed={girar}><RotateIcon/></button>}
+            {fsVisible&&<button className="iv-ctrl-btn iv-fs-btn" onClick={toggleFS} aria-label={isFS?"Salir de pantalla completa":"Pantalla completa"}>{isFS?<ExitFullscreenIcon/>:<FullscreenIcon/>}</button>}
           </div>
         </div>
 
@@ -1642,7 +2062,7 @@ export default function InteractiveVideoPlayer() {
           aria-label={menu==='calidad'?'Calidad':menu==='velocidad'?'Velocidad':'Ajustes'}
           onClick={e=>e.stopPropagation()} onTouchEnd={e=>e.stopPropagation()}>
           <div className="iv-ajustes-cabecera">
-            {menu!=='principal'&&hayCalidad
+            {menu!=='principal'&&(hayCalidad||tvEnMenu)
               ? <button className="iv-ajustes-atras" onClick={()=>irAMenu('principal')}><span aria-hidden="true">‹ </span>Atrás</button>
               : null}
             <span className="iv-ajustes-titulo">{menu==='calidad'?'Calidad':menu==='velocidad'?'Velocidad':'Ajustes'}</span>
@@ -1654,6 +2074,10 @@ export default function InteractiveVideoPlayer() {
             </button>
             {hayCalidad&&<button className="iv-ajustes-fila" onClick={()=>irAMenu('calidad')}>
               <span>Calidad</span><span className="iv-ajustes-valor">{etiquetaCalidad}<span aria-hidden="true"> ›</span></span>
+            </button>}
+            {/* El mismo toque abre el selector de la TV: cerrar y transmitir sin await. */}
+            {tvEnMenu&&tvBoton&&<button className="iv-ajustes-fila iv-ajustes-tv" onClick={()=>{ cerrarMenu(); tocarTV(); }}>
+              <span>{etiquetaTV}</span><span className="iv-ajustes-valor">{tv?<CastOnIcon/>:<CastIcon/>}</span>
             </button>}
           </div>}
           {menu==='velocidad'&&<div className="iv-ajustes-opciones">

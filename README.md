@@ -176,6 +176,116 @@ nuevo y se retoma desde el avance guardado.
   se probaron contra los vectores oficiales de Bunny y contra su SDK, y se pueden
   copiar tal cual a un script de PHP para volver a probarlas.
 
+## Transmitir a la TV (Chromecast y AirPlay)
+
+Sólo con video propio (`videoUrl`, Bunny). Con Vimeo no aparece nada.
+
+### Qué ve el alumno
+
+- Un botón **Transmitir a la TV** en la fila de controles, que aparece sólo si hay
+  una TV a la vista (en la misma red Wi-Fi). En un reproductor angosto (340 px o
+  menos: celular parado dentro del campus) no entra sin recortar el botón de salir
+  de pantalla completa, así que pasa a ser una fila en **Ajustes**.
+- Transmitiendo, el video se ve en la TV y en el celular queda un cartel
+  "Reproduciendo en Living" (con AirPlay, "Reproduciendo en la TV": Safari no da el
+  nombre). Los controles siguen andando y **las preguntas aparecen en el celular**:
+  la TV se queda quieta en el cuadro de la pregunta hasta que se responde.
+- Mientras transmite no hay **Calidad** (la elige la TV) ni **pantalla completa**
+  (si estaba en pantalla completa, sale sola al conectar).
+- El botón de sonido muestra y cambia el **silencio de la TV** (nunca su volumen).
+  Al dejar de transmitir vuelve a mostrar el del celular.
+- **Dejar de transmitir** (el mismo botón): el video sigue en el celular en el mismo
+  segundo, reproduciendo o en pausa según estaba la TV.
+
+### Dónde anda
+
+| Navegador | Chromecast | AirPlay |
+|---|---|---|
+| Chrome / Edge en Android | sí | — |
+| Chrome / Edge de escritorio | sí | — |
+| Safari en iPhone, iPad y Mac | — | sí (con el motor HLS nativo, que es el de siempre ahí) |
+| Chrome en iPhone | no (Google no lo soporta) | a verificar |
+| Firefox | no | no |
+| App de Moodle (WebView) | se espera que no | a verificar |
+
+Probado sólo con receptores **simulados** (ver "Pendiente" al final de la sección).
+
+### Cómo funciona
+
+- **AirPlay** (`nativePlayer.js`): el `<video>` sigue siendo el dueño; la TV es sólo
+  a dónde sale la imagen. Play, pausa, saltos y lo que se haga con el control del
+  Apple TV pasan por el mismo `<video>`, así que el candado de preguntas funciona
+  igual. Se usa la Remote Playback API (`video.remote`) y, si no está, las `webkit*`.
+- **Chromecast** (`cast.js`): la TV baja el video sola, con la misma URL firmada.
+  El SDK de Google (unos 90 KB) se baja con el reproductor listo, sólo donde existe
+  y sólo si el navegador ve una TV con Cast en la red: eso se pregunta antes con la
+  Presentation API, que no le pide nada a Google. Sin TV a la vista, la página no
+  hace ningún pedido a `gstatic.com`; si la TV aparece después, se baja en ese
+  momento. Mientras transmite, el reproductor le habla a un **adaptador**
+  (`CastPlayer`) con la misma forma que el `<video>`, que informa lo que pasa en la
+  TV: así las mismas reglas frenan en las preguntas, devuelven a la pregunta un
+  salto hecho desde el control remoto o Google Home, y vuelven a pausar un play de
+  afuera con una pregunta abierta. El `<video>` del celular espera en pausa, sin
+  bajar nada, para la vuelta.
+- Para que la TV frene **en** la pregunta y no medio segundo después, la pausa sale
+  un ida y vuelta antes (medido). Se apunta a frenar un poco después, nunca antes:
+  frenar antes cortaría el final de la frase. Si igual se pasa, se la vuelve a la
+  pregunta (también si el alumno responde antes de que la TV confirme la pausa). Si
+  frena antes (una TV que informa mal el tiempo), no se la adelanta: se queda ahí y,
+  al responder, repite ese tramo.
+
+### Límites (receptor por defecto de Google)
+
+El receptor por defecto no se registra ni cuesta nada, pero sólo reproduce:
+
+- **La TV no muestra la pregunta**; se responde en el celular.
+- **No puede impedir** que alguien adelante o dé play desde el control de la TV,
+  Google Home o la notificación de Chrome: el reproductor lo **detecta y lo corrige**
+  (vuelve a la pregunta), pero se escapan unos cientos de milisegundos de video.
+- **El freno depende del celular.** Mientras transmite se pide mantener la pantalla
+  encendida. Si el alumno bloquea el celular o cambia de app un rato largo, el
+  navegador frena (o congela) la página y la TV sigue de largo, pasando las
+  preguntas, hasta que la página vuelve. Ahí frena, muestra la pregunta pendiente y
+  lleva la TV a ella (el avance guardado nunca la saltea). Desde el celular no tiene
+  arreglo: hacerlo cumplir en la TV pide el receptor propio (ver abajo).
+- Al irse de la lección transmitiendo, la TV queda **en pausa**. Si se vuelve a la
+  misma lección, se retoma ahí; si se abre otra, el botón la carga en la misma TV.
+- Si la paran o cargan otra cosa en la TV desde otro equipo, el video vuelve al
+  celular **en pausa**.
+- La URL firmada (6 h) viaja a la TV y la pueden ver otros equipos de la misma red.
+- Los subtítulos se siguen viendo sólo en el celular.
+- **Pendiente de decidir (producto):** las **etiquetas** se siguen dibujando en el
+  celular sobre el cartel "Reproduciendo en…", sin el cuadro al que apuntan (se
+  pueden tocar y leer la definición). Con **AirPlay**, los puntos de un **hotspot**
+  quedan sobre el recuadro negro del celular (con Chromecast se lleva el video del
+  celular, quieto, al cuadro de la TV). Opciones: ocultar las etiquetas mientras se
+  transmite, o mostrar el cuadro quieto también para ellas.
+
+Mostrar las preguntas en la TV y bloquear los saltos ahí exige un **receptor
+propio**: una página nuestra que corre en la TV, registrada en la consola de Google
+Cast (un registro de USD 5, no reembolsable) y servida por HTTPS. Cuando exista, su ID va en
+`castAppId` del `PLAYER_CONFIG` (8 hexadecimales); hoy queda en `null`.
+
+### Requisitos para que no se rompa
+
+- **HTTPS** en la página del reproductor (el campus ya lo es; `localhost` sirve para
+  probar).
+- El `iframe` de `view.php` **no necesita cambios**: no existe un permiso de iframe
+  para Cast ni para AirPlay. Lo que sí lo rompería es ponerle `sandbox` sin
+  `allow-presentation`.
+- Si algún día se agrega una política de seguridad de contenido (CSP), `script-src`
+  tiene que permitir `https://www.gstatic.com` (de ahí sale el SDK de Cast).
+- En Bunny, **no prender** "Allowed referrers" ni "Block direct URL file access" sin
+  probar antes con una TV: la TV pide el video sin pasar por nuestro sitio.
+
+### Pendiente: probar con TVs reales
+
+Todo lo de arriba se probó con un receptor de Cast y un AirPlay **simulados**. Falta
+confirmar con equipos de verdad: que la TV herede el token en las variantes y los
+segmentos, la latencia real del freno, cuánto tarda la TV en cerrarse sola en pausa
+durante una pregunta larga, qué pasa con el celular bloqueado, y AirPlay en iPhone,
+iPad y Mac.
+
 ## Pendiente: partir el bundle
 
 Hoy `vite-plugin-singlefile` mete JS y CSS adentro de un único `index.html` de

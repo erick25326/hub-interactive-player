@@ -1094,6 +1094,78 @@ html, body { margin: 0; padding: 0; background: #000; }
   .iv-time-total, .iv-ctrl-progress { display: none; }
 }
 
+/* ─── TRANSMITIR A LA TV ──────────────────────────────────── */
+/* Botón de la fila (Chromecast o AirPlay) y el cartel que tapa el video del celular
+   mientras la TV reproduce. El cartel va DEBAJO de la capa de toques (z 3): tocar el
+   video sigue pausando y reproduciendo la TV. Lo de abajo (subtítulos, etiquetas,
+   preguntas) se sigue dibujando encima, en el celular. */
+.iv-tv-btn.activo { color: #84F4BE; }
+.iv-tv-capa {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* Abajo deja libre la fila de controles, que con el video en pausa está visible. */
+  padding: 12px 16px 60px;
+  text-align: center;
+  color: #fff;
+  background: radial-gradient(ellipse at center, rgba(6,46,96,0.96) 0%, rgba(6,25,56,0.99) 75%);
+  pointer-events: none;
+}
+.iv-tv-capa svg { width: 44px; height: 44px; color: #84F4BE; flex-shrink: 0; }
+.iv-tv-capa-titulo {
+  font-family: 'Changa', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.iv-tv-capa-sub { font-size: 13px; color: rgba(255,255,255,0.72); }
+/* Aviso breve ("Se dejó de transmitir a la TV"). Existe siempre (role="status"): una
+   región que aparece junto con su texto muchas veces no se anuncia. */
+.iv-tv-aviso {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9;
+  max-width: calc(100% - 24px);
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(6,25,56,0.94);
+  color: #fff;
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.iv-tv-aviso.visible { opacity: 1; }
+.iv-ajustes-tv .iv-ajustes-valor { display: flex; color: #84F4BE; }
+/* 🔴 A ≤340 px la fila no admite un botón más sin recortar el de SALIR de pantalla
+   completa, que no se achica nunca: el de la TV pasa a una fila de Ajustes (el
+   componente mide el mismo corte al abrir el menú). Transmitiendo no hay botón de
+   pantalla completa y el de la TV vuelve a la fila (.siempre). */
+@container ivc (max-width: 340px) {
+  .iv-tv-btn:not(.siempre) { display: none; }
+  .iv-tv-capa { gap: 4px; padding-bottom: 56px; }
+  .iv-tv-capa svg { width: 30px; height: 30px; }
+  .iv-tv-capa-titulo { font-size: 15px; }
+  .iv-tv-capa-sub { font-size: 12px; }
+}
+/* 🔴 Con el botón de girar (pantalla completa simulada, celular parado) el corte sube
+   a 372 px: entre 341 y ~365 vuelven el total y el contador, y con subtítulos y
+   Reiniciar el de la TV recortaba el de SALIR. El componente usa el mismo número
+   (anchoTvEnMenu). */
+@container ivc (max-width: 372px) {
+  .iv-controls-row.con-girar .iv-tv-btn:not(.siempre) { display: none; }
+}
+
 /* ─── ACCESIBILIDAD ───────────────────────────────────────── */
 /* Foco visible sólo con teclado (:focus-visible), en menta: con el mouse o el dedo
    no aparece ningún contorno. */

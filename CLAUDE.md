@@ -152,6 +152,100 @@ genérico). Host, clave y duración son ajustes del sitio (`settings.php`), y
   que recargar); con Bunny no hay subtítulos (los de Vimeo venían de su iframe); el
   configurador visual sólo previsualiza Vimeo.
 
+## Transmitir a la TV (Chromecast y AirPlay) — trampas
+Sólo con video propio. AirPlay vive en `nativePlayer.js` (el `<video>` sigue siendo el
+dueño: el candado no cambia). Chromecast vive en `src/cast.js`: mientras transmite,
+`playerRef.current` es un `CastPlayer` con la API de `nativePlayer` y el `<video>`
+espera en `localPlayerRef`, en pausa y sin bajar nada (`detenerCarga`). Probado sólo
+con receptores SIMULADOS (oct-2026); el uso, los límites y lo que falta probar con
+TVs reales están en el README.
+- 🔴 **Sólo el motor ACTIVO le habla al componente** (`suscribirRef` + `activo()`).
+  Al conectar, `playerRef` cambia ANTES de pausar el `<video>`: si no, su 'pause'
+  ponía el botón en "Reproducir" con la TV andando. Al volver, `playerRef` vuelve al
+  `<video>` ANTES de destruir el adaptador. Un manejador nuevo tiene que mirar `activo()`.
+- 🔴 **La vuelta al celular es un salto PROPIO** (`marcarSaltoPropio` + `seekTo`) al
+  segundo del adaptador. Sin eso, la guardia de saltos o debeFrenar leían el cambio
+  de motor como un salto de afuera. El arranque en la TV usa `local.tiempo()` (el
+  segundo real del `<video>`), no el último tick, que puede estar ~250 ms atrás.
+- 🔴 `requestSession()` y `remote.prompt()` **dentro del toque y sin await antes**:
+  los dos exigen activación de usuario. Vale también desde la fila de Ajustes.
+- 🔴 **El SDK de Cast va como `<script>` clásico desde la URL de gstatic**
+  (`cast_sender.js?loadCastFramework=1`), insertado con createElement. El cargador
+  mira `document.currentScript.src`: inlineado por singlefile, como módulo o copiado
+  al repo, no carga el framework. `__onGCastApiAvailable` se define antes.
+- 🔴 **El SDK se baja sólo con una TV a la vista** (`cuandoHayaTV`: Presentation API,
+  `cast:<appId>`, con el reproductor listo y en un rato libre; NO "al reproducir").
+  Antes se bajaba en cada vista en Chrome. Si `getAvailability` rechaza, se baja igual.
+- 🔴 **`HlsVideoSegmentFormat.MPEG2_TS`, no `.TS`** (no existe y el campo queda vacío
+  sin avisar; Video.js 10 tiene ese error). `HlsSegmentFormat.TS` sí existe.
+- 🔴 **`friendlyName` viene escapado como HTML**: `chrome.cast.unescape` antes de
+  mostrarlo, o "Living &amp; Comedor".
+- 🔴 **`endCurrentSession(true)`**: con false la TV se desconecta y SIGUE
+  reproduciendo sin nadie que frene en las preguntas.
+- 🔴 **Los comandos de media tardan 10 MINUTOS en fallar** (`chrome.cast.media.timeout`
+  vale 0): cada uno lleva su propio tope en `cast.js`.
+- 🔴 **El freno en la TV nunca antes de la pregunta** (como debeFrenar en local). La
+  pausa sale un ida y vuelta antes, menos `MARGEN_FRENO`; el ida y vuelta es el
+  MÍNIMO de las últimas medidas y sólo se mide con pausa y pedido de estado (con el
+  LOAD, el simulador la inflaba y la TV frenaba 0,17 s antes). Pasarse se corrige
+  (pausa anclada). Un `play()` con el ancla sin confirmar (`_reanudar`) espera el
+  estado de esa pausa y recién ahí elige: salto al ancla con PLAYBACK_START si se pasó,
+  o play. 🔴 No mandar el salto en el acto: el estado de la pausa que ya viene en
+  camino cae a <1,5 s del destino y se toma como su aterrizaje (el reloj retrocedía).
+  Si frenó ANTES, NO se la adelanta: queda ahí y se sigue informando el segundo pedido
+  (`_fijo`) hasta el próximo play o salto.
+- 🔴 **Nada que adelante el estimador**: reloj `performance.now()` (con `Date.now()`
+  un ajuste de hora frenaba 2 s antes), y una velocidad MÁS ALTA no se aplica al
+  estimador hasta que la TV la confirma (más baja, sí al instante).
+- 🔴 **Un comando sin respuesta no se supone aceptado ni rechazado**: se pide el
+  estado. Y el latido pide estado cada 5 s SIEMPRE que haya media: con un play cuya
+  respuesta se perdió, la TV corría sin freno hasta el final.
+- 🔴 **Salto propio pisado por el control remoto**: si la TV ya contestó el salto y
+  su estado (quieta o reproduciendo) cae lejos del destino, se reenvía ya
+  (`_saltoRespondido`, tope `INTENTOS_SALTO`). Esperar al reintento de 8 s dejaba la
+  TV sin vigilancia.
+- 🔴 **Un play de afuera se "rechaza" (vuelve a su segundo) sólo si la TV sigue
+  reproduciéndolo**: el freno propio (`_prefrenar`) y los saltos propios limpian
+  `_playExterno`; si no, el freno de la pregunta siguiente rebobinaba la TV.
+- 🔴 **La pregunta del final**: `alTerminar` marca `evaluarEnFinRef` (como dismiss).
+  La TV manda el último segundo y 'ended' juntos, el 0 del rebobinado llega en una
+  microtarea y React los junta en un render: sin la marca, el efecto sólo veía el 0.
+- 🔴 **El volumen de la TV no se toca**: el reproductor llama `setVolume` con cada
+  play (para el silencio forzado del iframe) y la pondría al 100%. Sólo silencio, y
+  el sonido vuelve sólo si lo silenciamos nosotros.
+- 🔴 **En Chrome `video.remote` es CAST, no AirPlay**: AirPlay sólo si existe
+  `window.WebKitPlaybackTargetAvailabilityEvent`. Y `prompt()` rechaza siempre sin
+  un `watchAvailability` previo (WebKit arranca en "no disponible").
+- 🔴 **hls.js + ManagedMediaSource apaga AirPlay** (`disableRemotePlayback`). No hay
+  parche: un `<source>` HLS agregado después lo deshace `recoverMediaError`. En Apple
+  el motor por defecto es el HLS nativo, que sí transmite.
+- 🔴 **Calidad fija + AirPlay**: la TV recibiría esa variante sola, sin ABR. En
+  iPhone/iPad se vuelve al master ANTES del selector (ahí `prompt()` no pide
+  metadata); en la Mac, al conectar (ahí sí la pide).
+- Con una pregunta abierta, un salto hecho desde la TV se deshace YA (efecto propio,
+  sólo transmitiendo): en local la guardia lo corrige recién al responder.
+- Hotspot con Chromecast: el `<video>` del celular (quieto) se lleva al cuadro de la
+  TV, así los puntos caen sobre lo que marcan. Con AirPlay quedan sobre negro.
+- La TV parada o con otro video cargado desde otro equipo: vuelve al celular EN
+  PAUSA. Sesión cortada o error: como estaba. `pagehide` deja la TV en pausa.
+- Sesión reanudada (recargar, otra lección): se adopta sólo si la TV tiene ESTE
+  video (tramo `/<guid>/`); si no, no se toca y el botón la carga sin selector. Al
+  conectar, `setPlaying(!ad.pausado())`: si no, tras recargar con la TV en pausa el
+  botón quedaba en "Pausar" para siempre. Y `CastPlayer.pause()` en pausa emite igual.
+- 🔴 **"Cancelar la conexión" en SESSION_STARTING**: `endCurrentSession` no hace nada
+  hasta SESSION_STARTED. Se marca `cancelarCastRef` y se corta al llegar.
+- 🔴 **El `<video>` del celular sigue vivo mientras transmite**: un play de afuera
+  (notificación de Android, auricular) lo arrancaba detrás del cartel. Se lo pausa en
+  el manejador de 'play' del motor inactivo, y Media Session play/pause va a la TV.
+- El ícono del sonido refleja el silencio de la TV al conectar y el del `<video>` al
+  volver. Si la TV ya estaba en silencio, quitarlo con el botón cuenta como propio.
+- A ≤372 px con el botón de girar (`.con-girar`) el de la TV va a Ajustes: entre 341
+  y ~365 recortaba el de salir de pantalla completa.
+- AirPlay en iPhone: si se cierra el selector sin elegir, vuelve la calidad fijada.
+- Pendiente de producto: las etiquetas se dibujan sobre el cartel de la TV.
+- El arnés con el receptor simulado (`cast-simulado.js`, `airplay-simulado.js`) NO
+  está en el repo: vive en el scratchpad de la sesión que lo armó.
+
 ## Brand
 - Colors: #0162F5 (primary), #14CCF7 (secondary), #84F4BE (accent), #062E60 (dark)
 - Fonts: Changa (headings), Work Sans (body)
