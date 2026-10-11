@@ -104,10 +104,19 @@ if ($video === null) {
 // parsear, así que la URL llega intacta.
 $jsonflags = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
 $interactions = !empty($ivplayer->interactions) ? $ivplayer->interactions : '[]';
-$config = json_encode(array_merge(['title' => $ivplayer->name], $video, [
+$base = array_merge(['title' => $ivplayer->name], $video, [
     'loop' => !empty($ivplayer->videoloop),
     'interactions' => json_decode($interactions, true) ?: [],
-]), $jsonflags);
+]);
+// Subtítulos: el VTT/SRT de "Editar transcripción" de esta lección. Con Bunny es la
+// única fuente; con Vimeo, si el video trae su propia pista la dibuja Vimeo y éstos
+// quedan sin usar (ver hasVimeoSubs en el reproductor).
+$subtitulos = ivplayer_subtitulos_texto($context);
+$config = json_encode($subtitulos !== null ? $base + ['subtitlesVtt' => $subtitulos] : $base, $jsonflags);
+if ($config === false) {
+    // Nunca dejar al reproductor sin config por los subtítulos.
+    $config = json_encode($base, $jsonflags);
+}
 
 // Per-user saved progress (cross-device resume).
 $progressrec = $DB->get_record('ivplayer_progress', [

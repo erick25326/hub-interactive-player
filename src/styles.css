@@ -1190,3 +1190,22 @@ html, body { margin: 0; padding: 0; background: #000; }
   white-space: nowrap;
   border: 0;
 }
+
+/* ─── SUBTÍTULOS: ancho y altura (revisión oct-2026) ──────── */
+/* 🔴 Con left:50% + translateX(-50%) el ancho disponible para encoger era la MITAD del
+   reproductor: a 320-375 px un subtítulo quedaba en 3 a 6 renglones y tapaba el play.
+   Centrado con left/right 0 + margin auto usa el ancho entero. pre-line respeta los
+   renglones del archivo. Con los controles a la vista sube, así la barra no lo cruza. */
+.iv-subtitle-container {
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  transform: none;
+  width: fit-content;
+  max-width: 92%;
+}
+.iv-subtitle-text { white-space: pre-line; }
+.iv-subtitle-container.sobre-controles { bottom: max(25%, 64px); }
+@media (max-width: 600px) {
+  .iv-subtitle-container.sobre-controles { bottom: max(22%, 64px); }
+}

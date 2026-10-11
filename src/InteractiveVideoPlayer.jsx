@@ -22,6 +22,9 @@ const DEFAULT_CONFIG = {
   loop: false,              // true = repetir video al terminar
   subtitlesUrl: null,
   subtitlesCues: [],
+  // Texto crudo de un VTT o SRT (lo inyecta player.php desde "Editar transcripción").
+  // Se usa si no vinieron subtitlesCues.
+  subtitlesVtt: null,
   // Los subtitulos arrancan APAGADOS. El boton sigue estando: el alumno que los
   // quiera los prende y ahi se quedan mientras dure el video.
   // Antes arrancaban prendidos y ademas el reproductor le pedia a Vimeo que
@@ -90,32 +93,50 @@ function getConfig() {
   return window.PLAYER_CONFIG ? { ...DEFAULT_CONFIG, ...window.PLAYER_CONFIG } : DEFAULT_CONFIG;
 }
 
+// El texto de un cue se dibuja como TEXTO (React), no como HTML: las etiquetas de VTT
+// (<i>, <b>, <v Docente>, <c.amarillo>, <00:00:02.500>) y de SRT (<font>) se verían tal
+// cual. Se sacan SÓLO las que tienen forma de etiqueta: en SRT no se escapa nada y un
+// "<" suelto ("Drones < 250 g") se comía el texto hasta el próximo ">". Después se
+// resuelven las entidades (&amp; al final, así "&amp;lt;" queda "&lt;" literal).
+function textoDeCue(t) {
+  const cp = (n) => (n > 0 && n <= 0x10FFFF ? String.fromCodePoint(n) : "");
+  return t.replace(/<\/?[a-zA-Z][^<>]*>|<\d{2,}:\d{2}[:.,\d]*>/g, "")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, "\u00a0")
+    .replace(/&lrm;|&rlm;/g, "").replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => cp(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => cp(parseInt(n, 16)))
+    .replace(/&amp;/g, "&").trim();
+}
+
+// Tiempo de un cue: la MISMA regex que el tema usa para la transcripción
+// (parse_timed_cues en hook_callbacks.php), así la pestaña y el video leen igual el
+// mismo archivo: horas opcionales y de 1 o 2 dígitos, milisegundos de 1 a 3, coma o punto.
+const RE_TIEMPO_CUE = /(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/;
+const segCue = (h, m, sg, f) => (+h || 0) * 3600 + (+m) * 60 + (+sg) + parseFloat("0." + f);
+
+// VTT o SRT, línea por línea: una línea con tiempo abre un cue nuevo (aunque falte la
+// línea en blanco), una línea en blanco o sólo con espacios lo cierra, y el número de
+// un SRT pegado al tiempo siguiente no entra en el texto. Antes se partía por "\n\n" y
+// un separador con un espacio metía los tiempos crudos del cue siguiente en pantalla.
 function parseVTT(text) {
   const cues = [];
-  // Normalizar CRLF: con finales de línea Windows, /\n\n+/ no separa bloques
-  // (\r\n\r\n) y el archivo entero terminaba mostrándose como un solo subtítulo.
-  text = text.replace(/\r/g, "");
-  const blocks = text.trim().split(/\n\n+/);
-  for (const block of blocks) {
-    const lines = block.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      let match = lines[i].match(/(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.,](\d{3})/);
-      if (match) {
-        const start = parseInt(match[1])*3600 + parseInt(match[2])*60 + parseInt(match[3]) + parseInt(match[4])/1000;
-        const end = parseInt(match[5])*3600 + parseInt(match[6])*60 + parseInt(match[7]) + parseInt(match[8])/1000;
-        const txt = lines.slice(i+1).join("\n").trim();
-        if (txt) cues.push({ start, end, text: txt });
-        continue;
-      }
-      match = lines[i].match(/(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}):(\d{2})[.,](\d{3})/);
-      if (match) {
-        const start = parseInt(match[1])*60 + parseInt(match[2]) + parseInt(match[3])/1000;
-        const end = parseInt(match[4])*60 + parseInt(match[5]) + parseInt(match[6])/1000;
-        const txt = lines.slice(i+1).join("\n").trim();
-        if (txt) cues.push({ start, end, text: txt });
-      }
+  const lines = String(text).replace(/\r*\n|\r/g, "\n").split("\n");
+  let cur = null;
+  const cerrar = () => {
+    if (cur) {
+      const t = textoDeCue(cur.l.join("\n"));
+      if (t && cur.end > cur.start) cues.push({ start: cur.start, end: cur.end, text: t });
     }
+    cur = null;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(RE_TIEMPO_CUE);
+    if (m) { cerrar(); cur = { start: segCue(m[1], m[2], m[3], m[4]), end: segCue(m[5], m[6], m[7], m[8]), l: [] }; continue; }
+    if (!cur) continue;
+    if (!lines[i].trim()) { if (cur.l.some((x) => x.trim())) cerrar(); continue; }
+    if (/^\s*\d+\s*$/.test(lines[i]) && i + 1 < lines.length && RE_TIEMPO_CUE.test(lines[i + 1])) continue;
+    cur.l.push(lines[i]);
   }
+  cerrar();
   return cues;
 }
 
@@ -425,11 +446,12 @@ function TimelineMarkers({ interactions, duration }) {
   return <>{interactions.map(ia=><div key={ia.id} className="iv-timeline-marker" style={{left:`${(ia.time/duration)*100}%`,background:TYPE_COLORS[ia.type]||"#fff"}}/>)}</>;
 }
 
-function SubtitleDisplay({ cues, currentTime, visible }) {
+function SubtitleDisplay({ cues, currentTime, visible, sobreControles }) {
   if(!visible||!cues||!cues.length) return null;
-  const c = cues.find(c=>currentTime>=c.start&&currentTime<=c.end);
-  if(!c) return null;
-  return <div className="iv-subtitle-container"><span className="iv-subtitle-text">{c.text}</span></div>;
+  const activos = cues.filter(c=>currentTime>=c.start&&currentTime<=c.end);
+  if(!activos.length) return null;
+  // Con los controles a la vista el subtítulo sube, así la barra no lo cruza.
+  return <div className={`iv-subtitle-container ${sobreControles?"sobre-controles":""}`}><span className="iv-subtitle-text">{activos.map(c=>c.text).join("\n")}</span></div>;
 }
 
 // Main player
@@ -501,7 +523,7 @@ export function tiempoAGuardar(t, activeIA, fin = Infinity, interactions = [], c
 
 export default function InteractiveVideoPlayer() {
   const config = getConfig();
-  const { title, vimeoId, vimeoHash, videoUrl, poster, videoMotor, subtitlesUrl, subtitlesCues, subtitlesOn, interactions, castAppId } = config;
+  const { title, vimeoId, vimeoHash, videoUrl, poster, videoMotor, subtitlesUrl, subtitlesCues, subtitlesVtt, subtitlesOn, interactions, castAppId } = config;
   // Video propio (HLS/MP4) en vez de Vimeo. También se acepta pegado en vimeoId,
   // para poder probar sin tocar el formulario de Moodle.
   const nativeSrc = videoUrl
@@ -532,8 +554,10 @@ export default function InteractiveVideoPlayer() {
   const [completed, setCompleted] = useState(new Set());
   const [showCtrl, setShowCtrl] = useState(true);
   const [subsOn, setSubsOn] = useState(!!subtitlesOn);
-  const [cues, setCues] = useState(subtitlesCues || []);
+  const [cues, setCues] = useState(()=> (subtitlesCues&&subtitlesCues.length) ? subtitlesCues : (typeof subtitlesVtt==='string' && subtitlesVtt ? parseVTT(subtitlesVtt) : []));
   const [hasVimeoSubs, setHasVimeoSubs] = useState(false);
+  const cuesRef=useRef(cues); cuesRef.current=cues;
+  const subsOnRef=useRef(subsOn); subsOnRef.current=subsOn;
   const [speed, setSpeed] = useState(1);
   // Menú de Ajustes (engranaje): null | 'principal' | 'velocidad' | 'calidad'. El
   // ref acompaña al estado porque lo leen manejadores de toque y de teclado que
@@ -637,9 +661,14 @@ export default function InteractiveVideoPlayer() {
       // recien cuando el alumno toca el boton (ver toggleSubs), o de entrada solo si
       // el video se configuro con subtitlesOn.
       p.getTextTracks().then(tracks=>{
-        if(tracks&&tracks.length>0){
+        // 🔴 Una pista autogenerada de Vimeo (idioma "es-x-autogen") no le gana al
+        // archivo que subió el docente en "Editar transcripción", que está corregido.
+        const propias=(tracks||[]).filter(t=>!/-x-autogen$/i.test(t.language||""));
+        if(tracks&&tracks.length>0&&(propias.length||!(cuesRef.current&&cuesRef.current.length))){
           setHasVimeoSubs(true);
-          if(subtitlesOn){
+          // El botón ya estaba (por los cues propios) y el alumno lo prendió antes de
+          // que llegara la lista de pistas: activarla ahora o quedaba prendido y vacío.
+          if(subtitlesOn||subsOnRef.current){
             const esTrack=tracks.find(t=>t.language==='es');
             const track=esTrack||tracks[0];
             p.enableTextTrack(track.language,track.kind).catch(()=>{});
@@ -1987,7 +2016,7 @@ export default function InteractiveVideoPlayer() {
           <button className="iv-btn-primary" onClick={()=>window.location.reload()}>Reintentar</button>
         </div>}
 
-        {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA}/>}
+        {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA} sobreControles={showCtrl||!playing||scrubPct!=null}/>}
 
         {ready&&!activeIA&&<LabelOverlay interactions={interactions} currentTime={currentTime} playerRef={playerRef}/>}
 

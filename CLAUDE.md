@@ -258,3 +258,9 @@ TVs reales están en el README.
 - [ ] Keyboard shortcuts (space, arrows, F)
 - [ ] Touch gestures (double-tap to skip ±10s)
 - [ ] Playback speed control
+
+## Subtítulos de la lección (oct-2026)
+- Salen del VTT/SRT que el docente sube en "Editar transcripción" (formato hubcampus, filearea `format_hubcampus/transcriptvtt` del contexto del módulo): el MISMO archivo de la transcripción sincronizada del tema. player.php lo normaliza a UTF-8 (`ivplayer_subtitulos_normalizar`: BOM, UTF-16, Windows-1252, bytes rotos) y lo manda crudo en `subtitlesVtt`; lo parsea `parseVTT`.
+- 🔴 `parseVTT` usa la MISMA regex de tiempo que `parse_timed_cues` del tema (campus-theme, hook_callbacks.php). Si se toca una, tocar la otra: si no, la pestaña de transcripción y el video leen distinto el mismo archivo. Probado con los 14 archivos reales de los cursos (869 cues, iguales).
+- Con Vimeo, una pista propia de Vimeo gana; una AUTOGENERADA (`-x-autogen`) no le gana al archivo del docente.
+- Pendiente fuera de este repo: el tema no normaliza la codificación (un SRT en UTF-16 no muestra transcripción) y el backup de format_hubcampus no copia `transcriptvtt` (al duplicar la actividad se pierden transcripción y subtítulos).

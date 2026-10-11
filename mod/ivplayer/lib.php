@@ -643,3 +643,72 @@ function ivplayer_reproductor_html(): ?string {
 function ivplayer_reproductor_soporta_bunny(string $html): bool {
     return strpos($html, 'loadSource') !== false;
 }
+
+/* ─── Subtítulos de la lección ──────────────────────────────── */
+
+/** Tope del archivo de subtítulos que se inyecta en el reproductor (1 MB). */
+define('IVPLAYER_SUBTITULOS_MAX', 1024 * 1024);
+
+/**
+ * Texto de los subtítulos de la lección (VTT o SRT), o null si no hay.
+ *
+ * Es el MISMO archivo que el docente sube en "Editar transcripción" (formato de curso
+ * hubcampus: filearea transcriptvtt del contexto del módulo) y que el tema usa para la
+ * transcripción sincronizada. Con Vimeo los subtítulos venían de la pista de Vimeo; con
+ * Bunny no hay pista, así que sin esto una lección migrada se quedaba sin subtítulos.
+ * Se manda el texto crudo y lo parsea el reproductor (parseVTT, que ya entiende VTT y
+ * SRT): un solo parser, el mismo que usa subtitlesUrl. Si el sitio no tiene el formato
+ * hubcampus, el área está vacía y no pasa nada.
+ *
+ * 🔴 Tiene que salir en UTF-8 válido: json_encode devuelve false con un solo byte
+ * inválido y el reproductor se quedaría sin config. Un SRT viejo puede venir en
+ * Windows-1252 o UTF-16: se convierte. Si aun así no es UTF-8, no hay subtítulos.
+ *
+ * @param context_module $context Contexto de la actividad.
+ * @return string|null
+ */
+function ivplayer_subtitulos_texto(context_module $context): ?string {
+    $fs = get_file_storage();
+    $files = $fs->get_area_files($context->id, 'format_hubcampus', 'transcriptvtt', 0,
+        'timemodified DESC', false);
+    foreach ($files as $file) {
+        // El más nuevo, igual que la transcripción del tema.
+        if ($file->get_filesize() > IVPLAYER_SUBTITULOS_MAX) {
+            return null;
+        }
+        return ivplayer_subtitulos_normalizar((string) $file->get_content());
+    }
+    return null;
+}
+
+/**
+ * Pasa el contenido de un VTT/SRT a UTF-8 sin BOM, o null si no se puede o está vacío.
+ *
+ * Función pura (sin Moodle salvo core_text), para poder probarla aparte.
+ *
+ * @param string $texto Bytes del archivo.
+ * @return string|null
+ */
+function ivplayer_subtitulos_normalizar(string $texto): ?string {
+    if (strncmp($texto, "\xFF\xFE", 2) === 0) {
+        $texto = core_text::convert(substr($texto, 2), 'utf-16le', 'utf-8');
+    } else if (strncmp($texto, "\xFE\xFF", 2) === 0) {
+        $texto = core_text::convert(substr($texto, 2), 'utf-16be', 'utf-8');
+    } else if (strncmp($texto, "\xEF\xBB\xBF", 3) === 0) {
+        $texto = substr($texto, 3);   // BOM de UTF-8 (algunos exportes de Premiere)
+    }
+    if (!mb_check_encoding($texto, 'UTF-8')) {
+        // Si ya hay letras UTF-8 válidas de varios bytes, es UTF-8 con algún byte roto:
+        // se limpia ese byte. Convertir el archivo entero como Windows-1252 lo dejaba
+        // ilegible ("AcciÃ³n"). Sin ninguna, es un SRT viejo en Windows-1252.
+        if (preg_match('/[\xC2-\xF4][\x80-\xBF]/', $texto)) {
+            $texto = mb_scrub($texto, 'UTF-8');
+        } else {
+            $texto = core_text::convert($texto, 'windows-1252', 'utf-8');
+        }
+    }
+    if (!mb_check_encoding($texto, 'UTF-8') || trim($texto) === '') {
+        return null;
+    }
+    return $texto;
+}
