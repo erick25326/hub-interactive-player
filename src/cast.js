@@ -60,6 +60,12 @@ const ahora = () => performance.now();
 const esHls =(src) => /\.m3u8(\?|#|$)/i.test(src) || /\/playlist\.m3u8/i.test(src);
 const RE_GUID = /\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\//i;
 
+// Diagnóstico para el recuadro ?diag=1 de las páginas de prueba: en un celular no hay
+// consola a mano, y "no aparece el botón" puede ser la TV, la red, el navegador o esto.
+function anotar(k, v) {
+  try { (window.__ivCastDiag = window.__ivCastDiag || {})[k] = v; } catch (e) {}
+}
+
 function sdk() { return window.cast && window.cast.framework && window.chrome && window.chrome.cast && window.chrome.cast.media ? window.chrome.cast : null; }
 
 // ¿Este navegador puede transmitir a Chromecast? Lo mismo que mira el cargador de
@@ -67,10 +73,12 @@ function sdk() { return window.cast && window.cast.framework && window.chrome &&
 // ("Casting is not supported on the iOS Chrome browser"), y contexto seguro.
 export function castPosible() {
   try {
-    if (!window.isSecureContext || !window.chrome || !navigator.presentation) return false;
+    if (!window.isSecureContext) { anotar("posible", "no (sin https)"); return false; }
+    if (!window.chrome || !navigator.presentation) { anotar("posible", "no (navegador sin Cast)"); return false; }
     const ua = navigator.userAgent || "";
-    if (/iPad|iPhone|iPod|CriOS|FxiOS|EdgiOS/.test(ua)) return false;
-    if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) return false;   // iPadOS
+    if (/iPad|iPhone|iPod|CriOS|FxiOS|EdgiOS/.test(ua)) { anotar("posible", "no (iOS)"); return false; }
+    if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) { anotar("posible", "no (iPadOS)"); return false; }
+    anotar("posible", "sí");
     return true;
   } catch (e) { return false; }
 }
@@ -97,15 +105,22 @@ export function cuandoHayaTV(appId, fn) {
   const soltar = () => { vivo = false; if (disp) disp.onchange = null; };
   if (sdk()) { queueMicrotask(listo); return soltar; }
   if (!castPosible()) return soltar;
+  // 🔴 En Android NO se pregunta: getAvailability() con "cast:<id>" pelado puede
+  // contestar false para siempre aunque la TV esté (el SDK pregunta con otra URL, con
+  // clientId y supportedAppTypes), y entonces el SDK no se bajaba y el botón no
+  // aparecía nunca. Pasó en la primera prueba con una TV real (oct-2026). Ahí se baja
+  // directo; el ahorro de la consulta queda para la compu.
+  if (/Android/i.test(navigator.userAgent || "")) { anotar("aviso", "Android: sin consultar"); queueMicrotask(listo); return soltar; }
   try {
     if (typeof window.PresentationRequest !== "function") { queueMicrotask(listo); return soltar; }
     new window.PresentationRequest(`cast:${idReceptor(appId)}`).getAvailability().then((a) => {
       if (!vivo) return;
       // Se guarda la referencia: si se la suelta, el navegador puede dejar de avisar.
       disp = a;
+      anotar("aviso", a.value ? "hay TV" : "sin TV (esperando)");
       if (a.value) return listo();
-      a.onchange = () => { if (a.value) listo(); };
-    }, () => listo());
+      a.onchange = () => { anotar("aviso", a.value ? "hay TV" : "sin TV (esperando)"); if (a.value) listo(); };
+    }, (err) => { anotar("aviso", "error " + ((err && err.name) || "")); listo(); });
   } catch (e) { queueMicrotask(listo); }
   return soltar;
 }
@@ -127,12 +142,17 @@ export function cargarCast() {
     if (sdk()) return resolve(true);
     if (!castPosible()) return resolve(false);
     let hecho = false;
-    const fin = (ok) => { if (hecho) return; hecho = true; clearTimeout(tope); resolve(!!ok && !!sdk()); };
+    anotar("sdk", "cargando");
+    const fin = (ok, motivo) => {
+      if (hecho) return; hecho = true; clearTimeout(tope);
+      anotar("sdk", ok && sdk() ? "cargado" : "no cargó" + (motivo ? " (" + motivo + ")" : ""));
+      resolve(!!ok && !!sdk());
+    };
     const tope = setTimeout(() => fin(false), TOPE_SDK_MS);
     const previo = window.__onGCastApiAvailable;
     window.__onGCastApiAvailable = (ok, motivo) => {
       try { if (typeof previo === "function") previo(ok, motivo); } catch (e) {}
-      fin(ok);
+      fin(ok, motivo);
     };
     try {
       const s = document.createElement("script");
@@ -175,11 +195,11 @@ export function contextoCast(appId) {
 export function observarCast(ctx, { onDisponible, onSesion }) {
   const fw = window.cast.framework;
   const hayTV = (estado) => !!estado && estado !== fw.CastState.NO_DEVICES_AVAILABLE;
-  const alEstado = (e) => onDisponible(hayTV(e && e.castState));
+  const alEstado = (e) => { anotar("estado", e && e.castState); onDisponible(hayTV(e && e.castState)); };
   const alSesion = (e) => onSesion(e && e.sessionState, (e && e.session) || ctx.getCurrentSession(), e && e.errorCode);
   ctx.addEventListener(fw.CastContextEventType.CAST_STATE_CHANGED, alEstado);
   ctx.addEventListener(fw.CastContextEventType.SESSION_STATE_CHANGED, alSesion);
-  try { onDisponible(hayTV(ctx.getCastState())); } catch (e) {}
+  try { anotar("estado", ctx.getCastState()); onDisponible(hayTV(ctx.getCastState())); } catch (e) {}
   try { const s = ctx.getCurrentSession(); if (s) onSesion(fw.SessionState.SESSION_RESUMED, s, null); } catch (e) {}
   return () => {
     try { ctx.removeEventListener(fw.CastContextEventType.CAST_STATE_CHANGED, alEstado); } catch (e) {}

@@ -848,34 +848,52 @@ export default class NativePlayer {
   // agregar un <source> HLS después de attachMedia lo deshace la recuperación
   // interna de hls.js (MEDIA_SOURCE_REQUIRES_RESET → recoverMediaError).
   _iniciarAirPlay() {
-    this._airplay = { disponible: false, estado: "disconnected", id: null, oyentes: [] };
-    if (typeof window === "undefined" || !window.WebKitPlaybackTargetAvailabilityEvent) return;
+    this._airplay = { disponible: false, estado: "disconnected", id: null, oyentes: [], porWatch: false, porEvento: false };
     const v = this.video, a = this._airplay;
+    // Diagnóstico (data-airplay-*): lo lee el recuadro ?diag=1 de las páginas de prueba.
+    // En un iPhone no hay consola a mano, y "no aparece el botón" puede ser la TV, la
+    // red o el navegador: esto dice cuál.
+    const diag = (k, val) => { try { v.dataset[k] = val; } catch (e) {} };
+    if (typeof window === "undefined" || !window.WebKitPlaybackTargetAvailabilityEvent) { diag("airplayApi", "no"); return; }
+    diag("airplayApi", v.remote && typeof v.remote.watchAvailability === "function" ? "remote+webkit" : "webkit");
     const avisar = () => this._emit("remotechange", this._estadoAirPlay());
     const escuchar = (obj, ev, fn) => { obj.addEventListener(ev, fn); a.oyentes.push([obj, ev, fn]); };
-    const r = v.remote;
-    if (r && typeof r.watchAvailability === "function") {
-      escuchar(r, "connecting", () => { a.estado = "connecting"; avisar(); });
-      escuchar(r, "connect", () => { a.estado = "connected"; this._alConectarAirPlay(); avisar(); });
-      escuchar(r, "disconnect", () => { a.estado = "disconnected"; avisar(); });
-      if (v.disableRemotePlayback) return;
-      // 🔴 Sin esto prompt() rechaza siempre (WebKit arranca con m_available en
-      // false). Y sirve para mostrar el botón sólo con una TV a la vista. Apple pide
-      // escuchar sólo mientras haga falta (batería): se cancela en destroy().
-      r.watchAvailability((disp) => { a.disponible = !!disp; avisar(); })
-        .then((id) => { if (this.video) a.id = id; }, () => {});   // InvalidStateError / NotSupportedError: sin botón
-      return;
-    }
-    escuchar(v, "webkitplaybacktargetavailabilitychanged", (e) => { a.disponible = e.availability === "available"; avisar(); });
+    const recalcular = () => { a.disponible = a.porWatch || a.porEvento; avisar(); };
+    // 🔴 Las DOS fuentes de disponibilidad, siempre. En iPhone watchAvailability puede
+    // rechazar con NotSupportedError (la spec lo permite donde vigilar todo el tiempo
+    // gasta batería) o no avisar nunca; cuando se escuchaba sólo esa, el botón no
+    // aparecía aunque hubiera un Apple TV al lado (prueba de Erick, oct-2026). El
+    // evento webkit* de siempre sí avisa en iOS.
+    escuchar(v, "webkitplaybacktargetavailabilitychanged", (e) => {
+      a.porEvento = e.availability === "available";
+      diag("airplayEvento", e.availability || "?");
+      recalcular();
+    });
     escuchar(v, "webkitcurrentplaybacktargetiswirelesschanged", () => {
       a.estado = v.webkitCurrentPlaybackTargetIsWireless ? "connected" : "disconnected";
       if (a.estado === "connected") this._alConectarAirPlay();
       avisar();
     });
+    const r = v.remote;
+    if (r && typeof r.watchAvailability === "function") {
+      escuchar(r, "connecting", () => { a.estado = "connecting"; avisar(); });
+      escuchar(r, "connect", () => { a.estado = "connected"; this._alConectarAirPlay(); avisar(); });
+      escuchar(r, "disconnect", () => { a.estado = "disconnected"; avisar(); });
+      if (v.disableRemotePlayback) { diag("airplayWatch", "apagado (motor hls)"); return; }
+      // Sin esto prompt() rechaza siempre (WebKit arranca con m_available en false).
+      // Apple pide escuchar sólo mientras haga falta (batería): se cancela en destroy().
+      r.watchAvailability((disp) => { a.porWatch = !!disp; diag("airplayWatch", disp ? "hay TV" : "sin TV"); recalcular(); })
+        .then((id) => { if (this.video) a.id = id; }, (err) => { a.watchFallo = true; diag("airplayWatch", "error " + ((err && err.name) || "")); });
+    }
   }
 
   _estadoAirPlay() {
     return { disponible: this.transmisionDisponible(), estado: this._airplay ? this._airplay.estado : "disconnected" };
+  }
+
+  // ¿Este navegador puede transmitir por AirPlay? (aunque ahora no haya una TV).
+  airplayPosible() {
+    return !!(this._airplay && typeof window !== "undefined" && window.WebKitPlaybackTargetAvailabilityEvent && !this.video.disableRemotePlayback);
   }
 
   transmisionDisponible() {
@@ -897,7 +915,9 @@ export default class NativePlayer {
   transmitir() {
     const v = this.video;
     const a = this._airplay;
-    if (!a || (!a.disponible && a.estado === "disconnected")) return Promise.resolve(false);
+    // Se intenta SIEMPRE: el botón está siempre a la vista y el selector del sistema es
+    // el que muestra qué TVs hay (o que no hay ninguna).
+    if (!a || !this.airplayPosible()) return Promise.resolve(false);
     try {
       // En iPhone/iPad prompt() no pide metadata, así que el master puede ir ANTES
       // del selector: la TV arranca con ABR y no hay que recargar en plena
@@ -906,6 +926,10 @@ export default class NativePlayer {
       const previa = this._calidad;
       const alMaster = esIOS() && this.motor === "nativo" && previa !== "auto" && a.estado === "disconnected";
       if (alMaster) this.setQuality("auto");
+      // Si la TV la avisó sólo el evento webkit (watchAvailability falló o no avisó),
+      // prompt() rechazaría: ahí va el selector webkit de siempre.
+      const usarPrompt = v.remote && typeof v.remote.prompt === "function" && (a.porWatch || a.estado !== "disconnected");
+      if (!usarPrompt && typeof v.webkitShowPlaybackTargetPicker === "function") { v.webkitShowPlaybackTargetPicker(); return Promise.resolve(true); }
       if (v.remote && typeof v.remote.prompt === "function") {
         return v.remote.prompt().then(() => true, () => {
           // 🔴 Cerró el selector sin elegir TV: se vuelve a la calidad que había fijado.

@@ -10,7 +10,11 @@
     "build:scorm": "node scripts/build-scorm.js",
     "build:configurator": "node scripts/build-configurator.js",
     "build:plugin": "node scripts/build-plugin.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node scripts/probar-todo.mjs",
+    "test:unit": "node --test tests/unit/*.test.mjs",
+    "test:php": "php tests/php/correr.php",
+    "test:navegador": "node --test tests/navegador/navegador.test.mjs",
+    "video-prueba": "node scripts/generar-video-prueba.mjs"
   },
   "keywords": [],
   "author": "",

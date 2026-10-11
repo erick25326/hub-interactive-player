@@ -121,8 +121,9 @@ genérico). Host, clave y duración son ajustes del sitio (`settings.php`), y
   iframe embebido (`SHA256_HEX(key+video_id+expires)`) es otra cosa y no sirve para el CDN.
 - Las funciones puras (de `ivplayer_bunny_normalizar_guid` a `ivplayer_bunny_expires`,
   incluidas `ivplayer_bunny_analizar` y `ivplayer_bunny_error_de_entrada`) no tocan
-  Moodle a propósito: se copian tal cual a un script de prueba con los vectores de
-  Bunny. Si se cambian, regenerar esa copia y volver a correrla.
+  Moodle a propósito: tests/php/correr.php las LEE de lib.php al correr y las prueba
+  con los vectores oficiales de Bunny (en CI, donde hay PHP); localmente las cubre el
+  espejo en Node, atado por huella al código de lib.php (ver "Pruebas").
 - Pendiente: el reproductor muestra siempre `thumbnail.jpg`; una miniatura
   personalizada de Bunny tiene otro nombre de archivo (`thumbnailFileName`) y no se ve.
 - El vencimiento se lleva a la hora en punto siguiente (`ivplayer_bunny_expires`):
@@ -173,9 +174,23 @@ TVs reales están en el README.
   (`cast_sender.js?loadCastFramework=1`), insertado con createElement. El cargador
   mira `document.currentScript.src`: inlineado por singlefile, como módulo o copiado
   al repo, no carga el framework. `__onGCastApiAvailable` se define antes.
-- 🔴 **El SDK se baja sólo con una TV a la vista** (`cuandoHayaTV`: Presentation API,
-  `cast:<appId>`, con el reproductor listo y en un rato libre; NO "al reproducir").
-  Antes se bajaba en cada vista en Chrome. Si `getAvailability` rechaza, se baja igual.
+- 🔴 **En ANDROID el SDK se baja siempre** (con el reproductor listo, en un rato
+  libre). Probado con una TV real (oct-2026): `getAvailability()` con "cast:<id>"
+  pelado decía "sin TV" para siempre aunque la TV estuviera, y el botón no aparecía.
+  En la compu sigue la consulta (`cuandoHayaTV`) y, si no hay TV a la vista, el SDK
+  se baja recién al tocar el botón.
+- 🔴 **El botón "Transmitir a la TV" está SIEMPRE con video propio** (pedido de
+  Erick): al tocarlo abre el selector del sistema o explica por qué no ("No
+  encontramos una TV…", "abrí la lección en Chrome/Safari"). AirPlay escucha las DOS
+  fuentes de disponibilidad (watchAvailability puede no andar en iOS) y, si sólo
+  avisó el evento webkit, usa `webkitShowPlaybackTargetPicker`.
+- 🔴 **Al conectar, la TV arranca REPRODUCIENDO** (como YouTube), salvo pregunta
+  abierta o video terminado. Con el celular en pausa quedaba quieta y había que tocar
+  de nuevo.
+- 🔴 **Un fallo de conexión se confirma 3,5 s después** mirando `getCastState()`:
+  en Android `requestSession` puede rechazar (session_error) mientras la TV abre la
+  app y la conexión termina bien. Avisar al instante mostraba "No se pudo conectar"
+  con la TV cargando. El origen del error queda en `window.__ivCastDiag` (?diag=1).
 - 🔴 **`HlsVideoSegmentFormat.MPEG2_TS`, no `.TS`** (no existe y el campo queda vacío
   sin avisar; Video.js 10 tiene ese error). `HlsSegmentFormat.TS` sí existe.
 - 🔴 **`friendlyName` viene escapado como HTML**: `chrome.cast.unescape` antes de
@@ -243,8 +258,8 @@ TVs reales están en el README.
   y ~365 recortaba el de salir de pantalla completa.
 - AirPlay en iPhone: si se cierra el selector sin elegir, vuelve la calidad fijada.
 - Pendiente de producto: las etiquetas se dibujan sobre el cartel de la TV.
-- El arnés con el receptor simulado (`cast-simulado.js`, `airplay-simulado.js`) NO
-  está en el repo: vive en el scratchpad de la sesión que lo armó.
+- El receptor simulado (`cast-simulado.js`, `airplay-simulado.js`) está en
+  tests/navegador/simulados/ y lo usan las pruebas de tests/navegador/escenarios/tv.mjs.
 
 ## Brand
 - Colors: #0162F5 (primary), #14CCF7 (secondary), #84F4BE (accent), #062E60 (dark)
@@ -264,3 +279,84 @@ TVs reales están en el README.
 - 🔴 `parseVTT` usa la MISMA regex de tiempo que `parse_timed_cues` del tema (campus-theme, hook_callbacks.php). Si se toca una, tocar la otra: si no, la pestaña de transcripción y el video leen distinto el mismo archivo. Probado con los 14 archivos reales de los cursos (869 cues, iguales).
 - Con Vimeo, una pista propia de Vimeo gana; una AUTOGENERADA (`-x-autogen`) no le gana al archivo del docente.
 - Pendiente fuera de este repo: el tema no normaliza la codificación (un SRT en UTF-16 no muestra transcripción) y el backup de format_hubcampus no copia `transcriptvtt` (al duplicar la actividad se pierden transcripción y subtítulos).
+
+## Pruebas (oct-2026)
+`npm test` corre tres capas en orden y no frena en la primera que falla
+(`scripts/probar-todo.mjs`); en GitHub corre en cada push a master, en cada PR y a
+mano (workflow_dispatch) (`.github/workflows/pruebas.yml`). El uso y qué protege
+cada capa, en el README.
+- 🔴 **Salteada no es "bien".** El nivel navegador se saltea adentro de node:test y
+  sale con 0; antes el resumen decía "navegador bien" sin haber abierto Chrome. Ahora
+  la capa avisa por el archivo de `IVP_AVISOS` (lo pone probar-todo) y el resumen dice
+  `salteada` o "en parte salteada" (sin HLS nativo). En GitHub sale como
+  `::warning::` y el job queda verde: mirar la advertencia.
+- **Unitarias** (`tests/unit/`, node:test, sin dependencias): `src/candado.js`,
+  `src/subtitulos.js`, el espejo en Node de la firma de Bunny y `CastPlayer` de
+  `src/cast.js` contra una TV falsa (sin SDK: con `window` vacío, `sdk()` da null y
+  no se manda ningún comando; sólo se mira cómo lee los avisos de la TV). 🔴 `node
+  --test tests/unit` NO anda en Node 22+ (toma la carpeta como archivo): usar
+  `npm run test:unit` (`tests/unit/*.test.mjs`).
+- 🔴 **El simulador del candado (`tests/unit/apoyo/simulador.mjs`) REPLICA el efecto
+  de disparo del componente.** Con el JSX roto (guardia después del bucle, `prev` que
+  avanza con la tarjeta abierta, restauración sin `tiempoAGuardar`, sin freno de
+  'play') las unitarias pasan igual: sólo lo ve el nivel navegador. Verificado con
+  mutaciones (oct-2026). Si se toca ese efecto, actualizar la réplica.
+- **PHP** (`tests/php/correr.php`): lee las funciones puras de `lib.php` del archivo
+  real al correr (ya no se copian a mano). El espejo de Node fija una huella del código de cada función:
+  si se toca una en `lib.php`, esa prueba avisa que hay que re-traducir el espejo.
+  `ivplayer_subtitulos_normalizar` no tiene espejo: `tests/unit/lib-php.test.mjs` fija
+  su huella sólo para avisar que hay que correr la prueba PHP (antes un cambio ahí
+  pasaba toda la suite local). correr.php todavía no se corrió nunca: no hay PHP en
+  esta PC; la primera corrida va a ser la de CI.
+- **Navegador** (`tests/navegador/`): el bundle COMPILADO (a una carpeta temporal,
+  `dist/` no se toca) en Chrome headless por CDP crudo, con clics y toques reales
+  (`Input.dispatchMouseEvent` / `dispatchTouchEvent`). Los receptores simulados de la
+  TV están en el repo (`tests/navegador/simulados/`).
+
+Trampas del nivel navegador:
+- 🔴 **Chrome del usuario**: siempre `--user-data-dir` propio y temporal, y matar
+  sólo el PID lanzado (`taskkill /PID … /T /F`). **Nunca `chrome.exe --version` en
+  Windows**: no imprime nada y abre una pestaña en la sesión abierta del usuario
+  (pasó armando esta suite). La versión se lee de `navigator.userAgent`.
+- 🔴 **El HLS nativo de Chrome no es el de Safari.** Sirve para probar el camino del
+  iPhone (cambio de fuente, reintentos del salto), pero un salto hecho apenas llega la
+  metadata —justo la restauración— a veces aterriza al PRINCIPIO del segmento (con el
+  stream de Mux, 10,46 en vez de 15; casi siempre con el video en caché). Los saltos
+  posteriores son precisos. `Pagina.abrir` lo reubica cuando la restauración es sólo
+  para ubicarse; la prueba de "retomar" lo tolera hasta un segmento y lo anota. Falta
+  ver si Safari hace lo mismo (en producción Chrome usa hls.js).
+- 🔴 **La retención de eventos de nativePlayer no se ve "sola" en Chrome**: el reintento
+  del salto sale en el mismo timeupdate que vería el 0 (una mutación que dejaba salir
+  los eventos pasaba todo). Se prueba con una TRAMPA en el setter de `currentTime`
+  del prototipo (`calidad.mjs`): el primer salto después del toque aterriza 6 s antes.
+  Mismo recurso para imitar los descartes de iOS. La trampa vive en la página de esa
+  prueba y se va con la navegación siguiente.
+- **Mutantes equivalentes conocidos** (oct-2026, no buscarles prueba): la marca de
+  salto propio de `seekTo` (todo salto propio hacia adelante frena en la primera
+  pendiente y el render optimista ya la dispara: la guardia no tendría qué retomar;
+  con el <video> no hay ticks atrasados), `marcarSaltoPropio(tt,3000)` de la vuelta
+  de la TV (seekTo la pisa con 1,5 s en la línea siguiente) y `.iv-fs-btn {
+  flex-shrink: 0 }` (los botones no bajan de su min-content: lo que hace entrar la
+  fila a 320 px son las consultas de contenedor).
+- 🔴 **`String.replace` con texto de reemplazo y código adentro**: `$'` (que aparece
+  en `$('.iv-…')`) quiere decir "lo que sigue al hallazgo". El servidor inyecta con
+  una función de reemplazo; no volver a pasarle un string.
+- 🔴 **`fs.cpSync` de `src/` tumba Node 24.14 en esta PC** (sale con 127, sin
+  excepción ni evento 'exit'). La ruta está en OneDrive y tiene "ó"; no se averiguó
+  cuál de las dos lo causa. En scripts de prueba, copiar a mano
+  (`readdirSync` + `readFileSync`/`writeFileSync`).
+- Video de prueba: local de ffmpeg (`npm run video-prueba` → `tests/navegador/.video/`,
+  ignorada; el de CI), o el HLS público de Mux (Big Buck Bunny, 634 s, 5 calidades,
+  audio adentro) o `IVP_VIDEO_URL`. El "sample" público de Bunny da 403 y los de
+  Apple traen el audio aparte o no nombran RESOLUTION. Se sirve siempre por el
+  servidor de pruebas bajo `/hls/<GUID sintético>/` (proxy con caché si es remoto),
+  así la clave del avance y el "es este video" de la TV simulada salen del GUID.
+- El ayudante de la página (`apoyo/ayudante-pagina.js`) lee el DOM del reproductor:
+  `.iv-progress-fill` (el tiempo del componente), `.iv-card`, `.iv-tv-capa-titulo`,
+  `.iv-tv-aviso`, `.iv-subtitle-text` y los `aria-label` de los botones. Si se
+  renombra alguno, actualizarlo ahí o las pruebas fallan por la razón equivocada.
+- `IVP_HTML=mod/ivplayer/player.html npm run test:navegador` prueba el bundle que va
+  en el ZIP (puede estar viejo respecto de `src/`, ver "player.html viejo").
+- Las dos pruebas `todo` de `candado-simulado.test.mjs` documentan problemas reales
+  sin arreglar (`prevTimeRef` tras la guardia; tres pendientes pegadas con pausa
+  lenta). Cuando se arreglen, sacarles el `todo`.

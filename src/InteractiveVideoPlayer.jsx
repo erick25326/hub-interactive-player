@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useId, Fragment } from "react";
 import Player from "@vimeo/player";
 import NativePlayer from "./nativePlayer.js";
-import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, mismoVideo, CastPlayer } from "./cast.js";
+import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, mismoVideo, CastPlayer, castPosible } from "./cast.js";
 import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
+// El candado de preguntas y el parser de subtítulos son puros y viven aparte para
+// poder probarlos sin navegador (tests/unit). Acá sólo se llaman.
+import { debeFrenar, tiempoAGuardar, esTickPropio, pendienteARetomar } from "./candado.js";
+import { parseVTT } from "./subtitulos.js";
 
 const DEFAULT_CONFIG = {
   title: "Hub Education — Video Interactivo",
@@ -93,52 +97,7 @@ function getConfig() {
   return window.PLAYER_CONFIG ? { ...DEFAULT_CONFIG, ...window.PLAYER_CONFIG } : DEFAULT_CONFIG;
 }
 
-// El texto de un cue se dibuja como TEXTO (React), no como HTML: las etiquetas de VTT
-// (<i>, <b>, <v Docente>, <c.amarillo>, <00:00:02.500>) y de SRT (<font>) se verían tal
-// cual. Se sacan SÓLO las que tienen forma de etiqueta: en SRT no se escapa nada y un
-// "<" suelto ("Drones < 250 g") se comía el texto hasta el próximo ">". Después se
-// resuelven las entidades (&amp; al final, así "&amp;lt;" queda "&lt;" literal).
-function textoDeCue(t) {
-  const cp = (n) => (n > 0 && n <= 0x10FFFF ? String.fromCodePoint(n) : "");
-  return t.replace(/<\/?[a-zA-Z][^<>]*>|<\d{2,}:\d{2}[:.,\d]*>/g, "")
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, "\u00a0")
-    .replace(/&lrm;|&rlm;/g, "").replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => cp(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => cp(parseInt(n, 16)))
-    .replace(/&amp;/g, "&").trim();
-}
-
-// Tiempo de un cue: la MISMA regex que el tema usa para la transcripción
-// (parse_timed_cues en hook_callbacks.php), así la pestaña y el video leen igual el
-// mismo archivo: horas opcionales y de 1 o 2 dígitos, milisegundos de 1 a 3, coma o punto.
-const RE_TIEMPO_CUE = /(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/;
-const segCue = (h, m, sg, f) => (+h || 0) * 3600 + (+m) * 60 + (+sg) + parseFloat("0." + f);
-
-// VTT o SRT, línea por línea: una línea con tiempo abre un cue nuevo (aunque falte la
-// línea en blanco), una línea en blanco o sólo con espacios lo cierra, y el número de
-// un SRT pegado al tiempo siguiente no entra en el texto. Antes se partía por "\n\n" y
-// un separador con un espacio metía los tiempos crudos del cue siguiente en pantalla.
-function parseVTT(text) {
-  const cues = [];
-  const lines = String(text).replace(/\r*\n|\r/g, "\n").split("\n");
-  let cur = null;
-  const cerrar = () => {
-    if (cur) {
-      const t = textoDeCue(cur.l.join("\n"));
-      if (t && cur.end > cur.start) cues.push({ start: cur.start, end: cur.end, text: t });
-    }
-    cur = null;
-  };
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(RE_TIEMPO_CUE);
-    if (m) { cerrar(); cur = { start: segCue(m[1], m[2], m[3], m[4]), end: segCue(m[5], m[6], m[7], m[8]), l: [] }; continue; }
-    if (!cur) continue;
-    if (!lines[i].trim()) { if (cur.l.some((x) => x.trim())) cerrar(); continue; }
-    if (/^\s*\d+\s*$/.test(lines[i]) && i + 1 < lines.length && RE_TIEMPO_CUE.test(lines[i + 1])) continue;
-    cur.l.push(lines[i]);
-  }
-  cerrar();
-  return cues;
-}
+// parseVTT y textoDeCue (subtítulos VTT/SRT) viven en subtitulos.js.
 
 // Icons
 const PlayIcon = () => <svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>;
@@ -455,71 +414,7 @@ function SubtitleDisplay({ cues, currentTime, visible, sobreControles }) {
 }
 
 // Main player
-/**
- * ¿Hay que frenar el video en una interacción que pausa (nota o pregunta)?
- *
- * 🔴 Reproduciendo, frena recién AL LLEGAR a su tiempo, nunca antes. Antes se
- * disparaba con |t − tiempo| < 0,8 s, así que un tick que caía a 7,3 s frenaba
- * una pregunta de los 8 s y se comía el final de la frase, justo donde se ubican
- * las preguntas: al terminar lo que se dice antes de la pausa. Ahora se frena
- * entre 0 y un tick (≤0,25 s) después, que cae en el silencio que sigue.
- *
- * En un seek (salto de más de 2 s entre ticks) se acepta caer un poco antes: el
- * skip y el scrub aterrizan EXACTO en la próxima interacción pendiente, y el
- * reproductor puede quedar unas centésimas antes de ese punto. Si no se frenara
- * ahí, el salto quedaría parado delante de la pregunta sin mostrarla.
- *
- * Un salto hacia adelante que CRUZA el tiempo no es un seek del alumno (el skip
- * y el scrub nunca cruzan una pendiente): es el hilo trabado unos segundos, con
- * React juntando varios timeupdate en un solo render. Se frena igual si el salto
- * es de hasta SALTO_CRUCE, o de cualquier tamaño si el render anterior ya estaba
- * a menos de DESPUES del tiempo (ahí el código viejo frenaba, antes de tiempo).
- *
- * `fin` es la duración REAL del medio. Una interacción en el último tramo, o
- * puesta después del fin (el configurador guarda segundos enteros y Vimeo
- * informa 79 s para un video de 78,72), se frena con el último tick.
- *
- * Exportada para poder probarla aislada.
- */
-export const SEEK_MIN = 2;          // salto entre ticks que se considera seek
-export const ANTES_SEEK = 0.25;     // tolerancia antes del tiempo, sólo en seeks
-export const DESPUES = 0.8;         // hasta cuánto después todavía se frena
-export const SALTO_CRUCE = 6;       // salto que cruza el tiempo: ticks trabados, no seek
-// Después de un salto propio, hasta cuánto más allá de su destino puede caer el
-// primer tick y seguir siendo de ese salto: a 2× con el tick de Vimeo atrasado
-// ~1 s en un celular, el video ya avanzó un par de segundos.
-export const PROPIO_TOLERANCIA = 3;
-export function debeFrenar(tiempo, prev, t, fin = Infinity) {
-  tiempo = Math.min(tiempo, fin - 0.05);
-  const salto = t - prev;
-  if (Math.abs(salto) > SEEK_MIN) {
-    if (prev < tiempo && t >= tiempo && (salto <= SALTO_CRUCE || prev >= tiempo - DESPUES)) return true;
-    return t >= tiempo - ANTES_SEEK && t < tiempo + DESPUES;
-  }
-  // Reproducción: llegó o pasó el tiempo y el tick anterior todavía no lo había
-  // dejado atrás por más de DESPUES (cubre también una interacción en el 0).
-  return t >= tiempo && prev < tiempo + DESPUES;
-}
-
-/**
- * Qué tiempo guardar como avance. Con una pregunta abierta se guarda SU tiempo
- * (acotado al fin real), no dónde está el video: a 2× con el pause lento queda
- * más de 0,8 s después, y una pregunta del final queda abierta con el video ya
- * rebobinado a 0. En los dos casos, al volver, la restauración no la mostraba más
- * (ni se completaba la actividad). Restaurar en su tiempo la frena por el seek.
- *
- * Tampoco se guarda más allá de una pendiente (no-label, sin completar) que quedó
- * atrás: la guardia la corrige en el MISMO commit en que este efecto guarda el
- * tiempo saltado, y con la tarjeta abierta no se vuelve a guardar. Al volver, se
- * restauraba pasada la pregunta y no aparecía más. De paso repara los avances
- * viejos que ya quedaron más allá de una pendiente: se retoma en ella.
- */
-export function tiempoAGuardar(t, activeIA, fin = Infinity, interactions = [], completed = new Set()) {
-  if (activeIA) return Math.min(activeIA.time, fin - 0.05);
-  let p = Infinity;
-  for (const ia of interactions) if (ia.type !== "label" && !completed.has(ia.id) && ia.time < t && ia.time < p) p = ia.time;
-  return p < t ? Math.max(0, Math.min(p, fin - 0.05)) : t;
-}
+// debeFrenar, tiempoAGuardar y la decisión de la guardia de saltos viven en candado.js.
 
 export default function InteractiveVideoPlayer() {
   const config = getConfig();
@@ -888,21 +783,21 @@ export default function InteractiveVideoPlayer() {
     // 🔴 No va sin la restauración optimista de más abajo: sin ella, con Vimeo el
     // primer tick después de restaurar llega con prev=0 y la guardia arrastraba al
     // alumno hacia atrás.
-    const destinoPropio=seekPropioDestinoRef.current;
-    const tickPropio=Date.now()<=seekPropioHastaRef.current&&destinoPropio!=null
-      &&t>=destinoPropio-1&&t<=destinoPropio+PROPIO_TOLERANCIA;
-    if(t>prev+DESPUES&&seekTargetRef.current==null&&!tickPropio){
-      const cruzadas=interactions.filter(ia=>ia.type!=="label"&&!completed.has(ia.id)&&!triggered.current.has(ia.id)&&ia.time>prev&&ia.time<t).sort((a,b)=>a.time-b.time);
-      const saltada=cruzadas[0];
-      const laFrenaElBucle=saltada&&(saltada.type==="hotspot"
-        ?currentTime>=saltada.time&&currentTime<=saltada.time+(saltada.duration||8)
-        :debeFrenar(saltada.time,prev,t,finRef.current));
-      if(saltada&&(cruzadas.length>1||!laFrenaElBucle)){
-        const vuelta=Math.max(0,Math.min(saltada.time,finRef.current-0.05));
+    // La decisión (qué pendiente retomar y a qué segundo) es pura: pendienteARetomar.
+    const tickPropio=esTickPropio(t,seekPropioDestinoRef.current,seekPropioHastaRef.current,Date.now());
+    if(seekTargetRef.current==null&&!tickPropio){
+      const retomar=pendienteARetomar({interactions,completed,triggered:triggered.current,prev,t,currentTime,fin:finRef.current});
+      if(retomar){
+        const vuelta=retomar.vuelta;
+        // 🔴 prev pasa a la VUELTA, no se queda en el destino del salto. Si no, un
+        // segundo salto de afuera con esta tarjeta abierta que caía ANTES de ese destino
+        // se leía al cerrarla como un salto hacia atrás, y la pendiente del medio se
+        // perdía (lo encontró el simulador de las pruebas, oct-2026).
+        prevTimeRef.current=vuelta;
         currentTimeRef.current=vuelta;
         setCurrent(vuelta);
         seekTo(vuelta);
-        mostrar(saltada);
+        mostrar(retomar.ia);
         return;
       }
     }
@@ -1216,8 +1111,12 @@ export default function InteractiveVideoPlayer() {
   // Apple TV). Con AirPlay el <video> todavía tendría la lista: se oculta igual.
   const hayCalidad=calidades.length>=2&&!calidadNoDisponible&&!tv;
   const altoElegido=hayCalidad&&calidad!=='auto'?(calidades.find(q=>q.id===calidad)?.alto||parseInt(calidad,10)||0):0;
-  // Botón de la TV: con una TV a la vista, o transmitiendo (para cortar).
-  const tvBoton=!!nativeSrc&&(tvDisp.cast||tvDisp.airplay||!!tv);
+  // Botón de la TV: SIEMPRE con video propio (pedido de Erick, oct-2026). Antes
+  // aparecía sólo con una TV a la vista, y si la detección fallaba (Android preguntando
+  // con la Presentation API, iPhone sin watchAvailability) el alumno no tenía ni el
+  // botón ni una pista de por qué. Ahora al tocarlo se abre el selector del sistema o
+  // un aviso que explica qué pasa. Con Vimeo no se ofrece nada.
+  const tvBoton=!!nativeSrc;
   // Transmitiendo no hay botón de pantalla completa (ni de girar), salvo que siga
   // en pantalla completa: ahí el de SALIR no se esconde nunca.
   const fsVisible=!tv||isFS||fakeFS;
@@ -1488,6 +1387,27 @@ export default function InteractiveVideoPlayer() {
   // la sesión en SESSION_STARTED), así que la TV igual recibía el video y el celular
   // se pausaba, contra lo que pidió el alumno. Se marca acá y se corta al llegar.
   const cancelarCastRef=useRef(false);
+  // 🔴 Un rechazo de requestSession o un SESSION_START_FAILED puede llegar mientras la TV
+  // todavía abre la app y carga el video, y la conexión termina bien igual: en un
+  // Android real aparecía "No se pudo conectar con la TV" con la TV cargando (prueba de
+  // Erick, oct-2026). Ahora el fallo se confirma unos segundos después, mirando lo que
+  // dice el propio SDK: si sigue conectando, ya conectó o ya se transmite, no se avisa.
+  const castSigueVivo=()=>{
+    if(playerRef.current?.esTV) return true;
+    try{
+      const CS=window.cast.framework.CastState;
+      const st=castCtxRef.current&&castCtxRef.current.getCastState();
+      return st===CS.CONNECTING||st===CS.CONNECTED;
+    }catch(e){ return false; }
+  };
+  const avisarFalloCast=(texto,origen)=>{
+    try{ (window.__ivCastDiag=window.__ivCastDiag||{}).error=origen; }catch(e){}
+    setTimeout(()=>{
+      if(castSigueVivo()) return;
+      setTv(x=>x&&x.tipo==='cast'&&!playerRef.current?.esTV?null:x);
+      avisarTVRef.current(texto);
+    },3500);
+  };
   alCambiarSesionCastRef.current=(estado,sesion,error)=>{
     const SS=(window.cast&&window.cast.framework&&window.cast.framework.SessionState)||{};
     const transmitiendo=!!playerRef.current?.esTV;
@@ -1504,8 +1424,8 @@ export default function InteractiveVideoPlayer() {
     else if(estado===SS.SESSION_START_FAILED){
       const cancelado=cancelarCastRef.current;
       cancelarCastRef.current=false;
-      if(!transmitiendo) setTv(null);
-      if(!cancelado&&error&&error!=='cancel') avisarTVRef.current('No se pudo conectar con la TV.');
+      if(cancelado||!error||error==='cancel'){ if(!transmitiendo) setTv(null); return; }
+      avisarFalloCast('No se pudo conectar con la TV.','START_FAILED '+error);
     }
     else if(estado===SS.SESSION_ENDED){
       cancelarCastRef.current=false;
@@ -1535,7 +1455,12 @@ export default function InteractiveVideoPlayer() {
       if(!(m&&m.playerState!=='IDLE'&&mismoVideo(id,nativeSrc))) return noSeTransmite();
       adoptar=true;
     }
-    const seguia=!adoptar&&playingRef.current&&!activeIARef.current&&!terminoRef.current;
+    // 🔴 La TV arranca REPRODUCIENDO aunque el celular estuviera en pausa, como YouTube:
+    // quien elige una TV quiere verla ahí. Antes copiaba el estado del celular y, si se
+    // tocaba el botón antes de dar play, la TV quedaba quieta en el primer cuadro y había
+    // que volver a tocar (prueba de Erick con una TV real, oct-2026). Con una pregunta
+    // abierta o el video terminado, en pausa.
+    const seguia=!adoptar&&!activeIARef.current&&!terminoRef.current;
     // El segundo de arranque: el destino de un salto en vuelo, o donde está el
     // <video> AHORA (el último tick puede estar ~250 ms atrás; se pausa en este mismo
     // turno, más abajo). Con una pregunta abierta, el de la pregunta
@@ -1629,26 +1554,73 @@ export default function InteractiveVideoPlayer() {
       setTv(null);
       return;
     }
-    if(p&&p.transmitir&&(tvDisp.airplay||tv?.tipo==='airplay')){ p.transmitir(); return; }
+    if(p&&p.transmitir&&p.airplayPosible&&p.airplayPosible()){
+      p.transmitir().then(ok=>{
+        // prompt() rechaza sin TV; el selector webkit no avisa nada (ok=true).
+        if(!ok&&tvRef.current==null&&!tvDisp.airplay) avisarTVRef.current('No encontramos una TV con AirPlay en esta Wi-Fi. Fijate que el celular y la TV estén en la misma red.');
+      });
+      return;
+    }
     const ctx=castCtxRef.current;
-    if(!ctx) return;
+    if(!ctx){
+      if(!castPosible()){
+        avisarTVRef.current(/iPhone|iPad|iPod/i.test(navigator.userAgent||'')
+          ?'Para transmitir a la TV abrí la lección en Safari.'
+          :'Para transmitir a la TV abrí la lección en Chrome.');
+        return;
+      }
+      // El SDK todavía no está (en la compu se baja recién con una TV a la vista): se
+      // baja ahora y se abre el selector apenas llega. Chrome deja abrirlo unos
+      // segundos después del toque; si ya venció, se pide tocar de nuevo.
+      avisarTVRef.current('Buscando TVs…');
+      cargarCast().then(ok=>{
+        if(!ok){ avisarTVRef.current('Este navegador no puede transmitir a la TV. Probá con Chrome.'); return; }
+        let c=null;
+        try{ c=contextoCast(castAppId); }catch(e){ c=null; }
+        if(!c){ avisarTVRef.current('No se pudo preparar la transmisión. Probá de nuevo.'); return; }
+        if(!castCtxRef.current){
+          castCtxRef.current=c;
+          observarCast(c,{
+            onDisponible:(d)=>setTvDisp(x=>x.cast===d?x:{...x,cast:d}),
+            onSesion:(estado,sesion,error)=>alCambiarSesionCastRef.current(estado,sesion,error),
+          });
+        }
+        pedirSesionCast(c,true);
+      });
+      return;
+    }
     // Ya hay una sesión (la reenganchó Chrome con otra lección en la TV): cargar ésta
     // ahí mismo, sin selector.
     const s=ctx.getCurrentSession&&ctx.getCurrentSession();
     if(s){ conectarCast(s,false); return; }
+    pedirSesionCast(ctx,false);
+  };
+  // Abre el selector de Chrome. diferido = el SDK se bajó después del toque.
+  const pedirSesionCast=(ctx,diferido)=>{
     // Un pedido nuevo: lo que se haya cancelado antes ya no corre.
     cancelarCastRef.current=false;
     try{
       const r=ctx.requestSession();
+      if(diferido) setTvAviso('');
       if(r&&r.catch) r.catch(err=>{
         const cancelado=cancelarCastRef.current;
         cancelarCastRef.current=false;
+        if(playerRef.current?.esTV) return;
+        // Canceló el alumno: se saca el "Conectando…" ya.
+        if(cancelado||err==='cancel'){ setTv(x=>x&&x.tipo==='cast'?null:x); return; }
+        const cod=String((err&&(err.code||err))||'');
+        // Sin TV en la red el SDK no siempre devuelve receiver_unavailable: también se
+        // mira el estado que informa el propio SDK.
+        let sinTV=/receiver_unavailable/.test(cod);
+        try{ sinTV=sinTV||ctx.getCastState()===window.cast.framework.CastState.NO_DEVICES_AVAILABLE; }catch(e){}
         // 🔴 Sin esto el "Conectando…" podía quedar fijo: el SDK sólo despacha
-        // SESSION_START_FAILED si al pedir no había otra conexión en curso.
-        if(!playerRef.current?.esTV) setTv(x=>x&&x.tipo==='cast'?null:x);
-        if(!cancelado&&err&&err!=='cancel'&&!playerRef.current?.esTV) avisarTVRef.current('No se pudo conectar con la TV.');
+        // SESSION_START_FAILED si al pedir no había otra conexión en curso. Lo saca
+        // avisarFalloCast, recién si la TV de verdad no conectó.
+        avisarFalloCast(sinTV
+          ?'No encontramos una TV con Chromecast en esta Wi-Fi. Fijate que el celular y la TV estén en la misma red.'
+          :diferido?'Tocá de nuevo el botón de la TV.':'No se pudo conectar con la TV.','requestSession '+cod);
       });
-    }catch(e){}
+    }catch(e){ if(diferido) avisarTVRef.current('Tocá de nuevo el botón de la TV.'); }
   };
 
   // Freno anticipado (sólo Chromecast): el adaptador pausa la TV un ida y vuelta

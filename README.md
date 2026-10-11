@@ -35,6 +35,60 @@ npx vite build
 # Output: dist/index.html (un solo archivo, ~240KB)
 ```
 
+## Pruebas
+
+```bash
+npm test                 # las tres capas, en orden, con un resumen al final
+npm run test:unit        # sin navegador, unos segundos
+npm run test:php         # sólo con php en el PATH (en CI sí hay)
+npm run test:navegador   # Chrome headless, ~2 min
+```
+
+`npm test` corre las tres aunque una falle y se saltea sola la que no puede correr
+(sin PHP, o sin Chrome / sin video de prueba), diciendo por qué. El resumen del final
+distingue `bien` de `salteada` (y de "en parte salteada", si faltó el HLS nativo):
+🔴 una capa salteada no probó nada, y sin el nivel navegador el cableado del candado
+en el componente queda sin ninguna prueba. En GitHub corre todo en cada push a
+master, en cada PR y a mano desde Actions → Pruebas → Run workflow (para una rama sin
+PR) (`.github/workflows/pruebas.yml`, ubuntu + Node 24). Si ahí se saltean pruebas,
+el job queda verde con una advertencia arriba del log.
+
+| Capa | Dónde | Qué protege |
+|---|---|---|
+| Unitarias | `tests/unit/` | El candado (`src/candado.js`: `debeFrenar`, la guardia, `tiempoAGuardar`) con casos fijos y un simulador de ticks; el parser de subtítulos (`src/subtitulos.js`); la firma de Bunny contra los vectores oficiales (espejo en Node); el adaptador de Chromecast (`CastPlayer`) contra una TV falsa que avisa un salto en un solo estado. Además, una huella del código de las funciones de `lib.php` que sólo prueba PHP: si cambian, avisa que hay que correr la prueba PHP. |
+| PHP | `tests/php/correr.php` | Las funciones puras de `mod/ivplayer/lib.php` leídas del archivo real: firma HS256 de Bunny y normalización de subtítulos (BOM, UTF-16, Windows-1252, bytes rotos). |
+| Navegador | `tests/navegador/` | El bundle compilado en Chrome, con clics y toques reales por CDP: el candado con hls.js y con HLS nativo (saltos de afuera, también con una nota abierta; restauración; +10 y −10; play de afuera), el cambio de calidad antes de una pregunta (y, con el nativo, un salto del cambio de fuente que aterriza corrido), los subtítulos, la TV con Chromecast y AirPlay simulados, y la fila de controles a 320 y 360 px en pantalla completa simulada. |
+
+🔴 El simulador de las unitarias (`tests/unit/apoyo/simulador.mjs`) usa las
+decisiones REALES de `candado.js`, pero el efecto de disparo del componente (el orden
+guardia → bucle, `prev` quieto con la tarjeta abierta, la restauración, el freno de
+'play') es una RÉPLICA: si se cambia en `InteractiveVideoPlayer.jsx`, actualizarla. El
+cableado de verdad lo ve sólo el nivel navegador.
+
+**Nivel navegador.** Compila el reproductor a una carpeta temporal (`dist/` no se
+toca), lo sirve en un puerto que elige el sistema con `PLAYER_CONFIG` inyectado
+antes de `</head>` (como `player.php`) y lo maneja con un Chrome headless propio, con
+perfil temporal. Al terminar mata sólo el proceso que lanzó.
+
+- **Chrome:** el de siempre de cada sistema, o `CHROME_PATH=/ruta/al/chrome`.
+- **Video de prueba:** si hay ffmpeg, `npm run video-prueba` genera uno local de 78 s
+  con 240p/360p/480p y audio en `tests/navegador/.video/` (ignorada por git); es el
+  que usa CI. Sin ffmpeg usa un HLS público de prueba (el Big Buck Bunny de Mux) o el
+  que diga `IVP_VIDEO_URL`. Sin ffmpeg y sin red, se saltea con un aviso.
+- **Otro bundle:** `IVP_HTML=mod/ivplayer/player.html npm run test:navegador` prueba
+  el que va en el ZIP del plugin en vez de compilar `src/`.
+- **Sólo algunas:** `node --test --test-name-pattern="calidad" tests/navegador/navegador.test.mjs`.
+- Si una falla, la captura queda en `tests/navegador/.salida/` (en CI, como artefacto).
+- Los receptores de la TV son **simulados** (`tests/navegador/simulados/`): prueban
+  todo nuestro código, no una TV de verdad (ver "Pendiente: probar con TVs reales").
+- El HLS nativo de Chrome no es el de Safari: sirve para probar el camino del iPhone
+  (cambio de fuente, reintentos del salto), pero tiene sus propias mañas (ver el
+  CLAUDE.md). Que nativePlayer RETENGA los eventos durante el cambio de fuente no se
+  ve con Chrome solo (el reintento sale en el mismo evento que vería el 0): se prueba
+  forzando, con una trampa en el setter de `currentTime`, que el primer salto
+  aterrice 6 s antes, como hace iOS. Lo que hace Safari de verdad sólo se ve en un
+  iPhone. Si un Chrome no trae HLS nativo, esas pruebas se saltean diciendo por qué.
+
 ## Configuración
 
 Editar `window.PLAYER_CONFIG` en el HTML o en `src/InteractiveVideoPlayer.jsx`:
@@ -182,8 +236,10 @@ Sólo con video propio (`videoUrl`, Bunny). Con Vimeo no aparece nada.
 
 ### Qué ve el alumno
 
-- Un botón **Transmitir a la TV** en la fila de controles, que aparece sólo si hay
-  una TV a la vista (en la misma red Wi-Fi). En un reproductor angosto (340 px o
+- Un botón **Transmitir a la TV** en la fila de controles, SIEMPRE que el video sea
+  propio (Bunny). Al tocarlo se abre la lista de TVs del sistema (Chrome o AirPlay);
+  si no hay ninguna en la red, o el navegador no puede transmitir, un aviso lo
+  explica. Al conectar, la TV arranca reproduciendo. En un reproductor angosto (340 px o
   menos: celular parado dentro del campus) no entra sin recortar el botón de salir
   de pantalla completa, así que pasa a ser una fila en **Ajustes**.
 - Transmitiendo, el video se ve en la TV y en el celular queda un cartel

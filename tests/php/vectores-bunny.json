@@ -1,0 +1,912 @@
+{
+  "_leeme": "Vectores de la firma de Bunny y de la validación de lo que pega el docente. Los usan tests/php/correr.php (contra mod/ivplayer/lib.php, en CI) y tests/unit/bunny-espejo.test.mjs (contra el espejo en Node, local). Los esperados de token y firmar salen del SDK oficial de Bunny (nodejs/token.js) y de sus vectores e2e. Todo es sintético: hosts de ejemplo, GUIDs inventados y claves de prueba.",
+  "token": [
+    {
+      "clave": "SecurityKey",
+      "ruta": "/abc",
+      "expires": 1598024587,
+      "esperado": "HS256-uVZvT3SbEoVKYJyDJgbcsDmSFf73cv-uNUVaJiKWpbQ",
+      "fuente": "oficial: e2e path_only y php testDirectoryAndPathAllowed"
+    },
+    {
+      "clave": "SecurityKey",
+      "ruta": "/11111111-2222-4333-8444-555555555555/",
+      "expires": 1598024587,
+      "esperado": "HS256-GB8LrMd0-L5XeqFCX2E053nIziSOmSCWsvn1lrqK3Pg",
+      "fuente": "derivado: token.js oficial"
+    },
+    {
+      "clave": "SecurityKey",
+      "ruta": "/videos/stream1/",
+      "expires": 1598024587,
+      "esperado": "HS256-Qc-9904yaW8f4KwD75ff6l9cZepJyLMEuEME8OcnFSI",
+      "fuente": "derivado: ejemplo del doc Advanced"
+    }
+  ],
+  "firmar": [
+    {
+      "nombre": "derivado de la investigación",
+      "host": "vz-ejemplo.b-cdn.net",
+      "guid": "11111111-2222-4333-8444-555555555555",
+      "clave": "SecurityKey",
+      "expires": 1598024587,
+      "playlist": "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-GB8LrMd0-L5XeqFCX2E053nIziSOmSCWsvn1lrqK3Pg&token_path=%2F11111111-2222-4333-8444-555555555555%2F&expires=1598024587/11111111-2222-4333-8444-555555555555/playlist.m3u8",
+      "poster": "https://vz-ejemplo.b-cdn.net/11111111-2222-4333-8444-555555555555/thumbnail.jpg?token=HS256-GB8LrMd0-L5XeqFCX2E053nIziSOmSCWsvn1lrqK3Pg&token_path=%2F11111111-2222-4333-8444-555555555555%2F&expires=1598024587",
+      "query": "token=HS256-GB8LrMd0-L5XeqFCX2E053nIziSOmSCWsvn1lrqK3Pg&token_path=%2F11111111-2222-4333-8444-555555555555%2F&expires=1598024587"
+    },
+    {
+      "nombre": "SDK oficial #1",
+      "host": "vz-ejemplo.b-cdn.net",
+      "guid": "40b4e5e0-c657-48ae-bcbc-1c2126fcfd45",
+      "clave": "SecurityKey",
+      "expires": 1598024587,
+      "playlist": "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-7MJqdjYo1AN82ytmTIYIq0ki-ZLMmtMo2H1QwCOH3O8&token_path=%2F40b4e5e0-c657-48ae-bcbc-1c2126fcfd45%2F&expires=1598024587/40b4e5e0-c657-48ae-bcbc-1c2126fcfd45/playlist.m3u8",
+      "poster": "https://vz-ejemplo.b-cdn.net/40b4e5e0-c657-48ae-bcbc-1c2126fcfd45/thumbnail.jpg?token=HS256-7MJqdjYo1AN82ytmTIYIq0ki-ZLMmtMo2H1QwCOH3O8&token_path=%2F40b4e5e0-c657-48ae-bcbc-1c2126fcfd45%2F&expires=1598024587",
+      "query": "token=HS256-7MJqdjYo1AN82ytmTIYIq0ki-ZLMmtMo2H1QwCOH3O8&token_path=%2F40b4e5e0-c657-48ae-bcbc-1c2126fcfd45%2F&expires=1598024587"
+    },
+    {
+      "nombre": "SDK oficial #2",
+      "host": "video.ejemplo.test",
+      "guid": "c1ce8282-f097-463f-98eb-33f7daba41a7",
+      "clave": "00000000-1111-4222-8333-444444444444",
+      "expires": 1760140800,
+      "playlist": "https://video.ejemplo.test/bcdn_token=HS256-W6hd3krWpxEE1fZZSbmUG1t87MDt5zMwiI9b6LGiGyc&token_path=%2Fc1ce8282-f097-463f-98eb-33f7daba41a7%2F&expires=1760140800/c1ce8282-f097-463f-98eb-33f7daba41a7/playlist.m3u8",
+      "poster": "https://video.ejemplo.test/c1ce8282-f097-463f-98eb-33f7daba41a7/thumbnail.jpg?token=HS256-W6hd3krWpxEE1fZZSbmUG1t87MDt5zMwiI9b6LGiGyc&token_path=%2Fc1ce8282-f097-463f-98eb-33f7daba41a7%2F&expires=1760140800",
+      "query": "token=HS256-W6hd3krWpxEE1fZZSbmUG1t87MDt5zMwiI9b6LGiGyc&token_path=%2Fc1ce8282-f097-463f-98eb-33f7daba41a7%2F&expires=1760140800"
+    },
+    {
+      "nombre": "SDK oficial #3",
+      "host": "vz-ejemplo.b-cdn.net",
+      "guid": "b0c6dedc-61ce-4fc7-a977-62f445ec6d4f",
+      "clave": "clave con espacios y ñandú",
+      "expires": 2147483647,
+      "playlist": "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-CC2sq408Ewt6e4iPj66jbxLMCCwy7X7Xu3AU0km0gUA&token_path=%2Fb0c6dedc-61ce-4fc7-a977-62f445ec6d4f%2F&expires=2147483647/b0c6dedc-61ce-4fc7-a977-62f445ec6d4f/playlist.m3u8",
+      "poster": "https://vz-ejemplo.b-cdn.net/b0c6dedc-61ce-4fc7-a977-62f445ec6d4f/thumbnail.jpg?token=HS256-CC2sq408Ewt6e4iPj66jbxLMCCwy7X7Xu3AU0km0gUA&token_path=%2Fb0c6dedc-61ce-4fc7-a977-62f445ec6d4f%2F&expires=2147483647",
+      "query": "token=HS256-CC2sq408Ewt6e4iPj66jbxLMCCwy7X7Xu3AU0km0gUA&token_path=%2Fb0c6dedc-61ce-4fc7-a977-62f445ec6d4f%2F&expires=2147483647"
+    },
+    {
+      "nombre": "SDK oficial #4",
+      "host": "video.ejemplo.test",
+      "guid": "e5a17b12-7cca-4995-9084-c6f930a3a281",
+      "clave": "a+b/c=d&e%f?g#h",
+      "expires": 2147483648,
+      "playlist": "https://video.ejemplo.test/bcdn_token=HS256-DsEKK0_rrrMl8OnkO6Wh49TtEe8i_1ssPQSuhLhSaTw&token_path=%2Fe5a17b12-7cca-4995-9084-c6f930a3a281%2F&expires=2147483648/e5a17b12-7cca-4995-9084-c6f930a3a281/playlist.m3u8",
+      "poster": "https://video.ejemplo.test/e5a17b12-7cca-4995-9084-c6f930a3a281/thumbnail.jpg?token=HS256-DsEKK0_rrrMl8OnkO6Wh49TtEe8i_1ssPQSuhLhSaTw&token_path=%2Fe5a17b12-7cca-4995-9084-c6f930a3a281%2F&expires=2147483648",
+      "query": "token=HS256-DsEKK0_rrrMl8OnkO6Wh49TtEe8i_1ssPQSuhLhSaTw&token_path=%2Fe5a17b12-7cca-4995-9084-c6f930a3a281%2F&expires=2147483648"
+    },
+    {
+      "nombre": "SDK oficial #5",
+      "host": "vz-ejemplo.b-cdn.net",
+      "guid": "244f39cc-10d0-4dc9-9aa9-19841b809e5f",
+      "clave": "x",
+      "expires": 4102444800,
+      "playlist": "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-a2W8FAhiTMNWR-ry0PFy7EQJIg7rDVmgblYb_ZLjpQ4&token_path=%2F244f39cc-10d0-4dc9-9aa9-19841b809e5f%2F&expires=4102444800/244f39cc-10d0-4dc9-9aa9-19841b809e5f/playlist.m3u8",
+      "poster": "https://vz-ejemplo.b-cdn.net/244f39cc-10d0-4dc9-9aa9-19841b809e5f/thumbnail.jpg?token=HS256-a2W8FAhiTMNWR-ry0PFy7EQJIg7rDVmgblYb_ZLjpQ4&token_path=%2F244f39cc-10d0-4dc9-9aa9-19841b809e5f%2F&expires=4102444800",
+      "query": "token=HS256-a2W8FAhiTMNWR-ry0PFy7EQJIg7rDVmgblYb_ZLjpQ4&token_path=%2F244f39cc-10d0-4dc9-9aa9-19841b809e5f%2F&expires=4102444800"
+    },
+    {
+      "nombre": "SDK oficial #6",
+      "host": "video.ejemplo.test",
+      "guid": "b3e8d67a-5047-4dde-a836-e17a8fea27fa",
+      "clave": "8254c329a92850f6d539dd376f4816ee2764517da5e0235514af433164480d7a",
+      "expires": 1,
+      "playlist": "https://video.ejemplo.test/bcdn_token=HS256-cWxL3NzbAsprVKOSU5w_vHOSV4kYaZ34QrITSyBxRWc&token_path=%2Fb3e8d67a-5047-4dde-a836-e17a8fea27fa%2F&expires=1/b3e8d67a-5047-4dde-a836-e17a8fea27fa/playlist.m3u8",
+      "poster": "https://video.ejemplo.test/b3e8d67a-5047-4dde-a836-e17a8fea27fa/thumbnail.jpg?token=HS256-cWxL3NzbAsprVKOSU5w_vHOSV4kYaZ34QrITSyBxRWc&token_path=%2Fb3e8d67a-5047-4dde-a836-e17a8fea27fa%2F&expires=1",
+      "query": "token=HS256-cWxL3NzbAsprVKOSU5w_vHOSV4kYaZ34QrITSyBxRWc&token_path=%2Fb3e8d67a-5047-4dde-a836-e17a8fea27fa%2F&expires=1"
+    },
+    {
+      "nombre": "SDK oficial #7",
+      "host": "vz-ejemplo.b-cdn.net",
+      "guid": "d2b9682e-5d4c-4e1a-ac32-44af6cf2a7ce",
+      "clave": "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK",
+      "expires": 1598024587,
+      "playlist": "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-B45p6iLDBvelNEHRyfOfilvkfxDndbKEvWl5zuG-cws&token_path=%2Fd2b9682e-5d4c-4e1a-ac32-44af6cf2a7ce%2F&expires=1598024587/d2b9682e-5d4c-4e1a-ac32-44af6cf2a7ce/playlist.m3u8",
+      "poster": "https://vz-ejemplo.b-cdn.net/d2b9682e-5d4c-4e1a-ac32-44af6cf2a7ce/thumbnail.jpg?token=HS256-B45p6iLDBvelNEHRyfOfilvkfxDndbKEvWl5zuG-cws&token_path=%2Fd2b9682e-5d4c-4e1a-ac32-44af6cf2a7ce%2F&expires=1598024587",
+      "query": "token=HS256-B45p6iLDBvelNEHRyfOfilvkfxDndbKEvWl5zuG-cws&token_path=%2Fd2b9682e-5d4c-4e1a-ac32-44af6cf2a7ce%2F&expires=1598024587"
+    },
+    {
+      "nombre": "SDK oficial #8",
+      "host": "video.ejemplo.test",
+      "guid": "fec5b399-f15e-43fb-80bd-94eb633ef2f2",
+      "clave": "SecurityKey",
+      "expires": 1760140800,
+      "playlist": "https://video.ejemplo.test/bcdn_token=HS256-cKqXsXiCU40E2lm9XzLqq5ieTCHgNW3XnVj3n8DFyeM&token_path=%2Ffec5b399-f15e-43fb-80bd-94eb633ef2f2%2F&expires=1760140800/fec5b399-f15e-43fb-80bd-94eb633ef2f2/playlist.m3u8",
+      "poster": "https://video.ejemplo.test/fec5b399-f15e-43fb-80bd-94eb633ef2f2/thumbnail.jpg?token=HS256-cKqXsXiCU40E2lm9XzLqq5ieTCHgNW3XnVj3n8DFyeM&token_path=%2Ffec5b399-f15e-43fb-80bd-94eb633ef2f2%2F&expires=1760140800",
+      "query": "token=HS256-cKqXsXiCU40E2lm9XzLqq5ieTCHgNW3XnVj3n8DFyeM&token_path=%2Ffec5b399-f15e-43fb-80bd-94eb633ef2f2%2F&expires=1760140800"
+    },
+    {
+      "nombre": "SDK oficial #9",
+      "host": "vz-ejemplo.b-cdn.net",
+      "guid": "9604c2de-caa3-4759-90da-bf4d9c44374b",
+      "clave": "00000000-1111-4222-8333-444444444444",
+      "expires": 2147483647,
+      "playlist": "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-XUGCyYBbaEmY9U4OU2iKl8270LFVEqKJW6SRTnAXhts&token_path=%2F9604c2de-caa3-4759-90da-bf4d9c44374b%2F&expires=2147483647/9604c2de-caa3-4759-90da-bf4d9c44374b/playlist.m3u8",
+      "poster": "https://vz-ejemplo.b-cdn.net/9604c2de-caa3-4759-90da-bf4d9c44374b/thumbnail.jpg?token=HS256-XUGCyYBbaEmY9U4OU2iKl8270LFVEqKJW6SRTnAXhts&token_path=%2F9604c2de-caa3-4759-90da-bf4d9c44374b%2F&expires=2147483647",
+      "query": "token=HS256-XUGCyYBbaEmY9U4OU2iKl8270LFVEqKJW6SRTnAXhts&token_path=%2F9604c2de-caa3-4759-90da-bf4d9c44374b%2F&expires=2147483647"
+    },
+    {
+      "nombre": "SDK oficial #10",
+      "host": "video.ejemplo.test",
+      "guid": "b1de5e77-947a-4407-a51a-41fbc08ba83a",
+      "clave": "clave con espacios y ñandú",
+      "expires": 2147483648,
+      "playlist": "https://video.ejemplo.test/bcdn_token=HS256-o9IVwASSZHeOvSlg5WmiDDoAYtxkHWyHvx6QvAgPkik&token_path=%2Fb1de5e77-947a-4407-a51a-41fbc08ba83a%2F&expires=2147483648/b1de5e77-947a-4407-a51a-41fbc08ba83a/playlist.m3u8",
+      "poster": "https://video.ejemplo.test/b1de5e77-947a-4407-a51a-41fbc08ba83a/thumbnail.jpg?token=HS256-o9IVwASSZHeOvSlg5WmiDDoAYtxkHWyHvx6QvAgPkik&token_path=%2Fb1de5e77-947a-4407-a51a-41fbc08ba83a%2F&expires=2147483648",
+      "query": "token=HS256-o9IVwASSZHeOvSlg5WmiDDoAYtxkHWyHvx6QvAgPkik&token_path=%2Fb1de5e77-947a-4407-a51a-41fbc08ba83a%2F&expires=2147483648"
+    },
+    {
+      "nombre": "SDK oficial #11",
+      "host": "vz-ejemplo.b-cdn.net",
+      "guid": "0bfa4a08-4b79-4632-b281-12136e6b38f5",
+      "clave": "a+b/c=d&e%f?g#h",
+      "expires": 4102444800,
+      "playlist": "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-FlS9XDUFjo4KbB2VcncvpsHyGxWoQzyBsIGOANWrn1A&token_path=%2F0bfa4a08-4b79-4632-b281-12136e6b38f5%2F&expires=4102444800/0bfa4a08-4b79-4632-b281-12136e6b38f5/playlist.m3u8",
+      "poster": "https://vz-ejemplo.b-cdn.net/0bfa4a08-4b79-4632-b281-12136e6b38f5/thumbnail.jpg?token=HS256-FlS9XDUFjo4KbB2VcncvpsHyGxWoQzyBsIGOANWrn1A&token_path=%2F0bfa4a08-4b79-4632-b281-12136e6b38f5%2F&expires=4102444800",
+      "query": "token=HS256-FlS9XDUFjo4KbB2VcncvpsHyGxWoQzyBsIGOANWrn1A&token_path=%2F0bfa4a08-4b79-4632-b281-12136e6b38f5%2F&expires=4102444800"
+    },
+    {
+      "nombre": "SDK oficial #12",
+      "host": "video.ejemplo.test",
+      "guid": "14d3a401-fe78-4b89-a838-771c51d10cc4",
+      "clave": "x",
+      "expires": 1,
+      "playlist": "https://video.ejemplo.test/bcdn_token=HS256-jq6OLGO0-CroOn_0BHPl7jx4j9vcY65RTbK-ffG1UQs&token_path=%2F14d3a401-fe78-4b89-a838-771c51d10cc4%2F&expires=1/14d3a401-fe78-4b89-a838-771c51d10cc4/playlist.m3u8",
+      "poster": "https://video.ejemplo.test/14d3a401-fe78-4b89-a838-771c51d10cc4/thumbnail.jpg?token=HS256-jq6OLGO0-CroOn_0BHPl7jx4j9vcY65RTbK-ffG1UQs&token_path=%2F14d3a401-fe78-4b89-a838-771c51d10cc4%2F&expires=1",
+      "query": "token=HS256-jq6OLGO0-CroOn_0BHPl7jx4j9vcY65RTbK-ffG1UQs&token_path=%2F14d3a401-fe78-4b89-a838-771c51d10cc4%2F&expires=1"
+    }
+  ],
+  "urlsSinClave": {
+    "host": "vz-ejemplo.b-cdn.net",
+    "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    "esperado": {
+      "playlist": "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "poster": "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/thumbnail.jpg",
+      "firmada": false,
+      "expires": null
+    }
+  },
+  "normalizarGuid": [
+    [
+      "",
+      ""
+    ],
+    [
+      "   ",
+      ""
+    ],
+    [
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "  1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d\n",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d\nx",
+      null
+    ],
+    [
+      "https://player.mediadelivery.net/play/123456/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "https://player.mediadelivery.net/play/123456/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "https://iframe.mediadelivery.net/embed/123456/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d?autoplay=true&loop=false",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "iframe.mediadelivery.net/play/123456/1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "https://video.bunnycdn.com/play/123456/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/thumbnail.jpg?token=x&expires=1",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-TIIZ1uth7BUHErQxlqdA8QEddd3TwPTemRB4BcGhWBQ&token_path=%2F1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d%2F&expires=1598024587/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/thumbnail.jpg?token=HS256-TIIZ1uth7BUHErQxlqdA8QEddd3TwPTemRB4BcGhWBQ&token_path=%2F1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d%2F&expires=1598024587",
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    ],
+    [
+      "https://vimeo.com/123456789/abcdef",
+      null
+    ],
+    [
+      "123456789",
+      null
+    ],
+    [
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5dx",
+      null
+    ],
+    [
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5",
+      null
+    ],
+    [
+      "https://player.mediadelivery.net/play/abc/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      null
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5dxyz/playlist.m3u8",
+      null
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/videos/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      null
+    ],
+    [
+      "https://youtu.be/dQw4w9WgXcQ",
+      null
+    ],
+    [
+      "<script>alert(1)</script>",
+      null
+    ],
+    [
+      null,
+      ""
+    ]
+  ],
+  "normalizarHost": [
+    [
+      "",
+      ""
+    ],
+    [
+      "vz-ejemplo.b-cdn.net",
+      "vz-ejemplo.b-cdn.net"
+    ],
+    [
+      "  VZ-Ejemplo.B-CDN.net  ",
+      "vz-ejemplo.b-cdn.net"
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/",
+      "vz-ejemplo.b-cdn.net"
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "vz-ejemplo.b-cdn.net"
+    ],
+    [
+      "vz-ejemplo.b-cdn.net/abc",
+      "vz-ejemplo.b-cdn.net"
+    ],
+    [
+      "ftp://vz-ejemplo.b-cdn.net",
+      "vz-ejemplo.b-cdn.net"
+    ],
+    [
+      "video.hub-ejemplo.test",
+      "video.hub-ejemplo.test"
+    ],
+    [
+      "https://",
+      ""
+    ],
+    [
+      "vz-ejemplo.b-cdn.net:443",
+      null
+    ],
+    [
+      "usuario@vz-ejemplo.b-cdn.net",
+      null
+    ],
+    [
+      "localhost",
+      null
+    ],
+    [
+      "-malo.b-cdn.net",
+      null
+    ],
+    [
+      "malo-.b-cdn.net",
+      null
+    ],
+    [
+      "vz ejemplo.b-cdn.net",
+      null
+    ],
+    [
+      "host..b-cdn.net",
+      null
+    ],
+    [
+      "vz-ejemplo.b-cdn.net.",
+      null
+    ],
+    [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.net",
+      null
+    ],
+    [
+      null,
+      ""
+    ]
+  ],
+  "analizar": [
+    [
+      "",
+      {
+        "guid": "",
+        "host": null,
+        "biblioteca": null
+      }
+    ],
+    [
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": null,
+        "biblioteca": null
+      }
+    ],
+    [
+      "1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": null,
+        "biblioteca": null
+      }
+    ],
+    [
+      "https://player.mediadelivery.net/play/123456/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": null,
+        "biblioteca": "123456"
+      }
+    ],
+    [
+      "https://iframe.mediadelivery.net/embed/77777/1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D?autoplay=true",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": null,
+        "biblioteca": "77777"
+      }
+    ],
+    [
+      "https://video.bunnycdn.com/play/123456/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": null,
+        "biblioteca": "123456"
+      }
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "vz-ejemplo.b-cdn.net",
+        "biblioteca": null
+      }
+    ],
+    [
+      "HTTPS://VZ-Ejemplo.B-CDN.net/1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D/playlist.m3u8",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "vz-ejemplo.b-cdn.net",
+        "biblioteca": null
+      }
+    ],
+    [
+      "vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "vz-ejemplo.b-cdn.net",
+        "biblioteca": null
+      }
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-TIIZ1uth7BUHErQxlqdA8QEddd3TwPTemRB4BcGhWBQ&token_path=%2F1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d%2F&expires=1598024587/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "vz-ejemplo.b-cdn.net",
+        "biblioteca": null
+      }
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/thumbnail.jpg?token=HS256-TIIZ1uth7BUHErQxlqdA8QEddd3TwPTemRB4BcGhWBQ&token_path=%2F1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d%2F&expires=1598024587",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "vz-ejemplo.b-cdn.net",
+        "biblioteca": null
+      }
+    ],
+    [
+      "https://otra-biblioteca.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "otra-biblioteca.b-cdn.net",
+        "biblioteca": null
+      }
+    ],
+    [
+      "https://example.com/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "example.com",
+        "biblioteca": null
+      }
+    ],
+    [
+      "https://www.youtube.com/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "www.youtube.com",
+        "biblioteca": null
+      }
+    ],
+    [
+      "vz-ejemplo.b-cdn.net:443/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "vz-ejemplo.b-cdn.net:443",
+        "biblioteca": null
+      }
+    ],
+    [
+      "https://usuario@vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "usuario@vz-ejemplo.b-cdn.net",
+        "biblioteca": null
+      }
+    ],
+    [
+      "https://<b>x<b>/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      {
+        "guid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "host": "<b>x<b>",
+        "biblioteca": null
+      }
+    ],
+    [
+      "https://vimeo.com/123456789/abcdef",
+      null
+    ],
+    [
+      "https://player.mediadelivery.net/play/abc/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      null
+    ],
+    [
+      null,
+      {
+        "guid": "",
+        "host": null,
+        "biblioteca": null
+      }
+    ]
+  ],
+  "errorDeEntrada": [
+    [
+      "",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "123456",
+      {
+        "clave": "errorsinvideo",
+        "a": null
+      }
+    ],
+    [
+      "  ",
+      " ",
+      "",
+      "",
+      {
+        "clave": "errorsinvideo",
+        "a": null
+      }
+    ],
+    [
+      "",
+      "https://vimeo.com/1/abc",
+      "",
+      "",
+      null
+    ],
+    [
+      "",
+      "123",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      null
+    ],
+    [
+      "https://vimeo.com/1/abc",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      {
+        "clave": "errorbunnyguid",
+        "a": null
+      }
+    ],
+    [
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5dx",
+      "123",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      {
+        "clave": "errorbunnyguid",
+        "a": null
+      }
+    ],
+    [
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "123456",
+      null
+    ],
+    [
+      "1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      null
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "123456",
+      null
+    ],
+    [
+      "HTTPS://VZ-EJEMPLO.B-CDN.NET/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      null
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-TIIZ1uth7BUHErQxlqdA8QEddd3TwPTemRB4BcGhWBQ&token_path=%2F1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d%2F&expires=1598024587/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      null
+    ],
+    [
+      "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/thumbnail.jpg?token=HS256-TIIZ1uth7BUHErQxlqdA8QEddd3TwPTemRB4BcGhWBQ&token_path=%2F1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d%2F&expires=1598024587",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      null
+    ],
+    [
+      "https://otra-biblioteca.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      {
+        "clave": "errorbunnyotrohost",
+        "a": "otra-biblioteca.b-cdn.net"
+      }
+    ],
+    [
+      "https://otra-biblioteca.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "123",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      {
+        "clave": "errorbunnyotrohost",
+        "a": "otra-biblioteca.b-cdn.net"
+      }
+    ],
+    [
+      "https://example.com/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      {
+        "clave": "errorbunnyotrohost",
+        "a": "example.com"
+      }
+    ],
+    [
+      "https://www.youtube.com/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      {
+        "clave": "errorbunnyotrohost",
+        "a": "www.youtube.com"
+      }
+    ],
+    [
+      "vz-ejemplo.b-cdn.net:443/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      {
+        "clave": "errorbunnyotrohost",
+        "a": "vz-ejemplo.b-cdn.net:443"
+      }
+    ],
+    [
+      "https://<b>x<b>/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      {
+        "clave": "errorbunnyotrohost",
+        "a": "<b>x<b>"
+      }
+    ],
+    [
+      "https://otra-biblioteca.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "123",
+      "",
+      "",
+      null
+    ],
+    [
+      "https://otra-biblioteca.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+      "",
+      "",
+      "",
+      {
+        "clave": "errorbunnysinhost",
+        "a": null
+      }
+    ],
+    [
+      "https://player.mediadelivery.net/play/123456/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "123456",
+      null
+    ],
+    [
+      "https://player.mediadelivery.net/play/0123456/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "123456",
+      null
+    ],
+    [
+      "https://iframe.mediadelivery.net/embed/77777/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "123456",
+      {
+        "clave": "errorbunnyotrabiblioteca",
+        "a": "77777"
+      }
+    ],
+    [
+      "https://iframe.mediadelivery.net/embed/77777/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "",
+      "vz-ejemplo.b-cdn.net",
+      "",
+      null
+    ],
+    [
+      "https://iframe.mediadelivery.net/embed/77777/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "123",
+      "",
+      "123456",
+      {
+        "clave": "errorbunnyotrabiblioteca",
+        "a": "77777"
+      }
+    ],
+    [
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "",
+      "",
+      "",
+      {
+        "clave": "errorbunnysinhost",
+        "a": null
+      }
+    ],
+    [
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "",
+      "",
+      "123456",
+      {
+        "clave": "errorbunnysinhost",
+        "a": null
+      }
+    ],
+    [
+      "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "https://vimeo.com/1/abc",
+      "",
+      "",
+      null
+    ],
+    [
+      "https://player.mediadelivery.net/play/123456/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "",
+      "",
+      "123456",
+      {
+        "clave": "errorbunnysinhost",
+        "a": null
+      }
+    ],
+    [
+      null,
+      null,
+      "vz-ejemplo.b-cdn.net",
+      "",
+      {
+        "clave": "errorsinvideo",
+        "a": null
+      }
+    ]
+  ],
+  "expires": [
+    [
+      1598024587,
+      21600,
+      1598047200
+    ],
+    [
+      1598022000,
+      3600,
+      1598029200
+    ],
+    [
+      1598025599,
+      21600,
+      1598047200
+    ]
+  ],
+  "rechazos": [
+    {
+      "nombre": "GUID en mayúsculas",
+      "funcion": "firmar",
+      "args": [
+        "vz-ejemplo.b-cdn.net",
+        "1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D",
+        "SecurityKey",
+        1598024587
+      ]
+    },
+    {
+      "nombre": "GUID con salto de línea",
+      "funcion": "firmar",
+      "args": [
+        "vz-ejemplo.b-cdn.net",
+        "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d\n",
+        "SecurityKey",
+        1598024587
+      ]
+    },
+    {
+      "nombre": "GUID vacío",
+      "funcion": "firmar",
+      "args": [
+        "vz-ejemplo.b-cdn.net",
+        "",
+        "SecurityKey",
+        1598024587
+      ]
+    },
+    {
+      "nombre": "ruta en vez de GUID",
+      "funcion": "firmar",
+      "args": [
+        "vz-ejemplo.b-cdn.net",
+        "../1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "SecurityKey",
+        1598024587
+      ]
+    },
+    {
+      "nombre": "host con https://",
+      "funcion": "firmar",
+      "args": [
+        "https://vz-ejemplo.b-cdn.net",
+        "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "SecurityKey",
+        1598024587
+      ]
+    },
+    {
+      "nombre": "host vacío",
+      "funcion": "firmar",
+      "args": [
+        "",
+        "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "SecurityKey",
+        1598024587
+      ]
+    },
+    {
+      "nombre": "host con ruta",
+      "funcion": "firmar",
+      "args": [
+        "vz-ejemplo.b-cdn.net/x",
+        "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "SecurityKey",
+        1598024587
+      ]
+    },
+    {
+      "nombre": "clave vacía",
+      "funcion": "firmar",
+      "args": [
+        "vz-ejemplo.b-cdn.net",
+        "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "",
+        1598024587
+      ]
+    },
+    {
+      "nombre": "expires 0",
+      "funcion": "firmar",
+      "args": [
+        "vz-ejemplo.b-cdn.net",
+        "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "SecurityKey",
+        0
+      ]
+    },
+    {
+      "nombre": "urls sin clave también valida el GUID",
+      "funcion": "urls",
+      "args": [
+        "vz-ejemplo.b-cdn.net",
+        "../x",
+        "",
+        0
+      ]
+    },
+    {
+      "nombre": "urls sin clave también valida el host",
+      "funcion": "urls",
+      "args": [
+        "a b",
+        "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "",
+        0
+      ]
+    }
+  ],
+  "soportaBunny": [
+    [
+      "<script>hls.loadSource(u)</script>",
+      true
+    ],
+    [
+      "<p>Player not found.</p>",
+      false
+    ],
+    [
+      "",
+      false
+    ]
+  ]
+}
