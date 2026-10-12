@@ -14,7 +14,8 @@ import { anomalias, cerca } from '../apoyo/pagina.mjs';
 import { dormir } from '../apoyo/chrome.mjs';
 
 // Abre Ajustes → Calidad (con clics reales) y devuelve los textos de las opciones.
-async function abrirCalidades(p) {
+// (La usan también las pruebas de la firma: una calidad rota, una elegida al vencer.)
+export async function abrirCalidades(p) {
   await p.clic('.iv-ajustes-btn');
   await p.debe(`!!D.querySelector('.iv-ajustes')`, 3000, 'no se abrió Ajustes');
   if (await p.a(`!!D.querySelector('.iv-ajustes-fila')`)) await p.clic('.iv-ajustes-fila', { texto: 'Calidad' });

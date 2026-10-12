@@ -1,5 +1,5 @@
 // ESPEJO en Node, línea por línea, de las funciones puras de Bunny de
-// mod/ivplayer/lib.php (de ivplayer_bunny_normalizar_guid a ivplayer_bunny_expires, más
+// mod/ivplayer/lib.php (de ivplayer_bunny_normalizar_guid a ivplayer_bunny_video, más
 // ivplayer_reproductor_soporta_bunny).
 //
 // Por qué existe: en las máquinas de desarrollo no hay PHP. La prueba de verdad es
@@ -133,3 +133,12 @@ export function expiresDe(ahora, ttl) {
 
 // ivplayer_reproductor_soporta_bunny
 export const reproductorSoportaBunny = (html) => html.includes('loadSource');
+
+// ivplayer_bunny_video: la regla de "¿esta actividad reproduce Bunny?" que comparten
+// player.php (al armar la lección) y firma.php (al volver a firmarla con la lección
+// abierta), y las URLs firmadas a la hora `ahora`.
+export function video(guardado, host, clave, ttl, ahora, reproductorBunny) {
+  const guid = normalizarGuid(guardado ?? '') ?? '';
+  if (guid === '' || host === '' || !reproductorBunny) return null;
+  return urls(host, guid, clave, expiresDe(ahora, ttl));
+}

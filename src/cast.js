@@ -26,6 +26,8 @@
 // pregunta desde los avisos de la TV (no desde el latido), y el componente pide
 // Screen Wake Lock mientras se transmite.
 
+import { leerFirma } from "./firma.js";
+
 const SDK_URL = "https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1";
 const MEDIA_NS = "urn:x-cast:com.google.cast.media";
 const RECEPTOR_POR_DEFECTO = "CC1AD845";   // Default Media Receiver de Google
@@ -246,8 +248,9 @@ export class CastPlayer {
   // opts: src (la URL firmada, la MISMA del <video>), titulo, poster, inicio
   // (segundo del celular), reproducir (si seguía), velocidad, duracion (la del
   // <video>, hasta que la TV informe la suya), adoptar (sesión reanudada que ya
-  // tiene ESTE video cargado: no se vuelve a cargar), onListo() y
-  // onFin(motivo, { t, seguia }) cuando la TV deja de ser la que reproduce.
+  // tiene ESTE video cargado: no se vuelve a cargar), firma (el Renovador de
+  // firma.js, o null), onListo() y onFin(motivo, { t, seguia }) cuando la TV deja de
+  // ser la que reproduce.
   constructor(session, opts = {}) {
     this.esTV = true;
     this.session = session;
@@ -255,6 +258,18 @@ export class CastPlayer {
     this.src = opts.src;
     this.titulo = opts.titulo || "";
     this.poster = opts.poster || null;
+    // Firma de Bunny que se renueva con la lección abierta (ver firma.js). La TV pide
+    // el video SOLA, con la URL que se le pasó en el LOAD: cuando esa firma vence, el
+    // próximo segmento le da 403 y la TV corta (vuelve al celular con "no pudo
+    // reproducir"). Por eso, con una firma nueva, la TV vuelve a CARGAR el video con
+    // la URL nueva en el mismo segundo (_quizasRecargar): en pausa enseguida, y
+    // reproduciendo recién cuando falta poco (un LOAD es una ruedita en la TV).
+    this._firma = opts.firma && typeof opts.firma.activa === "function" && opts.firma.activa() ? opts.firma : null;
+    this._expiresCargado = null;    // firma de la URL que tiene la TV (null: no se sabe o no tiene)
+    if (this._firma) {
+      this._alRenovar = () => this._quizasRecargar();
+      this._firma.on("renovada", this._alRenovar);
+    }
     this._onListo = opts.onListo || (() => {});
     this._onFin = opts.onFin || (() => {});
     this._duracion = opts.duracion > 0 ? opts.duracion : 0;
@@ -305,8 +320,8 @@ export class CastPlayer {
       // pregunta pendiente, la guardia de saltos la vuelve a ella.
       this._fijo = null;
       const m = session.getMediaSession && session.getMediaSession();
-      if (m) this._enganchar(m);
-      queueMicrotask(() => { if (!this._destruido) { this._onListo(); this._actualizar(true, true); } });
+      if (m) { this._enganchar(m); this._anotarFirmaDe(m); }
+      queueMicrotask(() => { if (!this._destruido) { this._onListo(); this._actualizar(true, true); this._quizasRecargar(); } });
     } else {
       this._cargar(this._fijo, !this._pausado);
     }
@@ -505,6 +520,7 @@ export class CastPlayer {
 
   destroy() {
     this._destruido = true;
+    if (this._firma && this._alRenovar) this._firma.off("renovada", this._alRenovar);
     clearInterval(this._latidoId);
     clearTimeout(this._tFreno);
     if (this._salto) clearTimeout(this._salto.timer);
@@ -544,8 +560,11 @@ export class CastPlayer {
     this._playExterno = null;
     this._previo = null;
     const hls = esHls(this.src);
-    const info = new cc.media.MediaInfo(this.src, hls ? "application/x-mpegurl" : "video/mp4");
-    info.contentUrl = this.src;
+    // Con la firma vigente (la del celular pudo haberse renovado desde que arrancó).
+    const src = this._firma ? this._firma.reescribir(this.src) : this.src;
+    this._expiresCargado = this._firma ? this._firma.actual().expires : null;
+    const info = new cc.media.MediaInfo(src, hls ? "application/x-mpegurl" : "video/mp4");
+    info.contentUrl = src;
     info.streamType = cc.media.StreamType.BUFFERED;
     if (hls) {
       // Bunny: TS con el AAC adentro. 🔴 HlsVideoSegmentFormat tiene MPEG2_TS y
@@ -555,7 +574,8 @@ export class CastPlayer {
     }
     const md = new cc.media.GenericMediaMetadata();
     md.title = this.titulo;
-    if (this.poster) md.images = [new cc.Image(this.poster)];
+    const poster = (this._firma && this._firma.poster()) || this.poster;
+    if (poster) md.images = [new cc.Image(poster)];
     info.metadata = md;
     // Sin secretos: cualquier emisor de la red ve el estado de la media.
     info.customData = { ivplayer: 1 };
@@ -594,8 +614,31 @@ export class CastPlayer {
     if (!m || this._destruido || m === this._media) return;
     const id = m.media && (m.media.contentId || m.media.contentUrl);
     if (this._carga) return;   // la nuestra: la engancha el loadMedia al resolver
-    if (mismoVideo(id, this.src)) { this._enganchar(m); this._actualizar(true); }
+    if (mismoVideo(id, this.src)) { this._enganchar(m); this._anotarFirmaDe(m); this._actualizar(true); }
     else this._terminarTransmision("reemplazado");
+  }
+
+  // Con qué firma tiene cargado el video la TV (una sesión reanudada, u otra pestaña
+  // que lo cargó): si es anterior a la vigente, _quizasRecargar la pone al día.
+  _anotarFirmaDe(m) {
+    if (!this._firma) return;
+    const f = leerFirma(String((m && m.media && (m.media.contentId || m.media.contentUrl)) || ""));
+    this._expiresCargado = f ? f.expires : null;
+  }
+
+  // La TV tiene el video con una firma anterior a la vigente: se lo vuelve a cargar con
+  // la nueva, en el mismo segundo y estado (es el LOAD de siempre: mientras carga, el
+  // componente ve fijo ese segundo). En pausa, ya: la TV queda quieta en el mismo
+  // cuadro. Reproduciendo, recién cuando a la firma de la TV le falta poco, o en la
+  // próxima pausa. Nunca con un salto, una pausa sin confirmar o otra carga en vuelo:
+  // los resuelve _actualizar y después se vuelve a mirar (lo llama el latido).
+  _quizasRecargar() {
+    const f = this._firma;
+    if (!f || this._destruido || this._finalizado || this._muerta || this._expiresCargado == null) return;
+    if (this._expiresCargado === f.actual().expires) return;
+    if (this._carga || this._salto || this._ancla != null || this._reanudar || !this._media) return;
+    if (!this._pausado && !f.urgenteDe(this._expiresCargado)) return;
+    this._cargar(this._estimar(), !this._pausado);
   }
 
   // Ida y vuelta medida con lo que la TV contesta sin hacer nada más: pausa y
@@ -903,6 +946,8 @@ export class CastPlayer {
       this._ultimoPedidoEstado = ahora();
       this._enviar("estado");
     }
+    // Una firma nueva esperando un momento (o a que le falte poco a la de la TV).
+    this._quizasRecargar();
     if (this._fijo != null || this._pausado) return;
     const p = this._previo;
     if (!p || p.estado !== "PLAYING") return;

@@ -3,7 +3,8 @@
 # Tres capas (ver "Pruebas" en el README):
 #   1. unitarias (node:test, sin navegador): candado, subtítulos, firma de Bunny (espejo),
 #      el adaptador de Chromecast
-#   2. PHP: las funciones puras de mod/ivplayer/lib.php, leídas del archivo real
+#   2. PHP: la sintaxis de cada .php del plugin (php -l: player.php y firma.php no los
+#      ejecuta nadie) y las funciones puras de mod/ivplayer/lib.php, leídas del archivo real
 #   3. navegador: el bundle compilado en Chrome headless, con un video HLS generado acá
 #      con ffmpeg (no depende de la red ni de ningún video de Hub Education)
 # No publica nada: el ZIP y el configurador los arma build-plugin.yml.
@@ -47,7 +48,7 @@ jobs:
       - name: Unitarias
         run: npm run test:unit
 
-      - name: PHP (lib.php real)
+      - name: PHP (sintaxis del plugin + lib.php real)
         run: |
           php -v
           # Las que usa la normalización de subtítulos (si falta una, correr.php sale con 2).

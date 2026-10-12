@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useId, Fragment } from "react";
 import Player from "@vimeo/player";
 import NativePlayer from "./nativePlayer.js";
+import { Renovador } from "./firma.js";
 import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, mismoVideo, CastPlayer, castPosible } from "./cast.js";
 import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
 // El candado de preguntas y el parser de subtítulos son puros y viven aparte para
@@ -413,6 +414,21 @@ function SubtitleDisplay({ cues, currentTime, visible, sobreControles }) {
   return <div className={`iv-subtitle-container ${sobreControles?"sobre-controles":""}`}><span className="iv-subtitle-text">{activos.map(c=>c.text).join("\n")}</span></div>;
 }
 
+// Qué dice el cartel de error del video propio. Si el acceso venció y no se pudo
+// renovar la firma de Bunny (ver firma.js), dice por qué y qué hacer: el botón
+// Reintentar recarga la lección, y en Moodle eso firma un acceso nuevo (o pide
+// ingresar de nuevo, si se cerró la sesión).
+function textoDelError(e) {
+  if (e.code === 404) return "El video no está disponible.";
+  if (e.tipo === "acceso") {
+    if (e.renovacion === "sesion") return "Se cerró tu sesión del campus. Tocá Reintentar y, si te lo pide, volvé a ingresar.";
+    if (e.renovacion === "red") return "No se pudo renovar el acceso al video. Revisá tu conexión y tocá Reintentar.";
+    return "El acceso al video venció. Tocá Reintentar para seguir.";
+  }
+  if (e.tipo === "red") return "Revisá tu conexión.";
+  return "Hubo un problema al reproducirlo.";
+}
+
 // Main player
 // debeFrenar, tiempoAGuardar y la decisión de la guardia de saltos viven en candado.js.
 
@@ -428,10 +444,16 @@ export default function InteractiveVideoPlayer() {
   const wrapperRef = useRef(null);
   const vimeoRef = useRef(null);
   const playerRef = useRef(null);
+  // Renovación de la firma de Bunny con la lección abierta (ver firma.js): uno solo para
+  // el <video> y la TV, que la piden y la usan cada uno a su manera.
+  const firmaRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
   playingRef.current = playing;
+  // Último momento en que el video se estaba reproduciendo (ver enUso del Renovador).
+  const ultimoUsoRef = useRef(Date.now());
+  if (playing) ultimoUsoRef.current = Date.now();
   const [currentTime, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
@@ -543,9 +565,25 @@ export default function InteractiveVideoPlayer() {
       }
       return new Player(vimeoRef.current, opts);
     };
+    // Firma de Bunny: con MOODLE_CONTEXT.firmaUrl (player.php la pone sólo si el video
+    // va firmado) se renueva antes de vencer. Sin ella (página de prueba, configurador,
+    // SCORM) o con una URL sin token, el Renovador queda inactivo y no hace nada.
+    let firma=null;
+    if(nativeSrc){
+      const ctx=window.MOODLE_CONTEXT||null;
+      firma=new Renovador({ url:nativeSrc, poster, firmaUrl:ctx&&ctx.firmaUrl, cmid:ctx&&ctx.cmid, sesskey:ctx&&ctx.sesskey, ahoraServidor:ctx&&ctx.firmaAhora,
+        // Reproduciendo o hace menos de 20 min: una pausa corta (una pregunta, ir a buscar
+        // algo) no corta la renovación, pero una lección olvidada abierta no le alarga
+        // la sesión al campus para siempre.
+        enUso:()=>playingRef.current||Date.now()-ultimoUsoRef.current<20*60*1000 });
+      firmaRef.current=firma;
+    }
     // Misma interfaz en los dos casos (ver nativePlayer.js): el resto del
     // componente no sabe si atrás hay Vimeo o un <video> propio.
-    const p = nativeSrc ? new NativePlayer(vimeoRef.current, { src: nativeSrc, poster, motor: videoMotor }) : crearVimeo();
+    // `momento`: lo que el <video> no sabe para elegir cuándo estrenar una firma nueva
+    // con el HLS nativo (no con una pregunta abierta si se puede; nunca en un salto).
+    const momento=()=>({ pregunta:!!activeIARef.current, saltando:seekTargetRef.current!=null });
+    const p = nativeSrc ? new NativePlayer(vimeoRef.current, { src: nativeSrc, poster, motor: videoMotor, firma, momento }) : crearVimeo();
     playerRef.current = p;
     p.ready().then(()=>{
       setReady(true);
@@ -611,6 +649,7 @@ export default function InteractiveVideoPlayer() {
     // primer toque, o un HLS que todavía no la conoce). Vimeo también la emite.
     p.on("durationchange", d=>{ if(activo()&&d&&d.duration>0) setDuration(d.duration); });
     p.on("play", ()=>{
+      if(firmaRef.current) firmaRef.current.alUsar();
       if(!activo()){
         // 🔴 Transmitiendo con Chromecast, el <video> del celular espera en pausa pero
         // VIVO, y su sesión de medios sigue activa: la notificación de Android, el
@@ -1470,7 +1509,7 @@ export default function InteractiveVideoPlayer() {
     if(activeIARef.current) t0=tiempoAGuardar(t0,activeIARef.current,finRef.current);
     const ad=new CastPlayer(sesion,{
       src:nativeSrc, titulo:title, poster, inicio:t0, reproducir:seguia, velocidad:speed,
-      duracion:finRef.current<Infinity?finRef.current:duration, adoptar,
+      duracion:finRef.current<Infinity?finRef.current:duration, adoptar, firma:firmaRef.current,
       onListo:()=>{ if(playerRef.current===ad) setTv(x=>x&&x.tipo==='cast'?{...x,estado:'conectado'}:x); },
       onFin:(motivo,est)=>{ if(playerRef.current===ad) volverALocalRef.current(motivo,est); },
     });
@@ -1983,7 +2022,7 @@ export default function InteractiveVideoPlayer() {
         <div className={`iv-tv-aviso ${tvAviso?'visible':''}`} role="status" aria-live="polite">{tvAviso}</div>
         {videoError&&<div className="iv-error" role="alert">
           <strong>No se pudo cargar el video</strong>
-          <span>{videoError.code===404?"El video no está disponible.":videoError.tipo==="acceso"?"El acceso al video venció.":videoError.tipo==="red"?"Revisá tu conexión.":"Hubo un problema al reproducirlo."} Tu avance está guardado.</span>
+          <span>{textoDelError(videoError)} Tu avance está guardado.</span>
           {/* Recargar pide la página de nuevo, y en Moodle eso firma un acceso nuevo. */}
           <button className="iv-btn-primary" onClick={()=>window.location.reload()}>Reintentar</button>
         </div>}

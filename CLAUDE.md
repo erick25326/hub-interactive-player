@@ -149,9 +149,103 @@ genérico). Host, clave y duración son ajustes del sitio (`settings.php`), y
 - Los topes del TTL se validan al guardar (`set_validate_function` del ajuste de
   duración, existe desde 4.1 y recibe segundos). `ivplayer_bunny_ttl()` los vuelve a
   aplicar de red para valores cargados por CLI o `config.php`.
-- Pendiente: el reproductor todavía no renueva el token (al vencer, se corta y hay
-  que recargar); con Bunny no hay subtítulos (los de Vimeo venían de su iframe); el
-  configurador visual sólo previsualiza Vimeo.
+- Pendiente: el configurador visual sólo previsualiza Vimeo. (La renovación del token
+  ya está: ver la sección siguiente. Los subtítulos con Bunny salen de "Editar
+  transcripción": ver "Subtítulos de la lección".)
+
+## Renovación de la firma de Bunny (firma.php + src/firma.js, oct-2026) — trampas
+Con la lección abierta, el reproductor pide una firma nueva 10 min antes del
+vencimiento (`margenes()`: con firmas cortas, la mitad) y los motores la usan sin
+cortar: hls.js reescribe cada pedido (`xhrSetup`), el HLS nativo cambia de fuente en el
+mismo segundo (el cambio de calidad, `_cambiarFuente(…, { renovacion })`) y la TV de
+Chromecast recibe otro LOAD en el mismo segundo (`CastPlayer._quizasRecargar`). Uso y
+textos del cartel, en el README ("Qué pasa cuando vence el token").
+- 🔴 **Una sola regla de "¿usa Bunny?"**: `ivplayer_bunny_video` (pura, la prueban
+  correr.php y el espejo) y su envoltorio `ivplayer_bunny_de_actividad`, que usan
+  `player.php` y `firma.php`. No volver a escribir las condiciones en uno de los dos.
+- 🔴 **El reloj NO compara `Date.now()` con el expires**: se mide desde la hora del
+  servidor al firmar (`firmaAhora` en MOODLE_CONTEXT, `ahora` en la respuesta) más lo
+  que pasó en el equipo, con el MAYOR de los dos relojes (monotónico y de pared): el
+  monotónico no cuenta la suspensión en algunos sistemas; el de pared puede saltar.
+- 🔴 **Lo urgente se mide con la firma de la FUENTE**, no con la vigente:
+  `restanteDe(expires)`. Recién renovada, la vigente tiene 6 h y la que tiene cargada
+  el <video> (o la TV) vence en 10 min.
+- 🔴 **hls.js abre el XHR después de `xhrSetup`** (si `xhrSetup` no lo abrió) y espera
+  su promesa: se reabre con la URL nueva ahí, y un pedido con la firma por vencer (o con
+  una renovación en camino) espera la nueva. Las URLs de variantes y `.ts` las resuelve
+  hls.js contra `responseURL`, que ya es la reescrita.
+- 🔴 **El 403 se reintenta UNA vez con firma nueva** (`shouldRetry` de
+  manifest/playlist/frag, `_reintentoPorFirma`). Sin eso hls.js igual salía, pero tras
+  cuatro 403 y bajando de calidad (otra variante para escapar del error): medido con
+  una mutación. Un pedido que salió con una firma ANTERIOR se reintenta sin pedir otra
+  (`_usadas`); uno que ya forzó una renovación y vuelve a dar 403, al cartel.
+- 🔴 **…pero sólo si el 403 se puede explicar por el VENCIMIENTO**
+  (`cercaDeVencer(usada)`: a la firma con que salió le quedaba menos que el margen de
+  renovación). Si le quedaba más, es otra cosa (una calidad rota, una regla del CDN) y
+  decide hls.js como siempre: pasa a otra calidad y sigue. Antes se forzaba igual, y
+  como dentro de la misma hora firma.php devuelve LA MISMA firma, salía el cartel "El
+  acceso al video venció" con las otras calidades andando (medido, oct-2026).
+- 🔴 **Después de un 403 se insiste sin red** (`renovarYa`, no `renovar`): reintentos a
+  1, 2 y 4 s (enseguida si vuelve la red o la pestaña) hasta ~15 s, y recién ahí el
+  cartel. Al desbloquear el celular la red tarda un par de segundos en volver y el
+  alumno ya tocó play: con un solo pedido fallido salía "Revisá tu conexión". Mientras
+  dura, `renovando()` da true y `renovar()` devuelve esa misma promesa.
+- 🔴 **Los eventos de vuelta (pestaña visible, `pageshow`, `online`, `focus`) piden
+  aunque el último pedido haya fallado hace un instante**: el enfriamiento de 5 s es
+  contra la tormenta de pedidos de segmentos, no contra un evento suelto, y es justo
+  cuando vuelve la red. Y el enfriamiento se mide con los DOS relojes (como
+  `crearReloj`): con sólo el monotónico, un fallo de antes de bloquear la pantalla
+  seguía "reciente" horas después.
+- 🔴 **Con el HLS nativo un 403 llega como 'error' del <video>** (Chrome; sin código):
+  `_rescatarFirma` renueva y recarga en el mismo segundo una vez por firma. En Safari
+  puede ser una traba sin 'error': por eso también mira 'waiting' con la fuente vencida
+  (`_revisarFirmaAlTrabarse`; ese camino no lo ejercita Chrome).
+- 🔴 **Durante el rescate el <video> no se toca** (`_rescate`, como `_cambio` en un
+  cambio de fuente): play, pausa y saltos del componente se anotan ahí (`seguia`, `t`) y
+  los aplica la recarga; los eventos del <video> no salen (Chrome lo pausa justo
+  después del 'error'). Antes iban al <video> en error: el play se rechazaba y la
+  ruedita se apagaba sin reproducir, un −10 se deshacía solo al terminar y no se podía
+  pausar. `data-rescate="1"` en el <video> lo marca para las pruebas. Una calidad
+  elegida con la firma ya vencida se vuelve a pedir al terminar el rescate (antes
+  quedaba en Automática sin avisar).
+- 🔴 **`reescribir()` sólo toca URLs del MISMO host y del MISMO `token_path`**
+  (`mismoVideo`). Sin `token_path` ya no vale de comodín: el token vigente no se le pega
+  a una URL de otro servidor que pase por hls.js, el cambio de fuente o la TV.
+- El cambio de fuente por renovación es "tranquilo": en pausa sin pregunta abierta y
+  sin salto en vuelo (`momento()` del componente: `pregunta`, `saltando`), o dentro
+  del toque de play (iOS rechaza el play fuera del gesto después de cambiar la fuente),
+  o a 90 s del vencimiento aunque esté reproduciendo. En pausa no muestra la ruedita.
+  Un play que llega con un cambio en pausa en curso avisa 'play' y la ruedita ya.
+- Transmitiendo con Chromecast el <video> local no estrena firmas (`_enEspera`, desde
+  `detenerCarga`): bajaría video que nadie mira. Lo hace el primer play a la vuelta.
+- Fallos: 'sesion' (401 o el JSON de login/sesskey de Moodle) no se reintenta solo;
+  'red' (sin respuesta, 5xx) se reintenta cada vez más espaciado, hasta 1 por minuto,
+  también vencida. Los no forzados no vuelven a pedir por 5 s después de un fallo.
+- `firma.php` es `AJAX_SCRIPT` y atrapa ella misma la excepción de `require_login`:
+  siempre JSON, nunca la página del login. `require_login_exception` también sale por
+  un curso oculto: sólo es 'sesion' si `!isloggedin() || isguestuser()`. Todavía no se
+  corrió en un Moodle (no hay PHP en esta PC): probarla en el campus antes de publicar.
+- 🔴 **`firma.php` NO mantiene viva la sesión del campus** (`NO_SESSION_UPDATE`). El
+  reproductor la llama por reloj, haya alguien mirando o no: si contara como actividad,
+  una lección en pausa en una PC compartida dejaba la sesión ENTERA abierta por días
+  (cada ~6 h, siempre por debajo de las 8 h de `sessiontimeout`). El que mira el video la
+  mantiene igual con progress.php. 🔴 Con `NO_SESSION_UPDATE` Moodle NO cierra una
+  sesión vencida en ese pedido (`initialise_user_session` sale antes de destruirla): por
+  eso firma.php mira a mano `\core\session\manager::time_remaining()` y contesta
+  'sesion'. Y `require_login($course, false, …)`: sin entrar como invitado sola (un
+  pedido de fondo no tiene que cambiar quién es la sesión del navegador).
+- 🔴 **`php -l` de cada .php del plugin** corre en correr.php (`npm test` con PHP) y en
+  los dos workflows: player.php y firma.php necesitan Moodle y ninguna otra prueba los
+  ejecuta. `build-plugin.yml` publica la release sin esperar a "Pruebas"; antes de
+  mergear una rama, correr Pruebas a mano (Actions → Pruebas → Run workflow) o abrir PR.
+- 🔴 **La pestaña dormida no se prueba congelándola por CDP**
+  (`Page.setWebLifecycleState`): en Chrome headless el <video> (hls.js y nativo) queda
+  "reproduciendo" sin avanzar al descongelar, y la pestaña ya no carga video después
+  (medido oct-2026, también sin firma). Lo cubren las unitarias del Renovador
+  (visibilitychange/pageshow) y la prueba de la renovación "lenta".
+- Mutantes equivalentes conocidos: el camino de 'waiting' del nativo (Chrome tira
+  'error'), y `pregunta` de `momento()` (es una preferencia, no una garantía: la
+  renovación con una pregunta abierta también es invisible para el candado).
 
 ## Transmitir a la TV (Chromecast y AirPlay) — trampas
 Sólo con video propio. AirPlay vive en `nativePlayer.js` (el `<video>` sigue siendo el
@@ -291,7 +385,8 @@ cada capa, en el README.
   `salteada` o "en parte salteada" (sin HLS nativo). En GitHub sale como
   `::warning::` y el job queda verde: mirar la advertencia.
 - **Unitarias** (`tests/unit/`, node:test, sin dependencias): `src/candado.js`,
-  `src/subtitulos.js`, el espejo en Node de la firma de Bunny y `CastPlayer` de
+  `src/subtitulos.js`, `src/firma.js` (con fetch, timers y relojes de mentira), el
+  espejo en Node de la firma de Bunny y `CastPlayer` de
   `src/cast.js` contra una TV falsa (sin SDK: con `window` vacío, `sdk()` da null y
   no se manda ningún comando; sólo se mira cómo lee los avisos de la TV). 🔴 `node
   --test tests/unit` NO anda en Node 22+ (toma la carpeta como archivo): usar
@@ -345,6 +440,22 @@ Trampas del nivel navegador:
   excepción ni evento 'exit'). La ruta está en OneDrive y tiene "ó"; no se averiguó
   cuál de las dos lo causa. En scripts de prueba, copiar a mano
   (`readdirSync` + `readFileSync`/`writeFileSync`).
+- **Firma de prueba** (`?firma=<s>` en el servidor de pruebas): el video va bajo
+  `/bcdn_token=…&token_path=%2Fhls%2F<GUID>%2F&expires=E/hls/<GUID>/` y el servidor lo
+  VALIDA como el CDN (403 con CORS si venció o no lo emitió él); `/firma` hace de
+  firma.php (`renovar=falla | falla-hasta-403 | red-tras-403 | lenta`, y `demora=<s>`
+  para la lenta). `rota=alta`: la playlist de la calidad más alta da 403 con cualquier
+  firma (una variante rota, no el vencimiento). `renovada=<s>`: lo que duran las firmas
+  que da `/firma`. Lleva la cuenta en `entorno.srv.firma` (`pedidos`, `servidos`,
+  `rechazos`, `emitidas`). Para que un toque caiga DURANTE un rescate del HLS nativo, el
+  salto tiene que ir LEJOS de lo bajado (de 30 a 52): con +10 el tramo a veces ya estaba
+  en el buffer y no había ningún 403.
+- 🔴 **Las pruebas de lo que pasa AL VENCER la primera firma llevan `renovada=60`.** Con
+  firmas de 6-8 s también después, el HLS nativo cambia de fuente cada ~3 s reproduciendo
+  y cada cambio cuesta un salto de 2-4 s (el 1080p de Mux son 8 MB por segmento): no
+  avanzaba y fallaban según la red de ese día (oct-2026, también con el build de antes de
+  los arreglos). Con firmas reales es un cambio por hora. Lo de vencer seguido lo prueba
+  la primera ("con la firma venciendo cada 10 s").
 - Video de prueba: local de ffmpeg (`npm run video-prueba` → `tests/navegador/.video/`,
   ignorada; el de CI), o el HLS público de Mux (Big Buck Bunny, 634 s, 5 calidades,
   audio adentro) o `IVP_VIDEO_URL`. El "sample" público de Bunny da 403 y los de

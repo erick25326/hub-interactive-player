@@ -908,5 +908,117 @@
       "",
       false
     ]
+  ],
+  "video": [
+    {
+      "nombre": "firmada: las mismas URLs que firmar() con el vencimiento de expires(ahora, ttl)",
+      "guardado": "11111111-2222-4333-8444-555555555555",
+      "host": "vz-ejemplo.b-cdn.net",
+      "clave": "SecurityKey",
+      "ttl": 24187,
+      "ahora": 1597999000,
+      "reproductor": true,
+      "esperado": {
+        "playlist": "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-GB8LrMd0-L5XeqFCX2E053nIziSOmSCWsvn1lrqK3Pg&token_path=%2F11111111-2222-4333-8444-555555555555%2F&expires=1598024587/11111111-2222-4333-8444-555555555555/playlist.m3u8",
+        "poster": "https://vz-ejemplo.b-cdn.net/11111111-2222-4333-8444-555555555555/thumbnail.jpg?token=HS256-GB8LrMd0-L5XeqFCX2E053nIziSOmSCWsvn1lrqK3Pg&token_path=%2F11111111-2222-4333-8444-555555555555%2F&expires=1598024587",
+        "firmada": true,
+        "expires": 1598024587
+      }
+    },
+    {
+      "nombre": "el GUID guardado a mano en mayúsculas y con espacios se normaliza (se firma en minúsculas)",
+      "guardado": "  1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D ",
+      "host": "vz-ejemplo.b-cdn.net",
+      "clave": "SecurityKey",
+      "ttl": 24187,
+      "ahora": 1597999000,
+      "reproductor": true,
+      "esperado": {
+        "playlist": "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-TIIZ1uth7BUHErQxlqdA8QEddd3TwPTemRB4BcGhWBQ&token_path=%2F1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d%2F&expires=1598024587/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+        "poster": "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/thumbnail.jpg?token=HS256-TIIZ1uth7BUHErQxlqdA8QEddd3TwPTemRB4BcGhWBQ&token_path=%2F1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d%2F&expires=1598024587",
+        "firmada": true,
+        "expires": 1598024587
+      }
+    },
+    {
+      "nombre": "un enlace del CDN guardado a mano: se firma sólo su GUID",
+      "guardado": "https://vz-ejemplo.b-cdn.net/11111111-2222-4333-8444-555555555555/playlist.m3u8",
+      "host": "vz-ejemplo.b-cdn.net",
+      "clave": "SecurityKey",
+      "ttl": 24187,
+      "ahora": 1597999000,
+      "reproductor": true,
+      "esperado": {
+        "playlist": "https://vz-ejemplo.b-cdn.net/bcdn_token=HS256-GB8LrMd0-L5XeqFCX2E053nIziSOmSCWsvn1lrqK3Pg&token_path=%2F11111111-2222-4333-8444-555555555555%2F&expires=1598024587/11111111-2222-4333-8444-555555555555/playlist.m3u8",
+        "poster": "https://vz-ejemplo.b-cdn.net/11111111-2222-4333-8444-555555555555/thumbnail.jpg?token=HS256-GB8LrMd0-L5XeqFCX2E053nIziSOmSCWsvn1lrqK3Pg&token_path=%2F11111111-2222-4333-8444-555555555555%2F&expires=1598024587",
+        "firmada": true,
+        "expires": 1598024587
+      }
+    },
+    {
+      "nombre": "sin clave: URLs planas, sin vencimiento",
+      "guardado": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "host": "vz-ejemplo.b-cdn.net",
+      "clave": "",
+      "ttl": 24187,
+      "ahora": 1597999000,
+      "reproductor": true,
+      "esperado": {
+        "playlist": "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/playlist.m3u8",
+        "poster": "https://vz-ejemplo.b-cdn.net/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d/thumbnail.jpg",
+        "firmada": false,
+        "expires": null
+      }
+    },
+    {
+      "nombre": "sin GUID: no es Bunny (Vimeo)",
+      "guardado": "",
+      "host": "vz-ejemplo.b-cdn.net",
+      "clave": "SecurityKey",
+      "ttl": 24187,
+      "ahora": 1597999000,
+      "reproductor": true,
+      "esperado": null
+    },
+    {
+      "nombre": "columna sin valor (NULL): no es Bunny",
+      "guardado": null,
+      "host": "vz-ejemplo.b-cdn.net",
+      "clave": "SecurityKey",
+      "ttl": 24187,
+      "ahora": 1597999000,
+      "reproductor": true,
+      "esperado": null
+    },
+    {
+      "nombre": "algo que no es un GUID: no es Bunny (nunca una firma de \"/\")",
+      "guardado": "no-es-un-guid",
+      "host": "vz-ejemplo.b-cdn.net",
+      "clave": "SecurityKey",
+      "ttl": 24187,
+      "ahora": 1597999000,
+      "reproductor": true,
+      "esperado": null
+    },
+    {
+      "nombre": "sitio sin host: Bunny apagado, aunque la actividad tenga GUID",
+      "guardado": "11111111-2222-4333-8444-555555555555",
+      "host": "",
+      "clave": "SecurityKey",
+      "ttl": 24187,
+      "ahora": 1597999000,
+      "reproductor": true,
+      "esperado": null
+    },
+    {
+      "nombre": "player.html viejo (sin hls.js): no es Bunny",
+      "guardado": "11111111-2222-4333-8444-555555555555",
+      "host": "vz-ejemplo.b-cdn.net",
+      "clave": "SecurityKey",
+      "ttl": 24187,
+      "ahora": 1597999000,
+      "reproductor": false,
+      "esperado": null
+    }
   ]
 }

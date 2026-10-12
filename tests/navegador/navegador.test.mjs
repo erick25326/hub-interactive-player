@@ -14,6 +14,7 @@ import * as calidad from './escenarios/calidad.mjs';
 import * as subtitulos from './escenarios/subtitulos.mjs';
 import * as tv from './escenarios/tv.mjs';
 import * as angosto from './escenarios/angosto.mjs';
+import * as firma from './escenarios/firma.mjs';
 
 const entorno = await prepararEntorno();
 
@@ -62,4 +63,5 @@ if (entorno.omitir) {
   subtitulos.registrar(entorno);
   tv.registrar(entorno);
   angosto.registrar(entorno);
+  firma.registrar(entorno);
 }

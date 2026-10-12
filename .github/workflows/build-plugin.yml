@@ -25,6 +25,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 🔴 Esta release NO espera a "Pruebas" (pruebas.yml): al menos, que cada .php del
+      # plugin compile. player.php y firma.php necesitan Moodle y ninguna prueba los
+      # ejecuta; con un error de sintaxis en player.php TODAS las lecciones del campus
+      # dan error. Con uno solo que falle, no se publica nada.
+      - name: Sintaxis PHP del plugin (php -l)
+        run: |
+          php -v
+          find mod/ivplayer -name '*.php' -print0 | xargs -0 -n1 php -l
+
       - name: Build plugin ZIP (rebuilds player from src)
         run: node scripts/build-plugin.js
 

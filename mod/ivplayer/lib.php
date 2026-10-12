@@ -1,11 +1,12 @@
 <?php
 defined('MOODLE_INTERNAL') || die();
 
-// Duración por defecto del token de Bunny: 6 h. Tiene que cubrir la sesión entera,
-// pausas incluidas (el alumno pausa, se va a comer y vuelve): a diferencia del iframe
-// de Bunny, que se re-firma en cada carga, acá cada .ts se valida contra el MISMO
-// `expires` y, cuando vence, lo que no estaba bajado da 403. Regla de la
-// investigación: como mínimo 3 veces la duración del video más 1 h.
+// Duración por defecto del token de Bunny: 6 h. Cada .ts se valida contra el MISMO
+// `expires` y, cuando vence, lo que no estaba bajado da 403. Con la lección abierta el
+// reproductor pide una firma nueva antes de que venza (firma.php y src/firma.js), así
+// que ya no hace falta que cubra la sesión entera; igual conviene holgada: es lo que
+// aguanta si la renovación no puede (sesión del campus cerrada, sin red) y lo que dura
+// un enlace que se filtre.
 define('IVPLAYER_BUNNY_TTL_DEFAULT', 21600);
 // Topes del ajuste. Menos de 1 h corta lecciones normales a la mitad; más de 7 días
 // es un enlace robado que sirve una semana (y suele ser "6 días" tipeado por "6 horas").
@@ -270,10 +271,9 @@ function ivplayer_parse_vimeo($input) {
 // 🔴 El repo es PÚBLICO: ni el host de producción, ni la clave, ni GUIDs reales van
 // en el código. Viven en los ajustes del admin y en la base.
 //
-// Las funciones "puras" (de ivplayer_bunny_normalizar_guid a ivplayer_bunny_expires)
-// no tocan Moodle a propósito: se copian TAL CUAL a un script de prueba que corre con
-// PHP pelado contra los vectores de Bunny. Si se cambia una, hay que regenerar esa
-// copia; si divergen, la prueba no vale.
+// Las funciones "puras" (de ivplayer_bunny_normalizar_guid a ivplayer_bunny_video) no
+// tocan Moodle a propósito: tests/php/correr.php las lee de este archivo y las prueba
+// con PHP pelado contra los vectores de Bunny (y el espejo de Node, con la misma huella).
 
 /**
  * GUID de un video de Bunny Stream a partir de lo que pegue el docente.
@@ -537,6 +537,41 @@ function ivplayer_bunny_expires(int $ahora, int $ttl): int {
 }
 
 /**
+ * Las URLs del video de Bunny de una actividad, firmadas a la hora $ahora, o null si la
+ * actividad NO reproduce Bunny.
+ *
+ * Es LA regla de "¿esta actividad usa Bunny?" (GUID guardado + host en el sitio +
+ * player.html que lo sabe reproducir), la misma para player.php, que arma la lección, y
+ * para firma.php, que la vuelve a firmar con la lección abierta. Si divergieran,
+ * firma.php podría firmar un video que la página no reproduce (Vimeo de respaldo), o
+ * negarse a renovar uno que sí.
+ *
+ * Pura a propósito (recibe los ajustes y la hora): tests/php/correr.php la lee de este
+ * archivo y la prueba. Con los ajustes de verdad la llama ivplayer_bunny_de_actividad().
+ *
+ * @param string|null $guardado Lo que guarda la actividad en `videourl` (el GUID).
+ * @param string $host Host del CDN del sitio ('' = Bunny apagado en el sitio).
+ * @param string $clave Clave de token del sitio ('' = URLs sin firmar). Nunca sale: lo
+ *        que devuelve son URLs ya firmadas.
+ * @param int $ttl Duración del token, en segundos.
+ * @param int $ahora UNIX en segundos.
+ * @param bool $reproductorbunny ¿El player.html instalado reproduce Bunny?
+ *        (ivplayer_reproductor_soporta_bunny)
+ * @return array{playlist: string, poster: string, firmada: bool, expires: int|null}|null
+ * @throws coding_exception si el host configurado no es válido (no puede pasar: se
+ *         normaliza al leerlo).
+ */
+function ivplayer_bunny_video($guardado, string $host, string $clave, int $ttl, int $ahora, bool $reproductorbunny): ?array {
+    // Lo guardado ya es un GUID en minúsculas; se normaliza igual, por si la base trae
+    // algo cargado a mano. Lo que no se reconoce es "sin Bunny", nunca una firma de "/".
+    $guid = ivplayer_bunny_normalizar_guid($guardado ?? '') ?? '';
+    if ($guid === '' || $host === '' || !$reproductorbunny) {
+        return null;
+    }
+    return ivplayer_bunny_urls($host, $guid, $clave, ivplayer_bunny_expires($ahora, $ttl));
+}
+
+/**
  * GUID listo para guardar en la base: NULL si el campo vino vacío.
  *
  * @param string|null $entrada Lo que se cargó en el formulario.
@@ -602,6 +637,25 @@ function ivplayer_bunny_ttl(): int {
         return IVPLAYER_BUNNY_TTL_DEFAULT;
     }
     return max(IVPLAYER_BUNNY_TTL_MIN, min(IVPLAYER_BUNNY_TTL_MAX, $ttl));
+}
+
+/**
+ * El video de Bunny de esta actividad, firmado a la hora $ahora con los ajustes del
+ * sitio, o null si la actividad no reproduce Bunny (ver ivplayer_bunny_video).
+ *
+ * La usan player.php y firma.php: una sola regla para los dos.
+ *
+ * @param stdClass $ivplayer Registro de la actividad.
+ * @param string $playerhtml El player.html instalado (ivplayer_reproductor_html()).
+ * @param int $ahora UNIX en segundos (time()): el mismo que se le pasa al reproductor
+ *        como hora del servidor, para que mida el vencimiento sin su propio reloj.
+ * @return array{playlist: string, poster: string, firmada: bool, expires: int|null}|null
+ */
+function ivplayer_bunny_de_actividad(stdClass $ivplayer, string $playerhtml, int $ahora): ?array {
+    // `?? ''`: si el código se actualizó y el upgrade de la base todavía no corrió, la
+    // columna no existe y esto no puede tirar un aviso.
+    return ivplayer_bunny_video($ivplayer->videourl ?? '', ivplayer_bunny_host(), ivplayer_bunny_clave(),
+        ivplayer_bunny_ttl(), $ahora, ivplayer_reproductor_soporta_bunny($playerhtml));
 }
 
 /* ─── Reproductor instalado (player.html) ───────────────────── */

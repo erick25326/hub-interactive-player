@@ -23,19 +23,16 @@ $playerhtml = ivplayer_reproductor_html() ?? '<p>Player not found.</p>';
 // configurado, gana Bunny AUNQUE también haya Vimeo: así se migra cargando el GUID
 // sin borrar el de Vimeo, y se vuelve atrás vaciándolo. Sin host (Bunny apagado en
 // el sitio), las actividades siguen con Vimeo como en 1.2.9.
-// `?? ''`: si el código se actualizó y el upgrade de la base todavía no corrió, la
-// columna no existe y esto no puede tirar un aviso adentro del iframe.
-$bunnyguid = ivplayer_bunny_normalizar_guid($ivplayer->videourl ?? '') ?? '';
-$bunnyhost = ivplayer_bunny_host();
 // 🔴 Con un player.html viejo (sólo Vimeo: el plugin se subió sin rearmar el build) la
 // rama de Bunny deja al alumno con un reproductor que no arranca. Ahí se trata como si
 // Bunny no estuviera: las que tienen Vimeo siguen con Vimeo y el resto ve un cartel.
-$reproductorbunny = ivplayer_reproductor_soporta_bunny($playerhtml);
+// Las tres condiciones viven en ivplayer_bunny_de_actividad(), la MISMA que usa
+// firma.php para volver a firmar con la lección abierta: no repetirlas acá.
+// 🔴 La clave se usa SÓLO adentro, para firmar. Al navegador sale la firma, nunca la clave.
+$ahora = time();
+$bunny = ivplayer_bunny_de_actividad($ivplayer, $playerhtml, $ahora);
 $video = null;
-if ($bunnyguid !== '' && $bunnyhost !== '' && $reproductorbunny) {
-    // 🔴 La clave se usa SÓLO acá, para firmar. Al navegador sale la firma, nunca la clave.
-    $bunny = ivplayer_bunny_urls($bunnyhost, $bunnyguid, ivplayer_bunny_clave(),
-        ivplayer_bunny_expires(time(), ivplayer_bunny_ttl()));
+if ($bunny !== null) {
     $video = [
         // Vacíos a propósito: con videoUrl el reproductor no crea el de Vimeo, pero así
         // no queda dando vueltas el video de ejemplo de su config por defecto.
@@ -57,8 +54,13 @@ if ($bunnyguid !== '' && $bunnyhost !== '' && $reproductorbunny) {
 if ($video === null) {
     // Sin nada que reproducir, un cartel que diga por qué y qué hacer, en vez de un
     // reproductor negro que no arranca nunca.
+    // `?? ''`: si el código se actualizó y el upgrade de la base todavía no corrió, la
+    // columna no existe y esto no puede tirar un aviso adentro del iframe.
+    $bunnyguid = ivplayer_bunny_normalizar_guid($ivplayer->videourl ?? '') ?? '';
+    $bunnyhost = ivplayer_bunny_host();
     if ($bunnyguid !== '' && $bunnyhost !== '') {
-        // Hay host, así que lo que falta es el reproductor (ver $reproductorbunny).
+        // Hay GUID y host, así que lo que falta es el reproductor que sepa Bunny (la
+        // tercera condición de ivplayer_bunny_video).
         $motivo = get_string('sinvideo_reproductorviejo', 'ivplayer');
         if (has_capability('moodle/site:config', context_system::instance())) {
             $ayuda = s(get_string('sinvideo_reinstalar', 'ivplayer'));
@@ -128,7 +130,7 @@ if ($progressrec && !empty($progressrec->progress)) {
     $savedprogress = json_decode($progressrec->progress, true);
 }
 
-$moodlecontext = json_encode([
+$contexto = [
     'cmid' => $cm->id,
     'sesskey' => sesskey(),
     'completeUrl' => (new moodle_url('/mod/ivplayer/complete.php'))->out(false),
@@ -136,7 +138,16 @@ $moodlecontext = json_encode([
     'answerUrl' => (new moodle_url('/mod/ivplayer/answer.php'))->out(false),
     'savedProgress' => $savedprogress,
     'alreadyCompleted' => $progressrec ? (bool)$progressrec->completed : false,
-], $jsonflags);
+];
+if ($bunny !== null && $bunny['firmada']) {
+    // Para renovar la firma con la lección abierta, antes de que venza (firma.php; del
+    // lado del reproductor, src/firma.js). firmaAhora es la hora del SERVIDOR al firmar:
+    // el reproductor mide lo que le queda a la firma desde acá, sin comparar su propio
+    // reloj (que en un celular puede estar corrido horas) con el vencimiento.
+    $contexto['firmaUrl'] = (new moodle_url('/mod/ivplayer/firma.php'))->out(false);
+    $contexto['firmaAhora'] = $ahora;
+}
+$moodlecontext = json_encode($contexto, $jsonflags);
 
 // Inject config before </head>. ($playerhtml se leyó arriba, antes de elegir el video.)
 $configscript = "<script>\nwindow.PLAYER_CONFIG = {$config};\nwindow.MOODLE_CONTEXT = {$moodlecontext};\n</script>";

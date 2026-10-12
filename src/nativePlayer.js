@@ -29,6 +29,7 @@
 // queda el completo (light ahorraría ~69 KB gzip por alumno).
 
 import Hls from "hls.js";
+import { sinFirma } from "./firma.js";
 
 const HLS_MIME = "application/vnd.apple.mpegurl";
 // Calidad de arranque: hls.js por defecto estima 500 kbps y empieza en 240p, que
@@ -54,6 +55,11 @@ const CAMBIO_TOPE_MS = 12000;
 // cuánto se revisa si el pedido se descartó sin avisar (ver _volverASaltar).
 const SALTOS_CAMBIO = 3;
 const VIGIA_MS = 1500;
+// HLS nativo con una firma nueva esperando: cada cuánto se mira si ya es momento de
+// cambiar de fuente (ver _intentarFuenteNueva).
+const VIGIA_FIRMA_MS = 1000;
+// hls.js: cuántos pedidos recuerdan con qué firma salieron (ver _prepararPedido).
+const PEDIDOS_ANOTADOS = 400;
 
 const esHls = (src) => /\.m3u8(\?|#|$)/i.test(src) || /\/playlist\.m3u8/i.test(src);
 
@@ -117,8 +123,23 @@ function esApple() {
 }
 
 export default class NativePlayer {
-  constructor(el, { src, poster, motor = "auto" } = {}) {
+  // firma: el Renovador de firma.js (firma de Bunny que se renueva con la lección
+  // abierta) o null. momento(): lo que sabe el componente y el <video> no, para elegir
+  // cuándo cambiar de fuente con el HLS nativo: { pregunta, saltando }.
+  constructor(el, { src, poster, motor = "auto", firma = null, momento = null } = {}) {
     this.handlers = {};
+    // Firma de Bunny (ver firma.js y "Renovación de la firma" más abajo). Inactiva
+    // (sin firmaUrl o URL sin token) es como si no estuviera.
+    this._firma = firma && typeof firma.activa === "function" && firma.activa() ? firma : null;
+    this._momento = typeof momento === "function" ? momento : null;
+    this._expiresDeFuente = this._firma ? this._firma.actual().expires : null;   // HLS nativo: firma con que se cargó la fuente
+    this._firmaPendiente = false;   // HLS nativo: hay una firma nueva que la fuente todavía no usa
+    this._vigiaFirma = null;
+    this._usadas = new Map();       // hls.js: pedido (sin firma) → expires de la firma con que salió
+    this._forzadas = new Map();     // hls.js: pedido → expires de la firma pedida por su 403
+    this._rescateDe = null;         // HLS nativo: firma con la que ya se recargó tras un error
+    this._rescate = null;           // HLS nativo: rescate en curso (ver _rescatarFirma): { t, seguia }
+    this._enEspera = false;         // transmitiendo con Chromecast: el <video> espera quieto
     this.hls = null;
     this.src = src;
     this.motorPedido = motor;     // 'auto' | 'hls' | 'nativo' (prueba en iPhone: ?motor=)
@@ -173,7 +194,14 @@ export default class NativePlayer {
     this._cargar();
     // Después de _cargar: hls.js con ManagedMediaSource ya puso disableRemotePlayback.
     this._iniciarAirPlay();
+    if (this._firma) {
+      this._alRenovar = () => this._firmaRenovada();
+      this._firma.on("renovada", this._alRenovar);
+    }
   }
+
+  // La URL con la firma vigente (la misma si no hay firma, o si la URL no la trae).
+  _firmar(url) { return this._firma ? this._firma.reescribir(url) : url; }
 
   // Qué motor usar. Hoy el iPhone va por defecto al HLS de Safari, que arranca por
   // la PRIMERA variante del master (Bunny pone 360p) y espera a no cortarse antes
@@ -197,6 +225,7 @@ export default class NativePlayer {
     if (motor === "nativo") { v.src = src; return; }
     if (motor === "hls") {
       const hls = new Hls({
+        ...this._configFirma(),
         // En Apple (iPad/Mac con MSE clásico) preferir ManagedMediaSource: es el que
         // existe en iPhone y el que Apple recomienda por batería.
         preferManagedMediaSource: esApple(),
@@ -263,6 +292,189 @@ export default class NativePlayer {
     this._fallar("sin-soporte", { details: "Este navegador no puede reproducir el video" });
   }
 
+  // --- Renovación de la firma de Bunny ---------------------------------------
+  // Ver firma.js. Con hls.js los pedidos se pueden tocar: cada uno sale reescrito con
+  // la firma vigente (xhrSetup), sin recargar nada; con el HLS nativo no, y se cambia
+  // de fuente (más abajo, _firmaRenovada).
+  //
+  // hls.js abre el XHR recién después de xhrSetup (si xhrSetup no lo abrió) y espera
+  // la promesa que devuelva: si la firma está por vencer (la pestaña estuvo dormida),
+  // el pedido espera la nueva en vez de salir con la vieja y volver con 403.
+  // Y como red, un 403 (o 401/410) de un pedido cuya firma pudo haber vencido se
+  // reintenta UNA vez con una firma nueva antes de darlo por perdido (ver
+  // _reintentoPorFirma).
+  _configFirma() {
+    if (!this._firma) return {};
+    const cfg = { xhrSetup: (xhr, url) => this._prepararPedido(xhr, url) };
+    const decidir = (_cfg, _n, _timeout, resp, reintentar) => this._reintentoPorFirma(resp, reintentar);
+    // Manifest (reintento dentro del cargador), playlists de las variantes y segmentos
+    // (reintento del controlador de errores): las tres pasan por shouldRetry.
+    for (const k of ["manifestLoadPolicy", "playlistLoadPolicy", "fragLoadPolicy"]) {
+      const base = Hls.DefaultConfig[k] && Hls.DefaultConfig[k].default;
+      if (base && base.errorRetry) cfg[k] = { default: { ...base, errorRetry: { ...base.errorRetry, shouldRetry: decidir } } };
+    }
+    return cfg;
+  }
+
+  _prepararPedido(xhr, url) {
+    const f = this._firma;
+    const abrir = () => {
+      const u = f.reescribir(url);
+      if (u === url && !/bcdn_token=|[?&]token=/.test(url)) return;   // no es del video firmado
+      const clave = sinFirma(url);
+      this._usadas.delete(clave);
+      this._usadas.set(clave, f.actual().expires);
+      if (this._usadas.size > PEDIDOS_ANOTADOS) this._usadas.delete(this._usadas.keys().next().value);
+      if (u !== url) xhr.open("GET", u, true);
+    };
+    // Si la renovación falla, el pedido sale igual con lo que hay: si vuelve con 403,
+    // decide _reintentoPorFirma (y, si no hay arreglo, el cartel).
+    if (f.renovando() || f.porVencer()) return f.renovar().then(abrir, abrir);
+    abrir();
+  }
+
+  // shouldRetry de hls.js para un pedido que volvió con error. Sin 401/403/410 decide
+  // hls.js como siempre (`reintentar`).
+  _reintentoPorFirma(resp, reintentar) {
+    const code = resp && resp.code;
+    if (code !== 401 && code !== 403 && code !== 410) return reintentar;
+    const f = this._firma;
+    if (!f || this._error) return false;
+    const clave = sinFirma((resp && resp.url) || "");
+    const actual = f.actual().expires;
+    const usada = this._usadas.get(clave) ?? actual;
+    // Salió con una firma anterior (estaba en vuelo cuando llegó la nueva): el
+    // reintento sale con la vigente, sin pedir otra.
+    if (usada !== actual) return true;
+    // 🔴 Sólo el VENCIMIENTO se arregla con una firma nueva. Si a la firma con que salió
+    // le quedaba vida, el 403 es por otra cosa (una calidad rota, una regla del CDN):
+    // decide hls.js como siempre, que pasa a otra calidad y sigue. Antes se forzaba igual:
+    // la firma nueva (dentro de la misma hora, la MISMA) volvía con 403 y salía el cartel
+    // "El acceso al video venció" con las otras calidades andando (medido, oct-2026).
+    if (!f.cercaDeVencer(usada)) return reintentar;
+    // Ya se pidió una firma nueva por este mismo pedido y también la rechazaron: no es
+    // el vencimiento. No se insiste.
+    if (this._forzadas.get(clave) === usada) {
+      queueMicrotask(() => this._fallar("acceso", { response: { code }, details: "el CDN rechazó la firma nueva" }));
+      return false;
+    }
+    // El reintento de hls.js espera a esta renovación en _prepararPedido (renovando()).
+    // Sin red insiste unos segundos antes del cartel (renovarYa): al volver del bloqueo
+    // la red tarda en volver y un solo pedido fallido no alcanza para rendirse.
+    f.renovarYa().then(
+      (nueva) => { this._forzadas.set(clave, nueva.expires); },
+      (motivo) => this._fallar("acceso", { response: { code }, details: "no se pudo renovar el acceso", renovacion: motivo }),
+    );
+    return true;
+  }
+
+  // HLS nativo (y MP4): llegó una firma nueva. La fuente del <video> tiene la vieja,
+  // que sigue sirviendo hasta que vence: se la cambia en un momento tranquilo (en
+  // pausa, sin pregunta abierta) o, si no llega ninguno, cuando falte poco.
+  // hls.js no necesita nada: el próximo pedido ya sale con la nueva.
+  _firmaRenovada() {
+    if (!this.motor || this.motor === "hls" || this._error) return;
+    this._firmaPendiente = true;
+    if (this._intentarFuenteNueva()) return;
+    if (this._firmaPendiente && !this._vigiaFirma) this._vigiaFirma = setInterval(() => this._intentarFuenteNueva(), VIGIA_FIRMA_MS);
+  }
+
+  _sinPendiente() {
+    this._firmaPendiente = false;
+    clearInterval(this._vigiaFirma);
+    this._vigiaFirma = null;
+  }
+
+  // Cambia la fuente a la misma (master o variante elegida) con la firma nueva, en el
+  // mismo segundo y estado: es el cambio de calidad de siempre (_cambiarFuente), así
+  // que el componente no ve la caída a 0 ni la recarga. Devuelve true si lo hizo.
+  //   enPlay: lo llama play(), dentro del toque: el play del cambio sale en el gesto
+  //     (iOS rechaza un play fuera de él después de cambiar la fuente).
+  //   forzar: el <video> ya está esperando datos (waiting): no hay nada que cuidar.
+  // 🔴 Nunca en medio de un salto (propio, del componente o de afuera) ni de otro
+  // cambio: el cambio vuelve al segundo de ESE momento, y un salto en vuelo se perdería.
+  _intentarFuenteNueva({ enPlay = false, forzar = false } = {}) {
+    if (!this._firmaPendiente) return false;
+    const f = this._firma, v = this.video;
+    if (!f || this._error || this.motor === "hls") { this._sinPendiente(); return false; }
+    if (this._expiresDeFuente === f.actual().expires) { this._sinPendiente(); return false; }
+    // Sin metadata (iOS antes del primer toque) el salto pendiente no está "en vuelo":
+    // el cambio cambia la fuente y lo conserva (ver _cambiarFuente). Con metadata, sí.
+    if (this._cambio || this._sinConfirmar || this._rescate || v.seeking || (this._seekPendiente != null && v.readyState >= 1)) return false;
+    if (this._enEspera) return false;
+    const m = (this._momento && this._momento()) || {};
+    if (m.saltando) return false;
+    const quieto = v.paused && !m.pregunta;
+    if (!(enPlay || forzar || quieto || f.urgenteDe(this._expiresDeFuente))) return false;
+    this._cambiarFuente(this._srcActual, this._calidad, { renovacion: true, seguir: enPlay ? true : undefined });
+    return true;
+  }
+
+  // HLS nativo: el <video> se trabó o falló con la fuente ya vencida (no se llegó a
+  // cambiar: la pestaña dormida no corrió los timers, o la renovación había fallado).
+  // Se pide una firma nueva y se recarga en el mismo segundo, UNA vez por firma; si
+  // tampoco anda, el cartel. `c`: el cambio de fuente que falló, si fue eso.
+  // 🔴 Mientras dura (la renovación puede tardar segundos: Moodle lento, la red que
+  // vuelve), el <video> está en error o trabado y no hay que tocarlo: lo que pide el
+  // componente (play, pausa, un salto) se anota en _rescate y se aplica al recargar (ver
+  // play, pause y setCurrentTime), como _cambio en un cambio de fuente. Antes iba al
+  // <video> en error: el play se rechazaba y el rescate volvía a "en pausa" (el alumno
+  // tocaba Reproducir y no pasaba nada), un salto se deshacía solo al terminar y la pausa
+  // del navegador después del error dejaba el botón en "Reproducir" sin poder pausar.
+  _rescatarFirma(c = null) {
+    const f = this._firma, v = this.video;
+    if (!f || this._error || this._rescate) return;
+    const tipo = this._rescateTipo || (f.vencidaDe(this._expiresDeFuente) ? "acceso" : "medio");
+    if (this._rescateDe === f.actual().expires) return this._fallar(tipo, { message: v.error?.message || "error de video", details: "la fuente con la firma nueva tampoco cargó" });
+    this._rescateTipo = tipo;
+    const t = c ? c.t : (this._seekPendiente ?? v.currentTime);
+    const seguia = c ? c.seguia : !this._pausadoVisto;
+    // Un cambio de calidad que falló porque la firma ya había vencido (se eligió con la
+    // renovación en camino): la calidad elegida se vuelve a pedir al terminar, ya con la
+    // firma nueva. Si no, quedaba en Automática sin avisar. Sólo si la culpa fue de la
+    // firma: una variante rota con la firma vigente no se vuelve a intentar.
+    const calidad = c && tipo === "acceso" && c.destino != null && c.destino !== c.calidadAnterior ? c.destino : null;
+    if (this._cambio) { clearTimeout(this._cambio.timer); clearTimeout(this._cambio.vigia); this._cambio = null; }
+    this._sinConfirmar = null;
+    this._rescate = { t, seguia };
+    this._marcarRescate(true);
+    this._emit("bufferstart", this._datos());
+    // Y el segundo del rescate, ya: con un salto que no llegó a aterrizar (el 403 fue del
+    // tramo nuevo, así que no hubo ningún timeupdate) el componente seguía mostrando el
+    // de antes hasta el final, y un −10 en ese rato se calculaba desde ahí (medido con el
+    // HLS nativo de Chrome). Sin datos (readyState 0) el currentTime no dice nada.
+    if (c || this._seekPendiente != null || v.readyState >= 1) this._emit("timeupdate", this._datos());
+    // renovarYa: sin red insiste unos segundos (y enseguida si vuelve la red) antes del cartel.
+    f.renovarYa().then(() => {
+      const r = this._rescate;
+      this._rescate = null;
+      this._marcarRescate(false);
+      if (!r || this._error || this._destruido) return;
+      this._rescateDe = f.actual().expires;
+      // La aplica _terminarCambio. Una elegida DURANTE el rescate (setQuality) gana.
+      if (calidad != null && this._calidadEnCola == null) this._calidadEnCola = calidad;
+      this._revertir({ t: r.t, seguia: r.seguia, anterior: this._srcActual, calidadAnterior: this._calidad });
+    }, (motivo) => {
+      this._rescate = null;
+      this._marcarRescate(false);
+      this._fallar("acceso", { details: "no se pudo renovar el acceso", renovacion: motivo });
+    });
+  }
+
+  // Diagnóstico (data-rescate en el <video>, como data-motor y data-nivel): lo leen las
+  // pruebas de navegador, que necesitan saber si lo que hacen cae DURANTE un rescate
+  // (Chrome a veces llega por 'error' y a veces por una traba sin error).
+  _marcarRescate(si) {
+    try { if (si) this.video.dataset.rescate = "1"; else delete this.video.dataset.rescate; } catch (e) {}
+  }
+
+  // 'waiting' con una firma nueva sin aplicar, o con la de la fuente ya vencida.
+  _revisarFirmaAlTrabarse() {
+    if (!this._firma || this.motor === "hls" || this._error || this._cambio) return;
+    if (this._firmaPendiente) { this._intentarFuenteNueva({ forzar: true }); return; }
+    if (this._firma.vencidaDe(this._expiresDeFuente)) this._rescatarFirma();
+  }
+
   // Errores de hls.js: reintentar con espera y tope; si no se arregla, avisar.
   // Antes se reintentaba al instante y sin límite: un token vencido (403) hacía
   // un bucle de pedidos para siempre con el spinner girando.
@@ -304,18 +516,27 @@ export default class NativePlayer {
     if (this._error) return;
     clearTimeout(this._tReintento);
     this._sinConfirmar = null;
+    this._sinPendiente();
     if (this.hls) this.hls.stopLoad();
     this._error = { fatal: true, tipo, code: data?.response?.code ?? null, message: data?.details || data?.message || tipo };
+    // Acceso vencido con la firma de Bunny: por qué no se pudo renovar ('sesion': se
+    // cerró la sesión del campus; 'red': sin conexión), para que el cartel diga qué hacer.
+    if (tipo === "acceso" && this._firma) this._error.renovacion = data?.renovacion ?? this._firma.ultimoFallo();
     this._resolverReady?.();
     this._emit("error", this._error);
   }
 
+  // El segundo que ve el componente: durante un rescate de la firma, el suyo (el <video>
+  // en error no dice nada útil); sin metadata, el salto pendiente; si no, el del <video>.
+  _posicion() { return this._rescate ? this._rescate.t : (this._seekPendiente ?? this.video.currentTime); }
+
   _datos() {
     const v = this.video;
+    const t = this._posicion();
     return {
-      seconds: this._seekPendiente ?? v.currentTime,
+      seconds: t,
       duration: Number.isFinite(v.duration) ? v.duration : 0,
-      percent: v.duration ? v.currentTime / v.duration : 0,
+      percent: v.duration ? t / v.duration : 0,
     };
   }
 
@@ -332,20 +553,29 @@ export default class NativePlayer {
     // 0 aunque el alumno esté en el minuto 3: no reenviarlo o se guarda 0.
     // Durante un cambio, los timeupdate sirven para vigilar que el medio no corra
     // lejos de su segundo (ver _vigilarCambio).
+    // Durante un rescate de la firma (ver _rescatarFirma) tampoco sale nada: el <video>
+    // está en error o trabado, y su pausa o su tiempo no son los del alumno.
     v.addEventListener("timeupdate", () => {
       if (this._cambio) return this._vigilarCambio();
+      if (this._rescate) return;
       if (v.readyState) this._emit("timeupdate", datos());
     });
     v.addEventListener("play", () => {
       this._finEmitido = false;
       // Recién al reproducir se llena el buffer de verdad (ver BUFFER_INICIAL).
       if (this.hls) { this.hls.config.maxBufferLength = BUFFER_REPRODUCIENDO; this.hls.config.maxMaxBufferLength = BUFFER_REPRODUCIENDO; }
-      if (!this._cambio) this._emit("play", datos());
+      if (!this._cambio && !this._rescate) this._emit("play", datos());
     });
     v.addEventListener("seeking", () => { this._finEmitido = false; });
-    v.addEventListener("pause", () => { if (!this._cambio) this._emit("pause", datos()); });
+    // Una pausa (del alumno) es el momento tranquilo para estrenar una firma nueva con el
+    // HLS nativo. En el turno siguiente: si la pausa es la de una pregunta, el
+    // componente ya la marcó como abierta y se espera (ver _intentarFuenteNueva).
+    const quizasFirma = () => { if (this._firmaPendiente) setTimeout(() => this._intentarFuenteNueva(), 0); };
+    // 🔴 Chrome pausa el <video> justo después del 'error' de un 403: durante el rescate
+    // esa pausa no es del alumno (el botón quedaba en "Reproducir" y no se podía pausar).
+    v.addEventListener("pause", () => { if (!this._cambio && !this._rescate) { this._emit("pause", datos()); quizasFirma(); } });
     // load() (que hace hls.js al recuperarse) pausa sin disparar 'pause': avisar.
-    v.addEventListener("emptied", () => { if (!this._cambio && v.paused) this._emit("pause", datos()); });
+    v.addEventListener("emptied", () => { if (!this._cambio && !this._rescate && v.paused) this._emit("pause", datos()); });
     v.addEventListener("ended", () => {
       // Terminó: dejar de bajar. Si no, al volver a 0 (lo hace el componente)
       // hls.js volvía a llenar el buffer con un video que ya se vio.
@@ -356,9 +586,11 @@ export default class NativePlayer {
     });
     v.addEventListener("seeked", () => {
       if (this._cambio) return this._quizasTerminarCambio(true);
+      if (this._rescate) return;
       this._emit("seeked", datos());
+      if (v.paused) quizasFirma();
     });
-    v.addEventListener("durationchange", () => { if (!this._cambio) this._emit("durationchange", datos()); });
+    v.addEventListener("durationchange", () => { if (!this._cambio && !this._rescate) this._emit("durationchange", datos()); });
     v.addEventListener("loadedmetadata", () => {
       // HLS nativo: leer las variantes del master para el menú de calidad (una vez).
       if (this.motor === "nativo" && !this._variantesPromesa) this._leerVariantes();
@@ -370,12 +602,17 @@ export default class NativePlayer {
     // Primer cuadro de la fuente nueva: la variante elegida anda (su playlist y al
     // menos un segmento llegaron, con el token incluido). Ya no hace falta poder
     // volver a la anterior.
-    v.addEventListener("loadeddata", () => { this._sinConfirmar = null; });
+    v.addEventListener("loadeddata", () => { this._sinConfirmar = null; this._rescateTipo = null; });
     // Equivalentes de bufferstart / bufferend de Vimeo
-    v.addEventListener("waiting", () => { if (!this._cambio) this._emit("bufferstart", datos()); });
-    v.addEventListener("playing", () => { if (!this._cambio) this._emit("bufferend", datos()); });
+    v.addEventListener("waiting", () => {
+      if (this._cambio || this._rescate) return;
+      this._emit("bufferstart", datos());
+      this._revisarFirmaAlTrabarse();
+    });
+    v.addEventListener("playing", () => { if (!this._cambio && !this._rescate) this._emit("bufferend", datos()); });
     v.addEventListener("canplay", () => {
       if (this._cambio) return this._quizasTerminarCambio(false);
+      if (this._rescate) return;
       this._emit("bufferend", datos());
     });
     // Lo que se ve: la etiqueta "Automática (480p)". Con hls.js la pone también
@@ -387,10 +624,15 @@ export default class NativePlayer {
     // 🔴 También DESPUÉS del tope de 12 s, si la variante todavía no mostró nada:
     // una que tarda 13 s y responde 403 (datos móviles malos, token vencido)
     // terminaba en la pantalla de error, con el video anterior andando bien.
+    // Con la firma de Bunny, un error de la fuente directa puede ser un 403 (el <video>
+    // no dice el código): se renueva y se recarga una vez antes del cartel.
     v.addEventListener("error", () => {
+      if (this._rescate) return;
       if (this._cambio) return this._fallaCambio();
       if (this._sinConfirmar) return this._revertirSinConfirmar();
-      if (!this.hls) this._fallar("medio", { message: v.error?.message || "error de video" });
+      if (this.hls) return;
+      if (this._firma) return this._rescatarFirma();
+      this._fallar("medio", { message: v.error?.message || "error de video" });
     });
   }
 
@@ -426,8 +668,28 @@ export default class NativePlayer {
   play() {
     if (this._error) return Promise.reject(new Error(this._error.message));
     if (this.hls && this._detenido) { this._detenido = false; this.hls.startLoad(this.video.currentTime); }
+    this._enEspera = false;
+    // Rescatando la firma (ver _rescatarFirma): el <video> está en error y un play acá se
+    // rechazaría. Se anota y lo hace el rescate al recargar; el botón y la ruedita
+    // responden ya.
+    if (this._rescate) {
+      this._rescate.seguia = true;
+      if (this._pausadoVisto) this._emit("play", this._datos());
+      this._emit("bufferstart", this._datos());
+      return Promise.resolve();
+    }
+    // HLS nativo con una firma nueva esperando: se estrena ACÁ, dentro del toque (el
+    // play del cambio de fuente sale en el gesto, como en el cambio de calidad). El
+    // botón cambia ya; la ruedita la pone el cambio.
+    if (this._firmaPendiente && this.video.paused && this._intentarFuenteNueva({ enPlay: true })) {
+      if (this._pausadoVisto) this._emit("play", this._datos());
+      return Promise.resolve();
+    }
     if (this._sinConfirmar) this._sinConfirmar.seguia = true;
     if (this._cambio) {
+      // Un cambio que arrancó en pausa (la renovación de la firma lo hace sin ruedita):
+      // que el botón y la ruedita respondan al toque ya, no al terminar el cambio.
+      if (!this._cambio.seguia && this._pausadoVisto) { this._emit("play", this._datos()); this._emit("bufferstart", this._datos()); }
       this._cambio.seguia = true;   // su 'play' lo informa el fin del cambio
       // Lo pausó _volverASaltar mientras busca su segundo: lo retoma _terminarCambio.
       // Un play acá haría correr el medio desde 0 detrás de la ruedita.
@@ -437,23 +699,42 @@ export default class NativePlayer {
   }
   pause() {
     this.video.pause();
+    // Rescatando la firma: el rescate recarga en pausa. El botón, ya (y el candado: una
+    // pregunta que pausa no espera a que termine).
+    if (this._rescate) {
+      this._rescate.seguia = false;
+      if (!this._pausadoVisto) this._emit("pause", this._datos());
+      return Promise.resolve();
+    }
     if (this._sinConfirmar) this._sinConfirmar.seguia = false;
     // Durante un cambio de fuente los eventos del <video> no salen: avisar ya, así
     // el botón y el candado (una pregunta que pausa) no esperan a que termine.
     if (this._cambio) { this._cambio.seguia = false; if (!this._pausadoVisto) this._emit("pause", this._datos()); }
     return Promise.resolve();
   }
-  getPaused() { return Promise.resolve(this.video.paused); }
+  // Durante un rescate, lo que pidió el componente (el <video> en error está "en pausa"
+  // y el vigía de play de safePlay lo volvería a pedir).
+  getPaused() { return Promise.resolve(this._rescate ? !this._rescate.seguia : this.video.paused); }
 
   getDuration() { const d = this.video.duration; return Promise.resolve(Number.isFinite(d) ? d : 0); }
-  getCurrentTime() { return Promise.resolve(this._seekPendiente ?? this.video.currentTime); }
+  getCurrentTime() { return Promise.resolve(this._posicion()); }
   // Sincrónico, para pasarle a la TV el segundo EXACTO: el último timeupdate que vio
   // el componente puede estar ~250 ms atrás. Durante un cambio de fuente, su segundo
   // (el <video> pasa por 0 mientras recarga).
-  tiempo() { return this._cambio ? this._cambio.t : (this._seekPendiente ?? this.video.currentTime); }
+  tiempo() { return this._cambio ? this._cambio.t : this._posicion(); }
   setCurrentTime(t) {
     const v = this.video;
     const destino0 = Math.max(0, Number(t) || 0);
+    // Rescatando la firma: el <video> en error no salta. El destino queda anotado y el
+    // rescate recarga ahí (antes recargaba en el segundo del error y el salto se
+    // deshacía solo). El timeupdate sintético deja al componente en el destino.
+    if (this._rescate) {
+      const d = v.duration;
+      const destino = Number.isFinite(d) && d > 0 ? Math.min(d - 0.05, destino0) : destino0;
+      this._rescate.t = destino;
+      queueMicrotask(() => { if (this._rescate) this._emit("timeupdate", this._datos()); });
+      return Promise.resolve(destino);
+    }
     // Sin metadata, Safari descarta el seek: guardarlo y aplicarlo al llegar.
     // El timeupdate sintético deja al componente con la posición correcta, así
     // no guarda 0 si el alumno se va antes de que cargue.
@@ -487,6 +768,9 @@ export default class NativePlayer {
   // setCurrentTime() ya saben retomar la carga (ver _detenido).
   detenerCarga() {
     if (this.hls && !this._detenido) { this.hls.stopLoad(); this._detenido = true; }
+    // Con el HLS nativo tampoco se estrena una firma nueva mientras tanto (bajaría video
+    // que nadie mira): se hace con el primer play a la vuelta (ver play()).
+    this._enEspera = true;
   }
 
   getVolume() { return Promise.resolve(this.video.volume); }
@@ -564,9 +848,12 @@ export default class NativePlayer {
     if (this._variantesPromesa) return this._variantesPromesa;
     // El master pesa menos de 1 KB y Bunny lo sirve con CORS abierto. Si no se puede
     // leer, no hay menú de calidad: el video sigue en automático como siempre.
-    this._variantesPromesa = fetch(this.src, { credentials: "omit" })
+    // Con la firma vigente. Las URLs de las variantes quedan con ESTA firma: se vuelven
+    // a firmar al usarlas (_cambiarFuente), así una elegida horas después no da 403.
+    const master = this._firmar(this.src);
+    this._variantesPromesa = fetch(master, { credentials: "omit" })
       .then((r) => (r.ok ? r.text() : ""))
-      .then((txt) => variantesDelMaster(txt, this.src))
+      .then((txt) => variantesDelMaster(txt, master))
       .catch(() => [])
       .then((vs) => { this._variantes = vs; this._actualizarViendo(true); return vs; });
     return this._variantesPromesa;
@@ -608,8 +895,9 @@ export default class NativePlayer {
     if (this._error) return Promise.resolve(this._calidad);
     if (this.hls) return Promise.resolve(this._calidadHls(id));
     if (this.motor === "nativo") {
-      // Un cambio por vez: el pedido que llega en el medio se aplica al terminar.
-      if (this._cambio) { this._calidadEnCola = id; return Promise.resolve(id); }
+      // Un cambio por vez: el pedido que llega en el medio se aplica al terminar. Durante
+      // un rescate de la firma, también (el rescate recarga y al terminar la aplica).
+      if (this._cambio || this._rescate) { this._calidadEnCola = id; return Promise.resolve(id); }
       if (id === this._calidad) return Promise.resolve(id);
       const url = id === "auto" ? this.src : (this._variantes || []).find((x) => `${x.alto}p` === id)?.url;
       if (!url) return Promise.resolve(this._calidad);
@@ -669,7 +957,10 @@ export default class NativePlayer {
   // de saltos del componente la frena.
   // Una variante fija no tiene ABR: con mala señal se corta en vez de bajar.
   // Por eso la elección no se recuerda entre videos.
-  _cambiarFuente(url, id) {
+  // Renovación de la firma (renovacion: true): la misma fuente con la firma nueva.
+  // Igual que un cambio de calidad, salvo que en pausa no muestra la ruedita (el alumno
+  // no pidió nada) y `seguir` fuerza el play (lo pide play(), dentro del toque).
+  _cambiarFuente(url, id, { renovacion = false, seguir } = {}) {
     const v = this.video;
     const t = this._seekPendiente ?? v.currentTime;
     // A dónde volver si la nueva falla: la última fuente que MOSTRÓ imagen. Si la
@@ -677,10 +968,14 @@ export default class NativePlayer {
     // antes de ella: volver a una variante que tampoco cargó sería fallar dos veces.
     const previa = this._sinConfirmar || { anterior: this._srcActual, calidadAnterior: this._calidad };
     const anterior = previa.anterior, calidadAnterior = previa.calidadAnterior;
-    const seguia = !v.paused;
+    const seguia = seguir != null ? !!seguir : !v.paused;
     this._sinConfirmar = { anterior, calidadAnterior, t, seguia };
     this._calidad = id;
+    // Siempre con la firma vigente (una variante leída del master hace horas trae la
+    // de entonces). Con esto la fuente queda al día: no hay renovación pendiente.
+    url = this._firmar(url);
     this._srcActual = url;
+    if (this._firma) { this._expiresDeFuente = this._firma.actual().expires; this._sinPendiente(); }
     // Sin metadata todavía (iOS no baja nada hasta el primer toque): no hay ningún
     // segundo que cuidar. Se cambia la fuente y el salto pendiente sigue.
     // 🔴 Pero sin metadata NO quiere decir en pausa: después del tope de un cambio
@@ -696,12 +991,16 @@ export default class NativePlayer {
       this._emitirCalidad();
       return;
     }
-    this._cambio = { t, seguia, anterior, calidadAnterior, saltos: 0, revirtiendo: false, pausadoPorMi: false };
+    // destino: la calidad elegida, por si el cambio falla con la firma vencida y hay que
+    // volver a pedirla después del rescate (ver _rescatarFirma).
+    this._cambio = { t, seguia, anterior, calidadAnterior, destino: id, saltos: 0, revirtiendo: false, pausadoPorMi: false };
     this._cambio.timer = setTimeout(() => this._vencioCambio(), CAMBIO_TOPE_MS);
     // Sin póster: al cargar la fuente nueva el navegador lo vuelve a mostrar hasta
     // el salto, y la miniatura del principio parece "volvió al comienzo".
     if (t > 0.5 && v.getAttribute("poster")) v.removeAttribute("poster");
-    this._emit("bufferstart", this._datos());   // la ruedita mientras recarga
+    // La ruedita mientras recarga. La renovación en pausa no la muestra: el cuadro
+    // quieto sigue siendo el mismo y nadie esperaba nada.
+    if (!renovacion || seguia) this._emit("bufferstart", this._datos());
     this._seekPendiente = t;                     // ANTES del src: lo aplica loadedmetadata
     v.src = url;
     // En el MISMO toque del menú: fuera del gesto iOS rechaza el play. Si igual lo
@@ -796,6 +1095,9 @@ export default class NativePlayer {
       clearTimeout(c.timer);
       clearTimeout(c.vigia);
       this._cambio = null;
+      // Con la firma de Bunny puede ser un 403 de una firma vencida: renovar y volver a
+      // cargar (una vez por firma) antes del cartel.
+      if (this._firma) return this._rescatarFirma(c);
       return this._fallar("medio", { message: v.error?.message || "error de video" });
     }
     this._revertir(c);
@@ -826,9 +1128,11 @@ export default class NativePlayer {
     this._cambio = c;
     c.timer = setTimeout(() => this._vencioCambio(), CAMBIO_TOPE_MS);
     this._calidad = c.calidadAnterior;
-    this._srcActual = c.anterior;
+    // Con la firma vigente: la anterior pudo haber vencido mientras tanto.
+    this._srcActual = this._firmar(c.anterior);
+    if (this._firma) { this._expiresDeFuente = this._firma.actual().expires; this._sinPendiente(); }
     this._seekPendiente = c.t;
-    v.src = c.anterior;
+    v.src = this._srcActual;
     if (c.seguia) v.play().catch(() => {});
     this._emitirCalidad();
   }
@@ -954,6 +1258,9 @@ export default class NativePlayer {
       this._airplay = null;
     }
     this._sinConfirmar = null;
+    this._destruido = true;
+    if (this._firma && this._alRenovar) this._firma.off("renovada", this._alRenovar);
+    this._sinPendiente();
     if (this._cambio) { clearTimeout(this._cambio.timer); clearTimeout(this._cambio.vigia); this._cambio = null; }
     if (this.hls) { this.hls.destroy(); this.hls = null; }
     this.video.removeAttribute("src");

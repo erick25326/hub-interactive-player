@@ -1,7 +1,9 @@
 <?php
 // Pruebas de las funciones PURAS de mod/ivplayer/lib.php, con PHP de verdad y sin
-// Moodle: la firma de Bunny (HS256), la lectura de lo que pega el docente y la
-// normalización de los subtítulos a UTF-8.
+// Moodle: la firma de Bunny (HS256), la regla de "¿esta actividad usa Bunny?" que
+// comparten player.php y firma.php, la lectura de lo que pega el docente y la
+// normalización de los subtítulos a UTF-8. Antes, la sintaxis de TODOS los .php del
+// plugin (php -l): los que necesitan Moodle no los ejecuta ninguna prueba.
 //
 //   php tests/php/correr.php          (desde cualquier carpeta)
 //
@@ -64,6 +66,7 @@ $funciones = [
     'ivplayer_bunny_firmar',
     'ivplayer_bunny_urls',
     'ivplayer_bunny_expires',
+    'ivplayer_bunny_video',
     'ivplayer_reproductor_soporta_bunny',
     'ivplayer_subtitulos_normalizar',
 ];
@@ -100,7 +103,12 @@ foreach ($funciones as $nombre) {
     }
     $codigo .= $cuerpo . "\n";
 }
-eval($codigo);
+try {
+    eval($codigo);
+} catch (ParseError $e) {
+    fwrite(STDERR, 'Las funciones leídas de lib.php no compilan: ' . $e->getMessage() . PHP_EOL);
+    exit(1);
+}
 
 $vectores = json_decode((string) file_get_contents(__DIR__ . '/vectores-bunny.json'), true);
 if (!is_array($vectores)) {
@@ -146,6 +154,44 @@ function utf8_seguro($r, bool $sinbom = true): bool {
 
 echo 'PHP ' . PHP_VERSION . ' · ' . count($funciones) . ' funciones leídas de mod/ivplayer/lib.php' . PHP_EOL . PHP_EOL;
 
+// ─── Sintaxis de todo el plugin ──────────────────────────────────────────────
+// 🔴 player.php, firma.php y el resto necesitan Moodle para correr: ninguna prueba los
+// ejecuta. Sin esto, un error de sintaxis llegaba al campus sin que nada lo frenara (con
+// player.php roto, TODAS las lecciones dan error; con firma.php roto, el reproductor lo
+// toma como "sin red" y termina en un cartel de conexión que no es cierto). php -l
+// compila sin ejecutar. Si exec() no está habilitado, el analizador de PHP
+// (token_get_all con TOKEN_PARSE) ve los errores de sintaxis, no todos los de compilación.
+$raizplugin = dirname(__DIR__, 2) . '/mod/ivplayer';
+$archivosphp = [];
+$recorrido = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($raizplugin, FilesystemIterator::SKIP_DOTS));
+foreach ($recorrido as $archivo) {
+    if ($archivo->isFile() && strtolower($archivo->getExtension()) === 'php') {
+        $archivosphp[] = $archivo->getPathname();
+    }
+}
+sort($archivosphp);
+$conexec = function_exists('exec');
+foreach ($archivosphp as $ruta) {
+    $nombre = str_replace('\\', '/', substr($ruta, strlen($raizplugin) + 1));
+    if ($conexec) {
+        $salida = [];
+        $estadolint = 1;
+        exec(escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg($ruta) . ' 2>&1', $salida, $estadolint);
+        $resultado = $estadolint === 0 ? 'sin errores' : trim(implode(PHP_EOL, $salida));
+    } else {
+        try {
+            token_get_all((string) file_get_contents($ruta), TOKEN_PARSE);
+            $resultado = 'sin errores';
+        } catch (ParseError $e) {
+            $resultado = $e->getMessage() . ' (línea ' . $e->getLine() . ')';
+        }
+    }
+    chequear('sintaxis de ' . $nombre, $resultado, 'sin errores');
+}
+chequear('se revisó la sintaxis de player.php y firma.php',
+    in_array('player.php', array_map('basename', $archivosphp), true) && in_array('firma.php', array_map('basename', $archivosphp), true), true);
+seccion('sintaxis de cada .php de mod/ivplayer (' . count($archivosphp) . ' archivos, ' . ($conexec ? 'php -l' : 'token_get_all') . ')');
+
 // ─── Firma de Bunny ───────────────────────────────────────────────────────────
 foreach ($vectores['token'] as $t) {
     chequear('token ' . $t['ruta'] . ' (' . $t['fuente'] . ')',
@@ -188,6 +234,26 @@ foreach ($vectores['expires'] as $e) {
     chequear('expires(' . $e[0] . ', ' . $e[1] . ')', ivplayer_bunny_expires($e[0], $e[1]), $e[2]);
 }
 seccion('vencimiento: hora en punto siguiente + TTL');
+
+// La regla que comparten player.php (al armar la lección) y firma.php (al volver a
+// firmarla con la lección abierta): si divergieran, firma.php podría firmar un video que
+// la lección no reproduce, o negarse a renovar uno que sí.
+foreach ($vectores['video'] as $v) {
+    $r = ivplayer_bunny_video($v['guardado'], $v['host'], $v['clave'], $v['ttl'], $v['ahora'], $v['reproductor']);
+    chequear('video ' . $v['nombre'], $r, $v['esperado']);
+    // 🔴 Sale al navegador (PLAYER_CONFIG y la respuesta de firma.php): nunca la clave.
+    // Serializado como lo serializa firma.php (sin escapar "/": con json_encode a secas,
+    // una clave con "/" saldría escapada y strpos no la encontraría) y, además, campo por
+    // campo, crudo.
+    $sale = $v['clave'] !== '' && strpos((string) json_encode($r, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $v['clave']) !== false;
+    foreach ((array) $r as $campo) {
+        if ($v['clave'] !== '' && is_string($campo) && strpos($campo, $v['clave']) !== false) {
+            $sale = true;
+        }
+    }
+    chequear('video ' . $v['nombre'] . ': la clave no sale', $sale, false);
+}
+seccion('video de una actividad: la misma regla para player.php y firma.php');
 
 // ─── Lo que pega el docente en el formulario ─────────────────────────────────
 foreach ($vectores['normalizarGuid'] as $c) {

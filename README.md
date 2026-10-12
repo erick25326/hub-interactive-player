@@ -55,9 +55,9 @@ el job queda verde con una advertencia arriba del log.
 
 | Capa | Dónde | Qué protege |
 |---|---|---|
-| Unitarias | `tests/unit/` | El candado (`src/candado.js`: `debeFrenar`, la guardia, `tiempoAGuardar`) con casos fijos y un simulador de ticks; el parser de subtítulos (`src/subtitulos.js`); la firma de Bunny contra los vectores oficiales (espejo en Node); el adaptador de Chromecast (`CastPlayer`) contra una TV falsa que avisa un salto en un solo estado. Además, una huella del código de las funciones de `lib.php` que sólo prueba PHP: si cambian, avisa que hay que correr la prueba PHP. |
-| PHP | `tests/php/correr.php` | Las funciones puras de `mod/ivplayer/lib.php` leídas del archivo real: firma HS256 de Bunny y normalización de subtítulos (BOM, UTF-16, Windows-1252, bytes rotos). |
-| Navegador | `tests/navegador/` | El bundle compilado en Chrome, con clics y toques reales por CDP: el candado con hls.js y con HLS nativo (saltos de afuera, también con una nota abierta; restauración; +10 y −10; play de afuera), el cambio de calidad antes de una pregunta (y, con el nativo, un salto del cambio de fuente que aterriza corrido), los subtítulos, la TV con Chromecast y AirPlay simulados, y la fila de controles a 320 y 360 px en pantalla completa simulada. |
+| Unitarias | `tests/unit/` | El candado (`src/candado.js`: `debeFrenar`, la guardia, `tiempoAGuardar`) con casos fijos y un simulador de ticks; el parser de subtítulos (`src/subtitulos.js`); la firma de Bunny contra los vectores oficiales (espejo en Node), incluida la regla de "¿esta actividad usa Bunny?" que comparten `player.php` y `firma.php`; la renovación de la firma (`src/firma.js`: leer y reescribir las URLs del master, variantes, `.ts` y miniatura, el reloj con la hora del celular corrida, el Renovador contra un `firma.php` falso); el adaptador de Chromecast (`CastPlayer`) contra una TV falsa que avisa un salto en un solo estado. Además, una huella del código de las funciones de `lib.php` que sólo prueba PHP: si cambian, avisa que hay que correr la prueba PHP. |
+| PHP | `tests/php/correr.php` | La sintaxis de cada `.php` del plugin (`php -l`: `player.php` y `firma.php` necesitan Moodle y ninguna otra prueba los ejecuta) y las funciones puras de `mod/ivplayer/lib.php` leídas del archivo real: firma HS256 de Bunny, la regla de qué actividad reproduce Bunny (`ivplayer_bunny_video`, la de `player.php` y `firma.php`, y que la clave no salga) y normalización de subtítulos (BOM, UTF-16, Windows-1252, bytes rotos). El `php -l` corre también en el workflow que publica el ZIP. |
+| Navegador | `tests/navegador/` | El bundle compilado en Chrome, con clics y toques reales por CDP: el candado con hls.js y con HLS nativo (saltos de afuera, también con una nota abierta; restauración; +10 y −10; play de afuera), el cambio de calidad antes de una pregunta (y, con el nativo, un salto del cambio de fuente que aterriza corrido), los subtítulos, la TV con Chromecast y AirPlay simulados, la fila de controles a 320 y 360 px en pantalla completa simulada, y la firma de Bunny que vence a los pocos segundos (el servidor de pruebas la valida como el CDN, con 403): sin cortes ni saltos y con el candado intacto, el 403 que se arregla solo (también con la red que tarda en volver), el pedido que espera una renovación en camino, un salto y un play durante esa espera (y, con el nativo, un −10 durante el rescate y la calidad elegida justo al vencer), una calidad rota que no es el vencimiento (con hls.js pasa a otra, sin cartel), el cartel si no se puede renovar y la TV que recarga con la firma nueva. |
 
 🔴 El simulador de las unitarias (`tests/unit/apoyo/simulador.mjs`) usa las
 decisiones REALES de `candado.js`, pero el efecto de disparo del componente (el orden
@@ -161,7 +161,7 @@ mismo archivo: un video re-editado corre los tiempos de las preguntas).
 | Host del CDN | El hostname del CDN de la biblioteca (`vz-….b-cdn.net`). Vacío = Bunny apagado en todo el sitio. |
 | Número de biblioteca (opcional) | El "Video Library ID" (Stream > biblioteca > API). Sólo sirve para rechazar enlaces del reproductor de Bunny de otra biblioteca. Vacío o 0 = no se controla. |
 | Clave de autenticación por token | La "Token authentication key" de la biblioteca (Stream > biblioteca > Security). Vacía = URLs sin firmar. |
-| Duración del token | Por defecto 6 h. Tiene que cubrir la sesión entera, pausas incluidas. Tiene que estar entre 1 h y 7 días: fuera de eso, no se guarda. |
+| Duración del token | Por defecto 6 h. Con la lección abierta el reproductor la renueva solo antes de que venza (ver "Qué pasa cuando vence el token"); es lo que aguanta si no puede renovarla. Tiene que estar entre 1 h y 7 días: fuera de eso, no se guarda. |
 
 La clave **no sale en la exportación de presets del sitio** (*Presets de
 administración del sitio > Exportar*). Que el ajuste sea de tipo contraseña la
@@ -207,16 +207,64 @@ los ajustes lo dice.
 Vuelta atrás: vaciar el campo de Bunny de la actividad (vuelve a Vimeo), o vaciar
 el host en los ajustes (vuelven todas).
 
-### Qué pasa cuando vence el token
+### Qué pasa cuando vence el token: se renueva solo
 
 Bunny valida el vencimiento en cada pedido. El vencimiento se redondea a la hora
 en punto siguiente para que las recargas de la misma hora reusen lo que el
 navegador ya tiene en caché, así que la URL vale entre la duración del token y una
-hora más desde que el alumno abrió la lección. Si la deja abierta más que eso, el
-video sigue unos segundos con lo que ya bajó y después se corta con el cartel "El
-acceso al video venció". Con 6 h es raro, pero el reproductor todavía no renueva
-la firma solo: el botón **Reintentar** recarga la lección, `player.php` firma de
-nuevo y se retoma desde el avance guardado.
+hora más desde que el alumno abrió la lección.
+
+Con la lección abierta, el reproductor **pide una firma nueva 10 minutos antes de que
+venza** (`mod/ivplayer/firma.php`, del lado del reproductor `src/firma.js`) y sigue
+sin cortar la clase:
+
+- **Chrome, Android, escritorio (hls.js):** cada pedido de video sale con la firma
+  vigente. No se recarga nada: ni una ruedita.
+- **iPhone, iPad, Safari (HLS nativo):** el navegador pide el video solo y no se le
+  pueden cambiar los pedidos, así que se cambia la fuente a la misma URL con la firma
+  nueva, en el mismo segundo (es el mismo mecanismo del cambio de calidad: el candado
+  de preguntas no ve nada). Se hace en un momento tranquilo: en pausa sin pregunta
+  abierta, o al tocar reproducir; si no llega ninguno, a 90 s del vencimiento, con una
+  ruedita de un segundo.
+- **Chromecast:** la TV vuelve a cargar el video con la URL nueva en el mismo segundo:
+  en pausa (también con una pregunta abierta, quieta en la pregunta), enseguida;
+  reproduciendo, a 90 s del vencimiento (una ruedita en la TV). Una sesión reanudada
+  con una firma vieja se pone al día igual.
+- **AirPlay:** es el `<video>` del celular el que transmite (HLS nativo), así que
+  vale lo del iPhone: el cambio de fuente recarga el video también en el Apple TV.
+
+Si el celular estuvo dormido (pantalla bloqueada, pestaña de fondo) y el timer no
+corrió, se renueva al volver (y un pedido de video que sale con la firma por vencer
+espera la nueva). El tiempo que le queda a la firma se mide con la hora del
+**servidor** al firmar (`firmaAhora`) y lo que pasó desde entonces en el equipo: el
+reloj de un celular corrido no la hace vencer antes ni nunca.
+
+Como red, si un pedido igual vuelve con 403 y la firma con que salió estaba por vencer
+(venció sin renovarse), se pide una firma nueva y se reintenta **una vez** antes de
+mostrar nada. Sin red, ese pedido de firma insiste unos 15 segundos (a 1, 2 y 4 s, y
+enseguida si vuelve la conexión): al desbloquear el celular la red tarda un par de
+segundos en volver. Mientras tanto, lo que toque el alumno (reproducir, pausar,
+adelantar o retroceder) se respeta al seguir. Un 403 con una firma que todavía tenía
+vida no es por el vencimiento (una calidad rota, por ejemplo): ahí el reproductor pasa
+a otra calidad, como siempre. Sólo si nada de eso anda
+aparece el cartel, que ahora dice qué hacer: "Se cerró tu sesión del campus. Tocá
+Reintentar y, si te lo pide, volvé a ingresar" (firma.php contestó que no hay
+sesión), "No se pudo renovar el acceso al video. Revisá tu conexión y tocá
+Reintentar" (sin red) o "El acceso al video venció. Tocá Reintentar para seguir".
+**Reintentar** recarga la lección: `player.php` firma de nuevo y se retoma desde el
+avance guardado.
+
+`firma.php` (POST `cmid` + `sesskey`) pide lo mismo que `player.php` (curso, actividad
+visible, `mod/ivplayer:view`) más el sesskey, contesta siempre JSON y sin caché
+(`{ ok, playlist, poster, expires, ahora }`, o `{ ok: false, motivo }` con 401 si se
+cerró la sesión) y firma con la **misma regla** que la lección
+(`ivplayer_bunny_de_actividad`): sólo si la actividad reproduce Bunny firmado. La
+clave nunca sale. **No cuenta como actividad del alumno** (`NO_SESSION_UPDATE`): una
+lección en pausa en una PC compartida no mantiene abierta la sesión del campus; vence a
+la hora de siempre (`sessiontimeout`) y ahí firma.php contesta 401. Tampoco entra como
+invitado sola. Sin `firmaUrl` en `MOODLE_CONTEXT` (la página de prueba sin token,
+el configurador, SCORM) o con una URL sin `bcdn_token`, el reproductor no renueva
+nada, como antes.
 
 ### Detalles técnicos
 
@@ -272,7 +320,8 @@ Probado sólo con receptores **simulados** (ver "Pendiente" al final de la secci
   a dónde sale la imagen. Play, pausa, saltos y lo que se haga con el control del
   Apple TV pasan por el mismo `<video>`, así que el candado de preguntas funciona
   igual. Se usa la Remote Playback API (`video.remote`) y, si no está, las `webkit*`.
-- **Chromecast** (`cast.js`): la TV baja el video sola, con la misma URL firmada.
+- **Chromecast** (`cast.js`): la TV baja el video sola, con la misma URL firmada (y,
+  cuando se renueva, la vuelve a cargar con la nueva en el mismo segundo).
   El SDK de Google (unos 90 KB) se baja con el reproductor listo, sólo donde existe
   y sólo si el navegador ve una TV con Cast en la red: eso se pregunta antes con la
   Presentation API, que no le pide nada a Google. Sin TV a la vista, la página no
@@ -308,7 +357,8 @@ El receptor por defecto no se registra ni cuesta nada, pero sólo reproduce:
   misma lección, se retoma ahí; si se abre otra, el botón la carga en la misma TV.
 - Si la paran o cargan otra cosa en la TV desde otro equipo, el video vuelve al
   celular **en pausa**.
-- La URL firmada (6 h) viaja a la TV y la pueden ver otros equipos de la misma red.
+- La URL firmada (6 h, y cada una de las que la renuevan) viaja a la TV y la pueden ver
+  otros equipos de la misma red.
 - Los subtítulos se siguen viendo sólo en el celular.
 - **Pendiente de decidir (producto):** las **etiquetas** se siguen dibujando en el
   celular sobre el cartel "Reproduciendo en…", sin el cuadro al que apuntan (se

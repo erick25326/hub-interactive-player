@@ -94,6 +94,14 @@ test('nunca se firma algo que no sea exactamente /<guid>/ de un host válido, ni
   for (const r of V.rechazos) assert.throws(() => fn[r.funcion](...r.args), B.CodingException, r.nombre);
 });
 
+test('el video de una actividad: la misma regla de "¿usa Bunny?" para player.php y firma.php, y la clave nunca sale', () => {
+  for (const v of V.video) {
+    const r = B.video(v.guardado, v.host, v.clave, v.ttl, v.ahora, v.reproductor);
+    assert.deepEqual(r, v.esperado, v.nombre);
+    if (v.clave) assert.ok(!JSON.stringify(r).includes(v.clave), 'la clave salió en ' + v.nombre);
+  }
+});
+
 test('la detección del reproductor que sabe Bunny busca la marca loadSource', () => {
   for (const [html, esperado] of V.soportaBunny) assert.equal(B.reproductorSoportaBunny(html), esperado, html);
 });
@@ -112,6 +120,7 @@ test('el espejo en Node sigue siendo la traducción del código actual de lib.ph
     ivplayer_bunny_firmar: '9616d3a6c58758fa',
     ivplayer_bunny_urls: 'b8b96d801a5fd860',
     ivplayer_bunny_expires: '47d8cdf0e7a5bfae',
+    ivplayer_bunny_video: '892a41b08061f6fc',
     ivplayer_reproductor_soporta_bunny: 'dc7bcfc7d403f57f',
   };
   const src = leerLib();
