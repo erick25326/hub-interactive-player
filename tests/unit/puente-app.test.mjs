@@ -50,6 +50,26 @@ test('puenteDisponible: el de la página (Android), el de arriba del mismo orige
   assert.equal(P.puenteDisponible(), false);
 });
 
+test('puenteDisponible: un <iframe name="ReactNativeWebView"> no es el puente, ni arriba de otro origen ni en la propia página', () => {
+  // Así se ve un marco: un WindowProxy con postMessage y que es su propio `window`.
+  const marco = { postMessage() {} };
+  marco.window = marco;
+  // Chrome común (verificado en Chrome headless): la página de arriba es de OTRO origen y
+  // tiene un marco con ese nombre. Leer su `document` tira SecurityError, pero el nombre
+  // del marco hijo sí se puede leer, y su postMessage es una función.
+  globalThis.window = { top: new Proxy({}, { get(_, k) { if (k === 'ReactNativeWebView') return marco; throw new Error('SecurityError'); } }) };
+  assert.equal(P.puenteDisponible(), false, 'arriba de otro origen no hay puente nuestro, aunque haya un marco con ese nombre');
+  // Arriba del mismo origen, con un marco que se llama así: tampoco.
+  globalThis.window = { top: { document: {}, ReactNativeWebView: marco } };
+  assert.equal(P.puenteDisponible(), false);
+  // En la propia página.
+  globalThis.window = { ReactNativeWebView: marco };
+  window.top = window;
+  assert.equal(P.puenteDisponible(), false);
+  // Y nada de esto llega a mandar el saludo.
+  return P.conectarApp().then((r) => assert.equal(r.motivo, 'sin-puente'));
+});
+
 test('leerSobres: sólo { ivcast: 1, tipo }, de un texto, un objeto o un arreglo, en orden', () => {
   const ok = { ivcast: 1, tipo: 'media', msid: 1 };
   assert.deepEqual(P.leerSobres(JSON.stringify(ok)), [ok]);

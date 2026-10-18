@@ -59,6 +59,28 @@ test('leerMedia: tipos en regla o null (un estado que no existe no entra)', () =
   assert.equal(leerMedia({ msid: 2, estado: 'PLAYING', motivo: 'FINISHED' }).motivo, null, 'el motivo sólo con IDLE');
 });
 
+test('los nombres de Object.prototype ("constructor", "toString", "__proto__") no pasan por estados válidos', () => {
+  const raros = ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf'];
+  for (const r of raros) {
+    assert.equal(leerMedia(JSON.parse(`{"msid":1,"estado":${JSON.stringify(r)}}`)), null, `estado ${r}`);
+    assert.equal(leerMedia({ msid: 1, estado: 'IDLE', motivo: r }).motivo, null, `motivo ${r}`);
+  }
+  // hola-ok y disponibilidad: un CastState que no es tal no cambia nada ni muestra el botón.
+  const { puente, fw, ctx } = armar({ estado: 'constructor' });
+  assert.equal(ctx.getCastState(), 'NO_DEVICES_AVAILABLE', 'del hola-ok: se lee como sin TV');
+  const cambios = [];
+  ctx.addEventListener(fw.CastContextEventType.CAST_STATE_CHANGED, (e) => cambios.push(e.castState));
+  ctx.addEventListener(fw.CastContextEventType.SESSION_STATE_CHANGED, (e) => cambios.push(e.sessionState));
+  for (const r of raros) {
+    puente.evento({ tipo: 'disponibilidad', estado: r });
+    puente.evento({ tipo: 'sesion', estado: r, sesion: { id: 's1', nombre: 'X' } });
+  }
+  assert.deepEqual(cambios, []);
+  assert.equal(ctx.getCastState(), 'NO_DEVICES_AVAILABLE');
+  assert.equal(ctx.getCurrentSession(), null);
+  assert.equal(puente.latidos.prendido, false, 'sin sesión no late');
+});
+
 test('un Media por msid: MEDIA_SESSION con el nuevo, el anterior queda IDLE/INTERRUPTED sin llamar a sus oyentes, y uno viejo se ignora', () => {
   const { puente, fw, ctx } = armar();
   sesionIniciada(puente);

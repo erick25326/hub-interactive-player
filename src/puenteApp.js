@@ -6,7 +6,8 @@
 // así CastPlayer y el candado de preguntas no se enteran de nada.
 //
 // Qué hay acá:
-//   - puenteDisponible(): ¿hay un ReactNativeWebView del mismo origen? (sincrónico)
+//   - puenteDisponible(): ¿hay un ReactNativeWebView del mismo origen, que no sea un
+//     marco con ese nombre? (sincrónico)
 //   - pareceApp(): el UA dice "MoodleMobile" (sólo para elegir el texto de un aviso)
 //   - conectarApp(): el saludo (hola → hola-ok). Lo que PRUEBA que hay una app que habla
 //     ivcast es la respuesta, no la presencia del objeto.
@@ -51,17 +52,28 @@ function anotar(k, v) {
 
 // El objeto de la app: en Android está en TODOS los marcos; en iOS sólo en el
 // principal, que se puede leer porque el iframe del reproductor es del mismo origen. Si
-// el de arriba es de otro origen, leerlo tira SecurityError: no hay puente.
+// el de arriba es de otro origen no hay puente: se descarta antes de mirarlo (leer su
+// `document` tira SecurityError).
+// 🔴 Un <iframe name="ReactNativeWebView"> se lee como window.ReactNativeWebView (y como
+// window.top.ReactNativeWebView AUNQUE la página de arriba sea de otro origen: el nombre
+// de un marco hijo es de lo poco que se puede leer de otro origen), y su postMessage es
+// una función. Sin este control, cualquier página que incrustara el reproductor (una demo
+// de la web) con un marco con ese nombre lo pasaba a modo app en Chrome común. Un marco
+// se reconoce porque es su propio `window`; el objeto de la app, no.
+function esPuente(rn) {
+  try { return !!rn && typeof rn.postMessage === "function" && rn.window !== rn; } catch (e) { return false; }
+}
 function canal() {
   try {
     const rn = window.ReactNativeWebView;
-    if (rn && typeof rn.postMessage === "function") return rn;
+    if (esPuente(rn)) return rn;
   } catch (e) {}
   try {
     const top = window.top;
     if (top && top !== window) {
+      void top.document;   // de otro origen tira SecurityError: no es la página de la app
       const rn = top.ReactNativeWebView;
-      if (rn && typeof rn.postMessage === "function") return rn;
+      if (esPuente(rn)) return rn;
     }
   } catch (e) {}
   return null;

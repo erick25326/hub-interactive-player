@@ -57,6 +57,10 @@ class PauseRequest {}
 class GetStatusRequest {}
 
 const valor = (o, k) => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined);
+// ¿`x` es uno de los valores de la tabla `T` (PlayerState, CastState…)? 🔴 Con `T[x]`
+// pasaban "constructor", "toString" o "__proto__", que son de Object.prototype: un
+// `disponibilidad{estado:"constructor"}` mostraba el botón de la TV.
+const de = (T, x) => typeof x === "string" && Object.prototype.hasOwnProperty.call(T, x);
 const num = (x, def = null) => (typeof x === "number" && Number.isFinite(x) ? x : def);
 const texto = (x) => (typeof x === "string" ? x : null);
 // El código que se le pasa al SDK: el de la app, o 'timeout' si venció el tope.
@@ -67,12 +71,12 @@ export function leerMedia(d) {
   if (!d || typeof d !== "object") return null;
   const msid = num(valor(d, "msid"));
   const estado = texto(valor(d, "estado"));
-  if (msid == null || !PlayerState[estado]) return null;
+  if (msid == null || !de(PlayerState, estado)) return null;
   const motivo = texto(valor(d, "motivo"));
   return {
     msid,
     estado,
-    motivo: estado === "IDLE" && IdleReason[motivo] ? motivo : null,
+    motivo: estado === "IDLE" && de(IdleReason, motivo) ? motivo : null,
     t: Math.max(0, num(valor(d, "t"), 0)),
     rate: num(valor(d, "rate"), 1) || 1,
     duracion: num(valor(d, "duracion")),
@@ -92,7 +96,7 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
   // la TV; el silencio queda como está).
   const caps = new Set(Array.isArray(hola && hola.capacidades) ? hola.capacidades : []);
   const diag = { repetidos: 0, eventos: 0, receptorPedido: null };
-  let estadoCast = CastState[cast0.estado] ? cast0.estado : CastState.NO_DEVICES_AVAILABLE;
+  let estadoCast = de(CastState, cast0.estado) ? cast0.estado : CastState.NO_DEVICES_AVAILABLE;
   let sesion = null;          // la Sesion actual (el mismo objeto para el mismo id)
   let elegirEnCurso = null;   // el requestSession pendiente
 
@@ -284,7 +288,7 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
   const alEvento = (m) => {
     diag.eventos++;
     if (m.tipo === "disponibilidad") {
-      if (!CastState[m.estado] || m.estado === estadoCast) return;
+      if (!de(CastState, m.estado) || m.estado === estadoCast) return;
       estadoCast = m.estado;
       anotar("estado", estadoCast);
       emitir(ctxOy, CastContextEventType.CAST_STATE_CHANGED, { type: CastContextEventType.CAST_STATE_CHANGED, castState: estadoCast });
@@ -292,7 +296,7 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
     }
     if (m.tipo === "sesion") {
       let est = m.estado;
-      if (!SessionState[est]) return;
+      if (!de(SessionState, est)) return;
       // 🔴 Un SESSION_STARTED de la sesión que esta página YA tiene (la del hola-ok, o una
       // que ya arrancó) no es una conexión nueva: el Web SDK nunca lo emite dos veces, y el
       // JSX lo lee como "el alumno eligió una TV" y CARGA este video, pisando el que la TV
