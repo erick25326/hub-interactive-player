@@ -149,9 +149,37 @@ genérico). Host, clave y duración son ajustes del sitio (`settings.php`), y
 - Los topes del TTL se validan al guardar (`set_validate_function` del ajuste de
   duración, existe desde 4.1 y recibe segundos). `ivplayer_bunny_ttl()` los vuelve a
   aplicar de red para valores cargados por CLI o `config.php`.
-- Pendiente: el configurador visual sólo previsualiza Vimeo. (La renovación del token
-  ya está: ver la sección siguiente. Los subtítulos con Bunny salen de "Editar
+- El configurador visual no reproduce Bunny: marca los tiempos sobre el ARCHIVO de la
+  compu (ver "Configurador con un video de la compu"). (La renovación del token ya
+  está: ver la sección siguiente. Los subtítulos con Bunny salen de "Editar
   transcripción": ver "Subtítulos de la lección".)
+
+## Configurador con un video de la compu (oct-2026) — trampas
+"Abrir video de tu computadora" (`configurator/index.html`): `<video>` con una URL
+`blob:` del archivo, nada sale de la PC. El resto del configurador le habla al video
+sólo por la interfaz de "REPRODUCTOR DE LA VISTA PREVIA" (`crearReproductorVimeo` /
+`crearReproductorLocal`). Uso, en el README ("Marcar los tiempos de un video de Bunny").
+- 🔴 **En modo local el JSON sale con `vimeoId` vacío, y eso es lo que protege el campo
+  de Vimeo de la actividad**: el manejador de `mod_form.php` lo escribe sólo si viene con
+  algo. Nada de un ID de relleno. Por la misma razón `vimeoDe()` descarta al importar y
+  al exportar todo lo que no sea un ID de Vimeo (dígitos): el "PENDIENTE" de los JSON
+  viejos de la skill terminaba en el campo de Vimeo de la actividad.
+- 🔴 **El `videoUrl` de un JSON importado (la skill `interacciones-video`) NUNCA es
+  fuente**: va sólo a `exportJSON` (y sólo sin `vimeoId`: la skill rechaza los dos). Ni
+  `buildConfig` (Moodle, SCORM) ni la vista previa lo reciben; la vista previa con el
+  reproductor recibe la URL `blob:` por `generatePreviewConfig` (la ventana es del mismo
+  origen: `window.open('')` + `document.write`).
+- 🔴 **`mod_form.php` repite su mensaje cada 500 ms durante 10 s**: el configurador toma
+  sólo el primero. Sin eso, cada repetición recargaba Vimeo y pisaba lo elegido en esos
+  segundos (el archivo, un JSON importado, las interacciones).
+- `destroy()` del local corta la lectura (`removeAttribute('src')` + `load()`) antes de
+  `revokeObjectURL`, y borra `iv_progress_<blob:…>` (la clave del avance de la vista
+  previa con esa URL, que no vuelve a existir).
+- `scripts/armar-configurador.mjs` arma el configurador publicado (lo usan
+  `build-configurator.js` y el servidor de pruebas en `/configurador.html`): se prueba
+  lo mismo que se publica. La prueba (`escenarios/configurador.mjs`) necesita ffmpeg;
+  bloquea el SDK de Vimeo, JSZip y las fuentes, y corre el `<script>` REAL de
+  `mod_form.php` (leído del archivo) en un iframe para el ida y vuelta con Moodle.
 
 ## Renovación de la firma de Bunny (firma.php + src/firma.js, oct-2026) — trampas
 Con la lección abierta, el reproductor pide una firma nueva 10 min antes del
