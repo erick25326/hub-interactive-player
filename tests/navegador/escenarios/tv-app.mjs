@@ -222,6 +222,36 @@ export function registrar(entorno) {
       assert.equal((await p.a('W.__airplay.prompts')).length, 1);
     });
 
+    // El saludo de la carga sin respuesta: hasta el toque no se sabe si la app permite
+    // AirPlay. El toque vuelve a saludar y decide con la respuesta; AirPlay ya no se puede
+    // abrir solo (pasó el gesto), así que con TV de AirPlay va el selector propio.
+    paso(entorno, 'el primer saludo sin respuesta: el toque vuelve a saludar y, con TV de AirPlay, ofrece el selector (no Chromecast directo)', async () => {
+      await p.abrir({ pagina: 'marco.html', query: iphone({ disp: '1', holaMudos: '1' }) });
+      await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
+      assert.ok(await p.esperarArriba(`window.__puente.holas === 1`, 8000), 'la app no recibió el saludo de la carga');
+      await dormir(3500);   // venció el saludo de la carga
+      assert.equal(await p.a('W.__ivCastDiag && W.__ivCastDiag.sdk'), 'app: sin-respuesta');
+      await p.clic('.iv-tv-btn');
+      await p.debe(`!!D.querySelector('.iv-ajustes-destinoTV')`, 5000, 'con la respuesta del segundo saludo tenía que aparecer el selector');
+      assert.equal(await p.ev('window.__puente.holas'), 2, 'el toque vuelve a saludar');
+      assert.deepEqual(await p.a('W.__airplay.prompts'), [], 'el selector todavía no transmite');
+      assert.equal((await log()).filter((x) => x.ev === 'requestSession').length, 0, 'no tenía que ir directo a Chromecast');
+      await p.clic('.iv-ajustes-fila', { texto: 'AirPlay' });
+      await dormir(300);
+      const prompts = await p.a('W.__airplay.prompts');
+      assert.ok(prompts.length === 1 && prompts[0].activo, `la fila de AirPlay abre el selector del sistema dentro de su toque: ${JSON.stringify(prompts)}`);
+      await p.a('(W.__airplay.cancelar(), true)');
+      // Sin TV de AirPlay a la vista, el mismo caso va directo a Chromecast.
+      await p.abrir({ pagina: 'marco.html', query: iphone({ disp: '0', holaMudos: '1' }) });
+      await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
+      assert.ok(await p.esperarArriba(`window.__puente.holas === 1`, 8000), 'la app no recibió el saludo de la carga');
+      await dormir(3500);
+      await p.clic('.iv-tv-btn');
+      await p.debe(conectado, 12000, 'sin TV de AirPlay tenía que ir directo a Chromecast');
+      assert.deepEqual(await p.a('W.__airplay.prompts'), []);
+      assert.equal(await p.a(`!!D.querySelector('.iv-ajustes-destinoTV')`), false);
+    }, { timeout: 60000 });
+
     paso(entorno, 'sin "airplay" en las capacidades de la app, sólo Chromecast aunque haya TV de AirPlay', async () => {
       await p.abrir({ pagina: 'marco.html', query: iphone({ disp: '1', airplayApp: '0' }) });
       await listo();

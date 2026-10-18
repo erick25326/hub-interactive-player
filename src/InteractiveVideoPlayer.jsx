@@ -1614,6 +1614,9 @@ export default function InteractiveVideoPlayer() {
         // Sin TV de AirPlay a la vista: directo a Chromecast (el primer toque es el que
         // dispara el permiso de red local en iPhone).
       }
+      // iPhone con el saludo sin contestar todavía (sin capacidades): no se sabe si la app
+      // permite AirPlay. Se vuelve a saludar y se decide con la respuesta (ver tocarCast).
+      else if(conAirPlay&&!app.capacidades){ tocarCast(true); return; }
     } else if(conAirPlay){ transmitirAirPlay(p); return; }
     tocarCast();
   };
@@ -1650,8 +1653,9 @@ export default function InteractiveVideoPlayer() {
     if(app.motivo==='version') return 'Para transmitir a la TV, actualizá la app de Hub Education.';
     return 'No se pudo preparar la transmisión. Probá de nuevo.';
   };
-  // Chromecast: el selector de Chrome o, en la app, el nativo.
-  const tocarCast=()=>{
+  // Chromecast: el selector de Chrome o, en la app, el nativo. `iphoneSinSaludo`: iPhone en
+  // la app con el saludo todavía sin contestar (ver tocarTV).
+  const tocarCast=(iphoneSinSaludo)=>{
     const ctx=castCtxRef.current;
     if(!ctx){
       if(!castPosible()){ avisarTVRef.current(textoAbrirEnNavegador()); return; }
@@ -1671,6 +1675,17 @@ export default function InteractiveVideoPlayer() {
             onDisponible:(d)=>setTvDisp(x=>x.cast===d?x:{...x,cast:d}),
             onSesion:(estado,sesion,error)=>alCambiarSesionCastRef.current(estado,sesion,error),
           });
+        }
+        // iPhone: recién ahora se sabe si la app permite AirPlay. Con una TV de AirPlay a
+        // la vista va el selector propio y no Chromecast directo: el gesto del toque ya
+        // pasó y el de AirPlay (prompt) no se puede abrir solo, pero cada fila trae el suyo.
+        // Si en la espera saltó una pregunta, el menú no va encima de la tarjeta: el toque
+        // siguiente ya sabe las capacidades y decide como siempre.
+        if(iphoneSinSaludo===true&&tvDisp.airplay&&(infoApp().capacidades||[]).includes('airplay')){
+          if(activeIARef.current){ avisarTVRef.current('Tocá de nuevo el botón de la TV.'); return; }
+          setTvAviso('');
+          irAMenu('destinoTV');
+          return;
         }
         pedirSesionCast(c,true);
       });

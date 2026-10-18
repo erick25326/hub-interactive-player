@@ -16,6 +16,7 @@
 //   duplicados=1   cada `media` vuelve a llegar, idéntico, a los dupMs (250) si no hubo otro
 //                  en el medio: el shim tiene que descartarlo SIN renovarle la hora
 //   holaLento=ms   contesta el hola recién a los ms
+//   holaMudos=n    no contesta los primeros n saludos (el de la carga se pierde; el toque saluda de nuevo)
 //   cast=0         hola-ok sin 'cast' (un teléfono sin Google Play Services)
 //   version=0      contesta el hola con error{version}
 //   plataforma=ios hola-ok con plataforma 'ios' y 'airplay' en capacidades (airplayApp=0 lo saca)
@@ -138,6 +139,7 @@
     switch (m.tipo) {
       case 'hola': {
         P.holas++;
+        if (P.holas <= Number(q.get('holaMudos') || 0)) return;
         if (q.get('version') === '0' || !Array.isArray(m.soporta) || !m.soporta.includes(1)) return error(id, 'version');
         // reanudar=70: la app ya transmitía (otra lección, la app se reabrió).
         if (q.get('reanudar') != null && !sesion && !P.reanudada) {

@@ -336,7 +336,9 @@ fuera de este repo). Del lado del reproductor:
   Probá de nuevo." y vuelve a saludar). Sin `'cast'` (teléfono sin Google Play Services):
   "Este teléfono no puede transmitir a Chromecast."
 - En iPhone, AirPlay sólo si la app declara `'airplay'`; sin TV de AirPlay a la vista va
-  directo a Chromecast, y con las dos aparece un selector propio.
+  directo a Chromecast, y con las dos aparece un selector propio. Si el saludo de la
+  carga no tuvo respuesta, el toque vuelve a saludar y decide con lo que conteste la app
+  (con TV de AirPlay, el selector: el de AirPlay sólo se abre dentro de un toque).
 - La app de hoy (sin puente) sigue como en 1.3.3. El "actualizá la app" se prende con la
   casilla del plugin **La app con Chromecast ya está publicada** (apagada por defecto):
   prenderla recién cuando la versión con Cast esté en Play para todos.
@@ -344,6 +346,30 @@ fuera de este repo). Del lado del reproductor:
 Lo hace cumplir la app (pausar la TV al salir de la lección, con el celular bloqueado o
 en otra app; validar de dónde vienen los mensajes; la lista de hosts de video): el
 reproductor no decide nada por la versión de la app, sólo por sus `capacidades`.
+
+**La casilla** está en *Administración del sitio > Plugins > Módulos de actividad >
+Video Interactivo*, bajo "Transmitir a la TV desde la app". Llega al reproductor como
+`MOODLE_CONTEXT.appCastPublicada` (en `PLAYER_CONFIG` no: las demos de la web no la
+tienen y valen "apagada"). Sólo cambia el aviso del WebView **sin** puente:
+
+| Caso | Lo que dice el toque del botón de la TV |
+|---|---|
+| WebView sin puente (app de hoy, app oficial de Moodle), casilla apagada | "Para transmitir a la TV abrí la lección en Chrome." (Safari en iPhone) |
+| WebView sin puente, casilla prendida | "Para transmitir a la TV, abrí la lección en Chrome. Si usás la app de Hub Education, actualizala." |
+| App con puente que contesta sin `'cast'` | "Este teléfono no puede transmitir a Chromecast." |
+| App que contesta `error{version}` | "Para transmitir a la TV, actualizá la app de Hub Education." (con un solo protocolo hoy no pasa) |
+| App con puente que no contesta en 3 s | "No se pudo preparar la transmisión. Probá de nuevo." (el toque siguiente vuelve a saludar) |
+
+**Orden de publicación:** el reproductor 1.4.0 sale primero, con la casilla apagada. Sin
+nadie que conteste el saludo no cambia nada (no hay ningún pedido a `gstatic.com` en el
+WebView, y los textos son los de hoy). La casilla se prende recién con la app nueva en
+Play. Volver atrás es el `player.html` anterior; la casilla apagada es inocua.
+
+**Diagnóstico** (desde `chrome://inspect` con la app de prueba): `window.__ivCastDiag.modo`
+dice `app` o `web`; `sdk`, en qué quedó el saludo (`app: listo`, `app: sin-respuesta`,
+`app: version`, `app: sin-cast`); `puenteRepetidos`, cuántos `media` idénticos se
+descartaron. Las pruebas de navegador lo reproducen con `marco.html?app=fake&webview=1`
+(parámetros en `tests/navegador/simulados/puente-app-simulado.js`).
 
 ### Cómo funciona
 
@@ -425,7 +451,9 @@ Todo lo de arriba se probó con un receptor de Cast y un AirPlay **simulados**. 
 confirmar con equipos de verdad: que la TV herede el token en las variantes y los
 segmentos, la latencia real del freno, cuánto tarda la TV en cerrarse sola en pausa
 durante una pregunta larga, qué pasa con el celular bloqueado, y AirPlay en iPhone,
-iPad y Mac.
+iPad y Mac. Del modo app (1.4.0), la prueba de punta a punta con la app de prueba y una
+TV real: el estado de sesión que manda la app al volver a primer plano, que la TV
+devuelva el `customData` y que el primer IDLE de 1.3.3 siga sin cortar por el puente.
 
 ## Pendiente: partir el bundle
 

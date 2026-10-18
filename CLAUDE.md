@@ -388,6 +388,9 @@ la misma superficie del Web SDK que `cast-simulado.js`, y `CastPlayer` no cambia
 - 🔴 **iPhone: AirPlay sólo si la app declara `'airplay'`.** `airplayPosible()` da true en
   cualquier WKWebView: un iPhone con Chromecast y sin Apple TV no llegaba nunca a Chromecast.
   Sin TV de AirPlay: directo a Chromecast; con las dos: el selector (`menu==='destinoTV'`).
+  Con el saludo de la carga sin contestar (`infoApp().capacidades` null) el toque NO va a
+  Chromecast a ciegas: `tocarCast(true)` re-saluda y, si la app declara `'airplay'` y hay TV
+  de AirPlay, abre el selector (el prompt de AirPlay ya no se puede abrir: pasó el gesto).
 - Pruebas: `marco.html?app=fake&webview=1` (la app y la TV arriba, como view.php; el
   reproductor en el iframe sin Cast Web SDK ni Presentation API y con UA MoodleMobile).
   `app=mudo` (nadie contesta), `cast=0`, `holaLento`, `latPuente`, `duplicados=1`,
