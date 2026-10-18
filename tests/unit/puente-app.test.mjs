@@ -81,6 +81,18 @@ test('leerSobres: sólo { ivcast: 1, tipo }, de un texto, un objeto o un arreglo
   }
 });
 
+// El `reproductor` del hola sale de una constante escrita a mano: en el próximo release
+// (1.4.1…) se sube package.json y version.php y ésta quedaba atrás sin que nada lo viera,
+// y la app anotaría una versión que no es.
+test('VERSION_REPRODUCTOR es la que se publica (package.json y el release de version.php)', async () => {
+  const fs = await import('node:fs');
+  const leer = (rel) => fs.readFileSync(new URL('../../' + rel, import.meta.url), 'utf8');
+  const { version } = JSON.parse(leer('package.json'));
+  assert.equal(P.VERSION_REPRODUCTOR, version, 'src/puenteApp.js y package.json tienen que decir la misma versión');
+  const release = (/\$plugin->release\s*=\s*'([^']+)'/.exec(leer('mod/ivplayer/version.php')) || [])[1];
+  assert.equal(release, version, 'el release de mod/ivplayer/version.php tiene que ser la versión de package.json');
+});
+
 test('el saludo: hola con id de la instancia, soporta [1] y la versión; hola-ok resuelve normalizado y queda guardado', async () => {
   const w = ventana();
   w._app = (m) => m.tipo === 'hola' ? { ivcast: 1, tipo: 'hola-ok', re: m.id, app: { version: '2.1.0', plataforma: 'android' }, capacidades: ['cast', 'velocidad', 7], cast: { receptor: 'CC1AD845', estado: 'NOT_CONNECTED', sesion: null } } : null;
