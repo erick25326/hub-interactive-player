@@ -232,6 +232,42 @@ function ivplayer_get_coursemodule_info($coursemodule) {
 }
 
 /**
+ * Registra que se abrió la actividad: el evento de vista y el "visto" de la finalización.
+ *
+ * Lo llama view.php, una vez por carga de la página de la lección. Es el patrón de los
+ * módulos de core (page_view() en mod/page): primero el evento, después la finalización.
+ * Sin el evento, el log del campus no veía las lecciones (Registros, Actividad del
+ * curso y Participación las daban en 0) aunque la finalización sí las marcaba.
+ * 🔴 No va en player.php: el iframe se recarga solo (giro de pantalla en iOS,
+ * "Reintentar" cuando vence la firma) y contaría vistas de más.
+ * 🔴 La clase del evento es nueva y Moodle la ve recién después del upgrade (que purga
+ * el mapa de clases). El actualizador automático (scripts/moodle-auto-update.php) copia
+ * los archivos y deja el upgrade para cuando entra un admin: en ese rato, sin el
+ * class_exists, view.php tiraba "clase no encontrada" en TODAS las lecciones. Así sólo
+ * se pierde el registro de esas vistas, y la finalización se marca igual.
+ *
+ * @param stdClass $ivplayer Registro de la tabla ivplayer.
+ * @param stdClass $course Registro del curso.
+ * @param stdClass|cm_info $cm Módulo del curso.
+ * @param context_module $context Contexto del módulo.
+ */
+function ivplayer_view($ivplayer, $course, $cm, $context) {
+    if (class_exists(\mod_ivplayer\event\course_module_viewed::class)) {
+        $event = \mod_ivplayer\event\course_module_viewed::create([
+            'objectid' => $ivplayer->id,
+            'context' => $context,
+        ]);
+        $event->add_record_snapshot('course_modules', $cm);
+        $event->add_record_snapshot('course', $course);
+        $event->add_record_snapshot('ivplayer', $ivplayer);
+        $event->trigger();
+    }
+
+    $completion = new completion_info($course);
+    $completion->set_module_viewed($cm);
+}
+
+/**
  * Parse a Vimeo URL or ID into components.
  */
 function ivplayer_parse_vimeo($input) {

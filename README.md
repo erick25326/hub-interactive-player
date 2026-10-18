@@ -56,7 +56,7 @@ el job queda verde con una advertencia arriba del log.
 | Capa | Dónde | Qué protege |
 |---|---|---|
 | Unitarias | `tests/unit/` | El candado (`src/candado.js`: `debeFrenar`, la guardia, `tiempoAGuardar`) con casos fijos y un simulador de ticks; el parser de subtítulos (`src/subtitulos.js`); la firma de Bunny contra los vectores oficiales (espejo en Node), incluida la regla de "¿esta actividad usa Bunny?" que comparten `player.php` y `firma.php`; la renovación de la firma (`src/firma.js`: leer y reescribir las URLs del master, variantes, `.ts` y miniatura, el reloj con la hora del celular corrida, el Renovador contra un `firma.php` falso); el adaptador de Chromecast (`CastPlayer`) contra una TV falsa que avisa un salto en un solo estado; el puente con hub-app (`src/puenteApp.js`: sobres, respuestas de otra instancia, topes, el saludo sin respuesta, latido y adios) y el SDK imitado (`src/castNativo.js`: un Media por msid, estados repetidos descartados, rechazos de `requestSession`, `CastPlayer` a través del shim). Además, una huella del código de las funciones de `lib.php` que sólo prueba PHP: si cambian, avisa que hay que correr la prueba PHP. |
-| PHP | `tests/php/correr.php` | La sintaxis de cada `.php` del plugin (`php -l`: `player.php` y `firma.php` necesitan Moodle y ninguna otra prueba los ejecuta) y las funciones puras de `mod/ivplayer/lib.php` leídas del archivo real: firma HS256 de Bunny, la regla de qué actividad reproduce Bunny (`ivplayer_bunny_video`, la de `player.php` y `firma.php`, y que la clave no salga) y normalización de subtítulos (BOM, UTF-16, Windows-1252, bytes rotos). El `php -l` corre también en el workflow que publica el ZIP. |
+| PHP | `tests/php/correr.php` | La sintaxis de cada `.php` del plugin (`php -l`: `player.php` y `firma.php` necesitan Moodle y ninguna otra prueba los ejecuta) y las funciones puras de `mod/ivplayer/lib.php` leídas del archivo real: firma HS256 de Bunny, la regla de qué actividad reproduce Bunny (`ivplayer_bunny_video`, la de `player.php` y `firma.php`, y que la clave no salga) y normalización de subtítulos (BOM, UTF-16, Windows-1252, bytes rotos). Además, el cableado del evento de vista (`ivplayer_view`) con reemplazos mínimos de Moodle: qué evento sale, con qué datos, la finalización después, y que sin la clase (antes del upgrade) la lección no rompe. El `php -l` corre también en el workflow que publica el ZIP. |
 | Navegador | `tests/navegador/` | El bundle compilado en Chrome, con clics y toques reales por CDP: el candado con hls.js y con HLS nativo (saltos de afuera, también con una nota abierta; restauración; +10 y −10; play de afuera), el cambio de calidad antes de una pregunta (y, con el nativo, un salto del cambio de fuente que aterriza corrido), los subtítulos, la TV con Chromecast y AirPlay simulados (también como adentro de hub-app, por el puente: salir y volver, el saludo sin respuesta, sin Chromecast, iPhone con AirPlay o sin, y el WebView de la app de hoy), la fila de controles a 320 y 360 px en pantalla completa simulada, y la firma de Bunny que vence a los pocos segundos (el servidor de pruebas la valida como el CDN, con 403): sin cortes ni saltos y con el candado intacto, el 403 que se arregla solo (también con la red que tarda en volver), el pedido que espera una renovación en camino, un salto y un play durante esa espera (y, con el nativo, un −10 durante el rescate y la calidad elegida justo al vencer), una calidad rota que no es el vencimiento (con hls.js pasa a otra, sin cartel), el cartel si no se puede renovar y la TV que recarga con la firma nueva. Y el configurador armado como el de GitHub Pages con un MP4 de la compu (generado con ffmpeg): tomar el tiempo, saltar, la vista previa con el reproductor, exportar sin `vimeoId`, liberar el archivo al cambiarlo, un archivo que no es video o que no se puede leer, un video sin la duración en la cabecera (WebM), el JSON de la skill con `videoUrl` y el ida y vuelta con Moodle pasado por el manejador real de `mod_form.php` (el campo de Vimeo no se toca). |
 
 🔴 El simulador de las unitarias (`tests/unit/apoyo/simulador.mjs`) usa las
@@ -114,6 +114,37 @@ window.PLAYER_CONFIG = {
 1. Compilar con `npx vite build`
 2. Subir `dist/index.html` como recurso "Archivo" en Moodle
 3. O embeber como iframe en una actividad "Página"
+
+## Vistas en el log del campus (evento de vista)
+
+Hasta la 1.3.3, `view.php` marcaba el "visto" de la finalización pero no disparaba
+ningún evento: el log del campus tenía 0 filas de `mod_ivplayer` y los informes de
+Registros, Actividad del curso y Participación daban las lecciones en 0. Desde esta
+versión `view.php` llama a `ivplayer_view()` (`lib.php`), que dispara
+`\mod_ivplayer\event\course_module_viewed` (`classes/event/`) y después marca la
+finalización, como `page_view()` de core.
+
+- Se registra **una vez por carga de la página de la lección**. `player.php` (el
+  iframe) no registra nada: se recarga solo (giro en iOS, "Reintentar") y contaría de más.
+- Las vistas de antes no se recuperan: el log cuenta desde que se instala.
+- La clase nueva entra al mapa de clases de Moodle con el **upgrade** (por eso subió
+  `$plugin->version`). Si el actualizador automático copió los archivos y el upgrade
+  todavía no corrió, la lección abre igual y la vista no queda registrada hasta entonces.
+
+**Verificar en el campus (test-academy primero):**
+
+1. Instalar y completar el upgrade (Administración del sitio → Notificaciones).
+2. Con una cuenta de alumno, abrir una lección de Video interactivo (en producción,
+   cm 393). Recargar una vez la página entera y, sin salir, tocar "Reintentar" o girar
+   el celular si se puede: eso recarga sólo el iframe.
+3. Como admin, Administración del sitio → Informes → Registros (o el curso → Informes
+   → Registros), filtrar por esa actividad: tiene que haber **dos** filas "Módulo de
+   curso visto" (`\mod_ivplayer\event\course_module_viewed`) de ese alumno, una por cada
+   carga de la página; las recargas del iframe no suman.
+4. Opcional, por SQL (prefijo según el sitio):
+   `SELECT COUNT(*) FROM mdl_logstore_standard_log WHERE component = 'mod_ivplayer' AND action = 'viewed' AND contextinstanceid = <cmid>;`
+5. La finalización "visto" sigue igual: en Finalización de actividades, la lección del
+   alumno marcada (si la actividad usa "ver" como condición).
 
 ## Videos de Bunny Stream en el campus (plugin 1.3.0)
 

@@ -1,6 +1,7 @@
 <?php
 require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
+require_once($CFG->libdir . '/completionlib.php');
 
 $id = required_param('id', PARAM_INT);
 
@@ -18,9 +19,8 @@ $PAGE->set_title($ivplayer->name);
 $PAGE->set_heading($course->fullname);
 $PAGE->add_body_class('ivplayer-page');
 
-// Mark viewed for completion.
-$completion = new completion_info($course);
-$completion->set_module_viewed($cm);
+// Evento de vista (log del campus) y "visto" de la finalización: ver ivplayer_view().
+ivplayer_view($ivplayer, $course, $cm, $context);
 
 // Player iframe URL.
 $playerurl = new moodle_url('/mod/ivplayer/player.php', ['id' => $cm->id]);

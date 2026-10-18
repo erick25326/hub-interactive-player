@@ -55,3 +55,32 @@ test('la casilla appcastpublicada llega al reproductor apagada por defecto', asy
     }
   }
 });
+
+// El evento de vista (1.4.0, plan 0.3). Lo que hace ivplayer_view() lo prueba correr.php
+// con reemplazos mínimos de Moodle (corre en CI); que el log lo guarde, sólo el campus
+// (README, "Verificar el evento de vista en el campus"). Acá, sin PHP: que la función no
+// cambie sin pasar por correr.php y que esté enchufada donde va.
+test('el evento de vista sale de view.php, una vez por carga, y nunca de player.php', async () => {
+  const fs = await import('node:fs');
+  const leer = (rel) => fs.readFileSync(new URL('../../mod/ivplayer/' + rel, import.meta.url), 'utf8').split('\r\n').join('\n');
+  const f = funcionPhp(leerLib(), 'ivplayer_view');
+  assert.ok(f, 'ivplayer_view ya no está en lib.php');
+  assert.equal(huella(f), '0bcefa3c5520168c',
+    `ivplayer_view cambió en lib.php: corré npm run test:php (o el workflow "Pruebas") y, si da bien, poné la huella nueva (${huella(f)})`);
+  const view = leer('view.php');
+  assert.equal((view.match(/ivplayer_view\(\$/g) || []).length, 1, 'view.php tiene que llamar a ivplayer_view una sola vez');
+  assert.match(view, /ivplayer_view\(\$ivplayer, \$course, \$cm, \$context\);/);
+  const llamada = view.indexOf('ivplayer_view($');
+  assert.ok(llamada > view.indexOf('require_capability(') && llamada < view.indexOf('$OUTPUT->header()'),
+    'la vista se registra después de los permisos y antes de imprimir la página');
+  assert.doesNotMatch(view, /set_module_viewed/, 'la finalización va adentro de ivplayer_view (después del evento), no suelta en view.php');
+  // 🔴 player.php se recarga dentro del iframe (giro en iOS, Reintentar): contaría de más.
+  for (const otro of ['player.php', 'firma.php', 'progress.php', 'complete.php', 'answer.php']) {
+    const src = leer(otro);
+    assert.doesNotMatch(src, /ivplayer_view\(|course_module_viewed|set_module_viewed/, `${otro} no tiene que registrar vistas`);
+  }
+  const clase = leer('classes/event/course_module_viewed.php');
+  assert.match(clase, /^namespace mod_ivplayer\\event;$/m);
+  assert.match(clase, /class course_module_viewed extends \\core\\event\\course_module_viewed \{/);
+  assert.match(clase, /\$this->data\['objecttable'\] = 'ivplayer';\s*parent::init\(\);/);
+});

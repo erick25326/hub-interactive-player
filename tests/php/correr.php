@@ -351,5 +351,112 @@ chequear('en el contexto del reproductor sale como booleano JSON',
     json_encode(['appCastPublicada' => ivplayer_app_cast_publicada(false)]), '{"appCastPublicada":false}');
 seccion('casilla appcastpublicada: booleano, apagada sin guardar');
 
+// ─── Evento de vista: view.php → ivplayer_view() ─────────────────────────────
+// Sin Moodle no hay log: se prueba el CABLEADO con lo mínimo de \core\event y de
+// completion_info. Qué evento sale, con qué datos (los que valida el de core: objectid,
+// objecttable y un contexto de módulo), una sola vez, y la finalización DESPUÉS, como
+// page_view() de core. Que la vista llegue al log lo confirma sólo el campus (README,
+// "Verificar el evento de vista en el campus").
+// ivplayer_view no es pura (usa completion_info y la clase del evento): se lee aparte,
+// sin pasar por el control de arriba, y corre sólo contra estos reemplazos.
+if (!defined('MOODLE_INTERNAL')) {
+    define('MOODLE_INTERNAL', true);
+}
+eval('namespace core\event;
+abstract class course_module_viewed {
+    public static $registro = [];
+    protected $data = [];
+    protected $context = null;
+    public $snapshots = [];
+    private $disparado = false;
+    final public static function create(?array $data = null) {
+        $evento = new static();
+        $evento->init();
+        $evento->data["objectid"] = $data["objectid"] ?? null;
+        $evento->context = $data["context"] ?? null;
+        // Lo que exige validate_data() de core para un "módulo visto" (70 = CONTEXT_MODULE).
+        if (empty($evento->data["objectid"])) { throw new \coding_exception("falta objectid"); }
+        if (empty($evento->data["objecttable"])) { throw new \coding_exception("falta objecttable (va en init)"); }
+        if (!is_object($evento->context) || ($evento->context->contextlevel ?? null) !== 70) { throw new \coding_exception("el contexto tiene que ser del módulo"); }
+        return $evento;
+    }
+    protected function init() {
+        $this->data["crud"] = "r";
+        $this->data["edulevel"] = 2;
+    }
+    public function add_record_snapshot($tabla, $registro) {
+        if ($this->disparado) { throw new \coding_exception("snapshot después de trigger()"); }
+        $this->snapshots[$tabla] = $registro;
+    }
+    public function trigger() {
+        if ($this->disparado) { throw new \coding_exception("trigger() dos veces"); }
+        $this->disparado = true;
+        self::$registro[] = ["evento", get_class($this), $this->data, $this->context, $this->snapshots];
+    }
+}');
+if (!class_exists('completion_info')) {
+    class completion_info {
+        private $curso;
+        public function __construct($curso) {
+            $this->curso = $curso;
+        }
+        public function set_module_viewed($cm, $userid = 0) {
+            \core\event\course_module_viewed::$registro[] = ['visto', $cm, $this->curso];
+        }
+    }
+}
+$mview = [];
+if (!preg_match('/^function ivplayer_view\(.*?^\}/ms', $src, $mview)) {
+    chequear('ivplayer_view está en lib.php', false, true);
+} else {
+    eval($mview[0]);
+    $curso = (object) ['id' => 5];
+    $cmprueba = (object) ['id' => 393, 'course' => 5, 'instance' => 42, 'modname' => 'ivplayer'];
+    $ivprueba = (object) ['id' => 42, 'course' => 5, 'name' => 'Lección de prueba'];
+    $contexto = (object) ['id' => 900, 'contextlevel' => 70, 'instanceid' => 393];
+
+    // Antes del upgrade la clase no está en el mapa de clases (acá, sin autoloader, todavía
+    // no se cargó): no rompe y la finalización se marca igual.
+    \core\event\course_module_viewed::$registro = [];
+    $error = null;
+    try {
+        ivplayer_view($ivprueba, $curso, $cmprueba, $contexto);
+    } catch (Throwable $e) {
+        $error = get_class($e) . ': ' . $e->getMessage();
+    }
+    chequear('sin la clase del evento (antes del upgrade): view.php no rompe', $error, null);
+    chequear('sin la clase del evento: igual marca el "visto" de la finalización',
+        \core\event\course_module_viewed::$registro, [['visto', $cmprueba, $curso]]);
+
+    require $raizplugin . '/classes/event/course_module_viewed.php';
+    chequear('el evento propio es un "módulo visto" de core',
+        is_subclass_of('mod_ivplayer\event\course_module_viewed', 'core\event\course_module_viewed'), true);
+    chequear('al restaurar un respaldo, el objectid sigue el mapeo de la instancia',
+        \mod_ivplayer\event\course_module_viewed::get_objectid_mapping(), ['db' => 'ivplayer', 'restore' => 'ivplayer']);
+
+    \core\event\course_module_viewed::$registro = [];
+    $error = null;
+    try {
+        ivplayer_view($ivprueba, $curso, $cmprueba, $contexto);
+    } catch (Throwable $e) {
+        $error = get_class($e) . ': ' . $e->getMessage();
+    }
+    $reg = \core\event\course_module_viewed::$registro;
+    chequear('con la clase: no rompe', $error, null);
+    chequear('un evento y un "visto", en ese orden (como page_view() de core)', array_column($reg, 0), ['evento', 'visto']);
+    $ev = $reg[0] ?? [null, null, [], null, []];
+    chequear('el evento es mod_ivplayer\event\course_module_viewed', $ev[1], 'mod_ivplayer\event\course_module_viewed');
+    chequear('objecttable ivplayer y objectid = la instancia (no el cmid)',
+        [$ev[2]['objecttable'] ?? null, $ev[2]['objectid'] ?? null], ['ivplayer', 42]);
+    chequear('lectura y nivel "participación" (los pone el de core: cuenta en los informes)',
+        [$ev[2]['crud'] ?? null, $ev[2]['edulevel'] ?? null], ['r', 2]);
+    chequear('en el contexto del módulo', $ev[3] === $contexto, true);
+    chequear('con las fotos del módulo, el curso y la instancia',
+        [($ev[4]['course_modules'] ?? null) === $cmprueba, ($ev[4]['course'] ?? null) === $curso, ($ev[4]['ivplayer'] ?? null) === $ivprueba],
+        [true, true, true]);
+    chequear('el "visto" de la finalización es de este módulo y este curso', $reg[1] ?? null, ['visto', $cmprueba, $curso]);
+}
+seccion('evento de vista: ivplayer_view() (sin la clase y con ella)');
+
 echo PHP_EOL . "$ok ok, $mal mal" . PHP_EOL;
 exit($mal ? 1 : 0);

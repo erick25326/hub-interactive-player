@@ -432,6 +432,20 @@ la misma superficie del Web SDK que `cast-simulado.js`, y `CastPlayer` no cambia
   `app=mudo` (nadie contesta), `cast=0`, `holaLento`, `latPuente`, `duplicados=1`,
   `plataforma=ios` (+`airplayApp=0`), `appCastPublicada=1`. Ver puente-app-simulado.js.
 
+## Evento de vista (plan Bunny 0.3, oct-2026) — trampas
+`view.php` → `ivplayer_view()` (`lib.php`): dispara `\mod_ivplayer\event\course_module_viewed`
+(`classes/event/`) y después `set_module_viewed`, como `page_view()` de core. Cómo
+verificarlo en el campus: README, "Vistas en el log del campus".
+- 🔴 **Nunca en `player.php`** (ni en firma/progress/complete/answer): el iframe se recarga
+  solo (giro en iOS, "Reintentar") y contaría vistas de más. Lo vigila `lib-php.test.mjs`.
+- 🔴 **Una clase nueva en `classes/` la ve Moodle recién después del upgrade** (que purga el
+  mapa de clases). Por eso subió `$plugin->version`, y por eso `ivplayer_view` pregunta
+  `class_exists` antes: el actualizador automático copia los archivos y deja el upgrade
+  para cuando entra un admin; sin la pregunta, en ese rato TODAS las lecciones daban
+  "clase no encontrada". Vale para cualquier clase nueva del plugin.
+- `ivplayer_view` no es pura: la prueba `correr.php` aparte, con reemplazos mínimos de
+  `\core\event\course_module_viewed` y `completion_info` (el cableado, no el log).
+
 ## Brand
 - Colors: #0162F5 (primary), #14CCF7 (secondary), #84F4BE (accent), #062E60 (dark)
 - Fonts: Changa (headings), Work Sans (body)
