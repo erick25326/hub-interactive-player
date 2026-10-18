@@ -806,6 +806,15 @@ export class CastPlayer {
     // Estados e IdleReason del SDK son estos textos (chrome.cast.media.PlayerState.*).
     const estado = m.playerState;
     if (!vivo || estado === "IDLE") {
+      // 🔴 Cargando, un IDLE NO es el final: una TV real (Chromecast de Erick, oct-2026)
+      // avisa primero una media en IDLE con motivo y, un segundo después, otra media en
+      // BUFFERING con nuestro video. Leer ese primer IDLE como "terminó" cortaba la
+      // transmisión a los 50 ms: la compu volvía a reproducir sola y la TV arrancaba
+      // igual, desfasada. Mientras carga se espera; sólo pasado el tope es un error.
+      if (this._carga) {
+        if (ahora() - this._carga.h > TOPE_CARGA_MS) return this._terminarTransmision("error");
+        return;
+      }
       const motivo = m.idleReason;
       if (vivo && !motivo) return;   // IDLE recién cargada, todavía sin arrancar
       if (motivo === "FINISHED") return this._terminoElVideo();

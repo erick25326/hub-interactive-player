@@ -118,6 +118,20 @@ export function registrar(entorno) {
   });
 
   describe('transmitir a la TV · botón siempre visible y avisos (prueba con TV real, oct-2026)', () => {
+    paso(entorno, 'primera conexión: un primer aviso en IDLE de la TV (como el Chromecast real) no corta la transmisión', async () => {
+      await p.abrir({ query: { motor: 'hls', cast: 'fake', lat: '120', idlePrimero: '1' } });
+      await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
+      await p.reproducir();
+      await p.debe(`A.comp() > 1`, 10000, 'no arrancó a reproducir');
+      await p.clic('.iv-tv-btn');
+      await p.debe(`/^Reproduciendo en/.test(A.estado().capa || '') && window.__tv.receptor.estado === 'PLAYING'`, 15000, 'la compu no siguió a la TV');
+      await dormir(1500);
+      const e = await p.estado();
+      assert.equal(e.pausado, true, 'el video de la compu tiene que quedar en pausa');
+      assert.ok(!/Se dejó de transmitir|no pudo|No se pudo/.test(e.aviso || ''), `aviso falso: ${e.aviso}`);
+      assert.ok(cerca(e.comp, e.tv.t, 0.8), `la compu tiene que seguir a la TV: ${JSON.stringify({ comp: e.comp, tv: e.tv })}`);
+    });
+
     paso(entorno, 'primera conexión: si el pedido de carga falla pero la TV carga igual, la compu se engancha y no sigue sola', async () => {
       await p.abrir({ query: { motor: 'hls', cast: 'fake', lat: '120', cargaTarde: '1' } });
       await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');

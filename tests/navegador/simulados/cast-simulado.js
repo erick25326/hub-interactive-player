@@ -10,6 +10,7 @@
 //   reanudar=70  al llamar setOptions, aparece una sesión REANUDADA con este video en 70 s, reproduciendo
 //   ajeno=1      …pero con OTRO video cargado
 //   cargaTarde=1 el LOAD vuelve con error pero la TV carga igual a los 2,5 s
+//   idlePrimero=1 al cargar, primero una media en IDLE (INTERRUPTED) y después la real
 //   nombre=…     friendlyName (se entrega escapado como HTML, como el SDK real)
 // Control remoto de la TV (window.__tv.remoto): adelantar(s), irA(t), play(), pause(),
 // parar() (CANCELLED), cortarSesion() (Google Home "dejar de transmitir"), otroVideo().
@@ -66,7 +67,7 @@
 
   // ---- El celular (emisor) ------------------------------------------------------
   class Media {
-    constructor(s) { this._s = s; this.mediaSessionId = s.msid; this.media = s.media; this.playerState = s.estado; this.currentTime = s.t; this.playbackRate = s.rate; this.idleReason = null; this._oy = []; this._h = performance.now(); }
+    constructor(s) { this._s = s; this.mediaSessionId = s.msid; this.media = s.media; this.playerState = s.estado; this.currentTime = s.t; this.playbackRate = s.rate; this.idleReason = s.idleReason || null; this._oy = []; this._h = performance.now(); }
     addUpdateListener(fn) { this._oy.push(fn); }
     removeUpdateListener(fn) { this._oy = this._oy.filter((x) => x !== fn); }
     getEstimatedTime() { return this.playerState === 'PLAYING' ? this.currentTime + (performance.now() - this._h) / 1000 * this.playbackRate : this.currentTime; }
@@ -131,6 +132,9 @@
         const tarde = q.get('cargaTarde') ? 2500 : 0;
         if (tarde) demora(() => mal('session_error'), LAT * 2 + 100);
         setTimeout(() => demora(() => {
+          // idlePrimero=1: como un Chromecast real, primero aparece una media en IDLE con
+          // motivo y recién después la de verdad, en BUFFERING.
+          if (q.get('idlePrimero')) { R.msid++; this._nuevaMedia({ t: 0, estado: 'IDLE', rate: 1, idleReason: 'INTERRUPTED', msid: R.msid, media: { ...req.media } }); }
           // La media anterior (si había) queda interrumpida.
           if (R.media && R.estado !== 'IDLE') { R.idleReason = 'INTERRUPTED'; }
           R.msid++; R.media = { ...req.media, duration: Number.isFinite(dur) ? dur : 260 }; R.duracion = R.media.duration; R.idleReason = null; R.rate = req.playbackRate || 1;
