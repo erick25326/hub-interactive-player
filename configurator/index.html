@@ -930,6 +930,17 @@ function usarReproductor(r, mensajeError) {
     renderPreviewTimeline();
   }).catch(function() {
     if (reproductor !== r) return;
+    // Un archivo que el navegador no puede leer (un .mkv, un MP4 roto o en un códec que
+    // no tiene) no queda como "el video abierto": si no, el JSON seguía saliendo sin
+    // vimeoId, la vista previa abría una URL que no reproduce, el cartel decía
+    // "Reproduciendo…" y la URL quedaba viva. Se libera y queda sin video.
+    if (r.tipo === 'local') {
+      try { r.destroy(); } catch (e) {}
+      reproductor = null;
+      mostrarFuenteLocal(null);
+      mostrarAvisoVideoUrl();
+      mostrarTiempoActual();
+    }
     mostrarErrorVideo(mensajeError);
   });
 }

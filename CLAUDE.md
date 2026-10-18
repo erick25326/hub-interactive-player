@@ -175,6 +175,14 @@ sólo por la interfaz de "REPRODUCTOR DE LA VISTA PREVIA" (`crearReproductorVime
 - `destroy()` del local corta la lectura (`removeAttribute('src')` + `load()`) antes de
   `revokeObjectURL`, y borra `iv_progress_<blob:…>` (la clave del avance de la vista
   previa con esa URL, que no vuelve a existir).
+- Un archivo que el navegador no puede leer (pasa el filtro por el tipo, como un `.mp4`
+  roto, y falla al cargar) **no queda como el video abierto**: `usarReproductor` lo
+  libera y deja `reproductor = null`. Si quedaba, el JSON salía sin `vimeoId`, la vista
+  previa abría una URL muerta y el cartel decía "Reproduciendo…".
+- Con Vimeo, `setCurrentTime` antes del primer play no resolvió nunca (SDK real en
+  Chrome headless, oct-2026): el salto queda hecho y `getCurrentTime` lo da, pero no
+  llega `seeked`, así que el "(m:ss)" del botón no se mueve hasta el play. Por eso
+  "Ir a este tiempo" no encadena nada después de esa promesa.
 - `scripts/armar-configurador.mjs` arma el configurador publicado (lo usan
   `build-configurator.js` y el servidor de pruebas en `/configurador.html`): se prueba
   lo mismo que se publica. La prueba (`escenarios/configurador.mjs`) necesita ffmpeg;

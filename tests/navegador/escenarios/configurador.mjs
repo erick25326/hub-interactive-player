@@ -56,6 +56,18 @@ function generarMp4(destino) {
   if (r.error || r.status !== 0) throw new Error(`ffmpeg no pudo generar el MP4 de prueba:\n${r.stderr || r.error}`);
 }
 
+// Un WebM "en vivo" (sin Duration ni Cues en la cabecera), como los que graba
+// MediaRecorder: el navegador da duration = Infinity hasta haberlo leído entero.
+function generarWebmSinDuracion(destino, segundos) {
+  const r = spawnSync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'lavfi', '-i', `testsrc2=size=320x180:rate=10:duration=${segundos}`,
+    '-c:v', 'libvpx', '-b:v', '200k', '-deadline', 'realtime', '-cpu-used', '8', '-g', '10',
+    '-an', '-f', 'webm', '-live', '1', destino,
+  ], { encoding: 'utf8', windowsHide: true });
+  if (r.error || r.status !== 0) throw new Error(`ffmpeg no pudo generar el WebM sin duración:\n${r.stderr || r.error}`);
+}
+
 export function registrar(entorno, { avisar = () => {} } = {}) {
   const { cdp, pagina: p } = entorno;
   const exigir = process.env.IVP_EXIGIR_NAVEGADOR === '1';
@@ -65,7 +77,7 @@ export function registrar(entorno, { avisar = () => {} } = {}) {
   if (sinFfmpeg) avisar(`${sinFfmpeg}: se saltean las pruebas del configurador con un video de la compu`);
 
   describe('configurador · video de la compu (los de Bunny)', () => {
-    let tmp = null, mp4 = null, mp4b = null;
+    let tmp = null, mp4 = null, mp4b = null, roto = null, texto = null, webm = null;
     const excepciones = [];
     const dialogos = [];
     const pedidos = [];   // URLs que pidió la página (Network.requestWillBeSent)
@@ -174,6 +186,14 @@ export function registrar(entorno, { avisar = () => {} } = {}) {
       // Una copia con otro nombre, para probar el cambio de archivo.
       mp4b = path.join(tmp, 'otra-clase.mp4');
       fs.copyFileSync(mp4, mp4b);
+      // Un .mp4 que no es un video (el navegador le pone video/mp4 por la extensión y
+      // recién al leerlo falla) y un archivo que no es video ni por el tipo.
+      roto = path.join(tmp, 'clase-rota.mp4');
+      fs.writeFileSync(roto, 'esto no es un video '.repeat(200));
+      texto = path.join(tmp, 'notas.txt');
+      fs.writeFileSync(texto, 'notas de la clase');
+      webm = path.join(tmp, 'grabacion-sin-duracion.webm');
+      generarWebmSinDuracion(webm, 6);
       await p.vista();
       await cdp.cmd('Network.setBlockedURLs', { urls: [...BLOQUEADAS_SIEMPRE, ...BLOQUEADAS_ACA] });
       await cdp.cmd('Page.setInterceptFileChooserDialog', { enabled: true });
@@ -448,6 +468,62 @@ export function registrar(entorno, { avisar = () => {} } = {}) {
       assert.equal(await ev(`document.getElementById('avisoVideoUrl').style.display`), 'none', 'el aviso quedó de un JSON anterior');
       await ev(`document.getElementById('vimeoInput').value = 'PENDIENTE', true`);
       assert.equal(await ev('window.generateConfig().vimeoId'), '', 'un relleno escrito a mano viajaría a Moodle como vimeoId');
+    });
+
+    paso('un archivo que no es video avisa sin tocar nada, y uno que el navegador no puede leer no queda como el video abierto', async () => {
+      await ev(`document.getElementById('vimeoInput').value = ${JSON.stringify(VIMEO_DE_MOODLE)}, true`);
+      await abrirArchivo(mp4);
+      await esperar(`reproductor && reproductor.tipo === 'local' && videoDuration > 0`, 10000, 'el video local no quedó listo');
+      const buena = await ev('reproductor.url');
+
+      // Un .txt (text/plain): avisa y el video abierto sigue.
+      const avisos0 = dialogos.length;
+      await abrirArchivo(texto);
+      for (const fin = Date.now() + 3000; dialogos.length === avisos0 && Date.now() < fin;) await dormir(50);
+      // Se sacan de la lista: este aviso es el esperado (paso() falla con cualquier otro).
+      const avisos = dialogos.splice(avisos0);
+      assert.equal(avisos.length, 1, `avisos: ${JSON.stringify(avisos)}`);
+      assert.match(avisos[0], /tiene que ser un video/);
+      assert.equal(await ev('reproductor && reproductor.url'), buena, 'un archivo que no es video sacó el video abierto');
+      assert.match(await ev(`document.getElementById('fuenteLocal').textContent`), /clase-de-prueba\.mp4/);
+
+      // Un .mp4 que no es un video: pasa el filtro por el tipo y falla al leerlo.
+      await abrirArchivo(roto);
+      await esperar(`/No se pudo reproducir el archivo/.test(document.getElementById('videoContainer').textContent)`, 10000, 'no apareció el cartel de que el archivo no se puede reproducir');
+      assert.equal(await ev('reproductor === null'), true, 'el archivo que no se puede leer quedó como el video abierto');
+      const rota = await ev('[...window.__blobs.keys()].pop()');
+      assert.ok(rota && rota !== buena && rota.startsWith('blob:'), `no encontré la URL del archivo roto (${rota})`);
+      assert.equal(await ev(`fetch(${JSON.stringify(rota)}).then(() => 'viva', () => 'liberada')`), 'liberada', 'la URL del archivo roto sigue viva');
+      assert.equal(await ev(`fetch(${JSON.stringify(buena)}).then(() => 'viva', () => 'liberada')`), 'liberada', 'la URL del archivo anterior sigue viva');
+      assert.equal(await ev(`document.getElementById('fuenteLocal').style.display`), 'none', 'sigue diciendo "Reproduciendo…" un archivo que no se reproduce');
+      assert.equal(await ev(`document.querySelectorAll('#videoContainer video').length`), 0);
+      // Sin video abierto, como antes de abrir el archivo: lo que haya en el campo de Vimeo.
+      assert.equal(await ev('window.generateConfig().vimeoId'), '123456789');
+      assert.equal(await ev(`'videoUrl' in window.generatePreviewConfig()`), false, 'la vista previa llevaría la URL del archivo roto');
+    });
+
+    paso('un video sin duración conocida (WebM sin la duración en la cabecera): sin línea de tiempo hasta saberla, y se marca igual', async () => {
+      await abrirArchivo(webm);
+      await esperar(`reproductor && reproductor.tipo === 'local' && document.querySelector('#videoContainer video').readyState >= 1`, 10000, 'el WebM no cargó');
+      await ev('reproductor.ready().then(() => true)');
+      assert.equal(await ev(`String(document.querySelector('#videoContainer video').duration)`), 'Infinity',
+        'el WebM de prueba trae la duración: esta prueba no probaría nada');
+      await dormir(200);
+      assert.equal(await ev('videoDuration'), 0, 'una duración Infinity llegó al configurador');
+      assert.equal(await ev('reproductor.getDuration()'), 0);
+      assert.equal(await ev(`document.getElementById('previewTimelineWrap').style.display`), 'none', 'línea de tiempo sin duración');
+      // Saltar y tomar el tiempo andan igual.
+      await ev(`reproductor.setCurrentTime(3.4).then(() => true)`);
+      assert.ok(Math.abs((await ev('reproductor.getCurrentTime()')) - 3.4) < 0.25, 'no saltó en el video sin duración');
+      await ev(`selectInteraction(interactions[0].id), true`);
+      await esperar(`!!document.getElementById('usarTiempoBtn')`, 3000, 'no se abrió el editor de la interacción');
+      await clic('#usarTiempoBtn');
+      await esperar(`document.getElementById('edit-time').value === '0:03'`, 3000, 'no tomó el tiempo del video sin duración');
+      // Cuando el navegador la averigua (acá, al leerlo hasta el final), llega por
+      // 'durationchange' y aparece la línea de tiempo.
+      await ev(`reproductor.setCurrentTime(1e6).then(() => true)`);
+      await esperar(`videoDuration > 5 && videoDuration < 7 && document.getElementById('previewTimelineWrap').style.display === 'block'`, 10000,
+        'no llegó la duración cuando el navegador la supo');
     });
   });
 }
