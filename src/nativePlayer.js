@@ -30,6 +30,7 @@
 
 import Hls from "hls.js";
 import { sinFirma } from "./firma.js";
+import { sondearFuente, errorDelSondeo } from "./sondeo.js";
 
 const HLS_MIME = "application/vnd.apple.mpegurl";
 // Calidad de arranque: hls.js por defecto estima 500 kbps y empieza en 240p, que
@@ -139,6 +140,7 @@ export default class NativePlayer {
     this._forzadas = new Map();     // hls.js: pedido → expires de la firma pedida por su 403
     this._rescateDe = null;         // HLS nativo: firma con la que ya se recargó tras un error
     this._rescate = null;           // HLS nativo: rescate en curso (ver _rescatarFirma): { t, seguia }
+    this._sondeando = false;        // HLS nativo: preguntándole al CDN antes del error (ver _fallarMedio)
     this._enEspera = false;         // transmitiendo con Chromecast: el <video> espera quieto
     this.hls = null;
     this.src = src;
@@ -397,6 +399,7 @@ export default class NativePlayer {
     if (!this._firmaPendiente) return false;
     const f = this._firma, v = this.video;
     if (!f || this._error || this.motor === "hls") { this._sinPendiente(); return false; }
+    if (this._sondeando) return false;
     if (this._expiresDeFuente === f.actual().expires) { this._sinPendiente(); return false; }
     // Sin metadata (iOS antes del primer toque) el salto pendiente no está "en vuelo":
     // el cambio cambia la fuente y lo conserva (ver _cambiarFuente). Con metadata, sí.
@@ -423,9 +426,13 @@ export default class NativePlayer {
   // del navegador después del error dejaba el botón en "Reproducir" sin poder pausar.
   _rescatarFirma(c = null) {
     const f = this._firma, v = this.video;
-    if (!f || this._error || this._rescate) return;
+    if (!f || this._error || this._rescate || this._sondeando) return;
     const tipo = this._rescateTipo || (f.vencidaDe(this._expiresDeFuente) ? "acceso" : "medio");
-    if (this._rescateDe === f.actual().expires) return this._fallar(tipo, { message: v.error?.message || "error de video", details: "la fuente con la firma nueva tampoco cargó" });
+    if (this._rescateDe === f.actual().expires) {
+      const datos = { message: v.error?.message || "error de video", details: "la fuente con la firma nueva tampoco cargó" };
+      // Con la firma vencida es la firma; si no, se le pregunta al CDN qué pasó.
+      return tipo === "medio" ? this._fallarMedio(datos) : this._fallar(tipo, datos);
+    }
     this._rescateTipo = tipo;
     const t = c ? c.t : (this._seekPendiente ?? v.currentTime);
     const seguia = c ? c.seguia : !this._pausadoVisto;
@@ -510,6 +517,28 @@ export default class NativePlayer {
       return;
     }
     this._fallar("otro", data);
+  }
+
+  // HLS nativo: un error del <video> que no se arregló. El <video> no dice el código HTTP,
+  // así que antes de darlo se le pregunta al CDN por la misma fuente (src/sondeo.js) y el
+  // error sale con esa respuesta, como con hls.js: un 401/403/410 es la firma (la red de
+  // seguridad no salta), un 404 o un 5xx es el CDN, sin respuesta es la red, y si el CDN
+  // contesta bien, el medio. Antes era 'medio' sin código en todos los casos: en iPhone la
+  // red saltaba con un 403 y el registro no separaba "falla de Bunny" de "señal mala".
+  // Mientras pregunta (hasta SONDEO_TOPE_MS) el <video> queda como está y otro 'error' o
+  // una traba no vuelven a empezar nada (_sondeando). MP4 y hls.js: como siempre.
+  _fallarMedio(datos) {
+    if (this._error || this._sondeando) return;
+    const url = this.motor === "nativo" ? this._srcActual : null;
+    if (!url || !/^https?:\/\//i.test(url)) return this._fallar("medio", datos);
+    this._sondeando = true;
+    this._emit("bufferstart", this._datos());
+    sondearFuente(url).then((r) => {
+      this._sondeando = false;
+      if (this._error || this._destruido) return;
+      const e = errorDelSondeo(r);
+      this._fallar(e.tipo, { response: e.code ? { code: e.code } : undefined, details: e.detalle });
+    });
   }
 
   _fallar(tipo, data) {
@@ -632,7 +661,7 @@ export default class NativePlayer {
       if (this._sinConfirmar) return this._revertirSinConfirmar();
       if (this.hls) return;
       if (this._firma) return this._rescatarFirma();
-      this._fallar("medio", { message: v.error?.message || "error de video" });
+      this._fallarMedio({ message: v.error?.message || "error de video" });
     });
   }
 
@@ -892,7 +921,8 @@ export default class NativePlayer {
   // retoma con video.play(), y iOS sólo lo permite dentro de un gesto.
   setQuality(id) {
     id = String(id || "auto");
-    if (this._error) return Promise.resolve(this._calidad);
+    // Preguntándole al CDN (_fallarMedio) el error ya está decidido: no se cambia la fuente.
+    if (this._error || this._sondeando) return Promise.resolve(this._calidad);
     if (this.hls) return Promise.resolve(this._calidadHls(id));
     if (this.motor === "nativo") {
       // Un cambio por vez: el pedido que llega en el medio se aplica al terminar. Durante
@@ -1098,7 +1128,7 @@ export default class NativePlayer {
       // Con la firma de Bunny puede ser un 403 de una firma vencida: renovar y volver a
       // cargar (una vez por firma) antes del cartel.
       if (this._firma) return this._rescatarFirma(c);
-      return this._fallar("medio", { message: v.error?.message || "error de video" });
+      return this._fallarMedio({ message: v.error?.message || "error de video" });
     }
     this._revertir(c);
   }

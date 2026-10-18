@@ -92,6 +92,62 @@ describe('el enlace firmado no sale del configurador', () => {
   });
 });
 
+describe('de quién acepta el mensaje de Moodle (isAllowedMoodleOrigin)', () => {
+  const permitido = cargar('isAllowedMoodleOrigin');
+  test('el campus y test-academy (ahí se prueba antes de producción)', () => {
+    assert.equal(permitido('https://academy.hubeducation.com.ar'), true);
+    assert.equal(permitido('https://test-academy.hubeducation.com.ar'), true);
+  });
+  test('esta compu (desarrollo y pruebas)', () => {
+    assert.equal(permitido('http://localhost:4321'), true);
+    assert.equal(permitido('http://127.0.0.1'), true);
+  });
+  test('nada más: otro subdominio, http, un dominio que lo contiene o lo imita', () => {
+    for (const o of ['https://hubeducation.com.ar', 'https://www.hubeducation.com.ar', 'http://test-academy.hubeducation.com.ar',
+      'https://test-academy.hubeducation.com.ar.ejemplo.com', 'https://xtest-academy.hubeducation.com.ar', 'https://erick25326.github.io',
+      'null', '', undefined]) {
+      assert.equal(permitido(o), false, String(o));
+    }
+  });
+});
+
+describe('lo que entra de un JSON o de Moodle (las interacciones)', () => {
+  const esTipo = cargar('esTipoDeInteraccion');
+  const numero = cargar('numeroAttr');
+  test('sólo los cinco tipos del reproductor', () => {
+    for (const t of ['note', 'multiple-choice', 'true-false', 'hotspot', 'label']) assert.equal(esTipo(t), true, t);
+    for (const t of ['<img src=x onerror=alert(1)>', 'Note', 'question', '', null, undefined, ['note'], { toString: () => 'note' }]) {
+      assert.equal(esTipo(t), false, String(t));
+    }
+  });
+  test('loadConfig descarta los demás antes de pintarlos, y el tiempo y la duración entran como números', () => {
+    const f = funcionDelConfigurador('loadConfig');
+    for (const pieza of [".filter(inter => inter && typeof inter === 'object' && esTipoDeInteraccion(inter.type)).map(",
+      'time: numeroAttr(inter.time, 0)', 'result.duration = numeroAttr(inter.duration)']) {
+      assert.ok(f.includes(pieza), `loadConfig ya no tiene: ${pieza}`);
+    }
+  });
+  test('numeroAttr: un número, o lo de por defecto', () => {
+    assert.equal(numero(12.5), 12.5);
+    assert.equal(numero('30'), 30);
+    assert.equal(numero(0), 0);
+    assert.equal(numero('"><img src=x onerror=alert(1)>'), '');
+    assert.equal(numero(undefined), '');
+    assert.equal(numero(null, 0), 0);
+    assert.equal(numero('', 5), 5);
+    assert.equal(numero(Infinity, 0), 0);
+  });
+  test('el tipo y el id de una opción se escapan al pintarlos', () => {
+    const etiqueta = '${escapeHtml(typeLabel(inter.type))}';
+    assert.ok(funcionDelConfigurador('renderSidebar').includes(etiqueta), 'la barra lateral pinta el tipo sin escapar');
+    const editor = funcionDelConfigurador('renderEditor');
+    assert.ok(editor.includes(etiqueta), 'el editor pinta el tipo sin escapar');
+    for (const crudo of ['${opt.id}', '${spot.x}', '${spot.y}', '${inter.data.x ||', '${inter.data.y ||', '${inter.duration ||']) {
+      assert.ok(!editor.includes(crudo), `el editor interpola sin escapar: ${crudo}`);
+    }
+  });
+});
+
 describe('armado del configurador con hls.js', () => {
   const hls = leerHlsJs();
   const configurator = '<!DOCTYPE html><html><head><title>c</title></head><body><script>let interactions = [];\nconst t = `</head>`;</script></body></html>';

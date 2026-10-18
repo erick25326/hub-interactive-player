@@ -763,6 +763,22 @@ function typeLabel(type) {
   return labels[type] || type;
 }
 
+// ¿Es uno de los cinco tipos que entiende el reproductor? Lo que llega de afuera (un JSON
+// importado, las interacciones que manda Moodle) sólo entra con uno de éstos: el tipo se
+// interpola en el HTML de la barra lateral (la clase del ícono, la etiqueta) y uno armado
+// a mano ejecutaba código en esta página, que es donde vive el enlace firmado de Bunny y
+// la que le escribe a Moodle.
+function esTipoDeInteraccion(tipo) {
+  return ['note', 'multiple-choice', 'true-false', 'hotspot', 'label'].indexOf(tipo) !== -1;
+}
+
+// Un número para un value="" del editor ('' si no es un número): x, y y la duración
+// pueden venir de un JSON externo con cualquier cosa adentro.
+function numeroAttr(valor, porDefecto = '') {
+  const n = Number(valor);
+  return (valor !== null && valor !== '' && Number.isFinite(n)) ? n : porDefecto;
+}
+
 function typeIcon(type) {
   const icons = {
     'note': '\u270E',
@@ -1390,7 +1406,7 @@ function renderSidebar() {
          onclick="selectInteraction('${inter.id}')">
       <div class="type-badge ${inter.type}">${typeIcon(inter.type)}</div>
       <div class="card-content">
-        <div class="card-time">${formatTime(inter.time)} &middot; ${typeLabel(inter.type)}</div>
+        <div class="card-time">${formatTime(inter.time)} &middot; ${escapeHtml(typeLabel(inter.type))}</div>
         <div class="card-title">${escapeHtml(getSummary(inter))}</div>
       </div>
       <button class="card-delete" onclick="deleteInteraction('${inter.id}', event)" title="Eliminar">&times;</button>
@@ -1435,7 +1451,7 @@ function renderEditor() {
   if (!inter) return;
 
   let html = `<div class="section">
-    <h3 class="section-title">Editar: ${typeLabel(inter.type)} (${inter.id})</h3>
+    <h3 class="section-title">Editar: ${escapeHtml(typeLabel(inter.type))} (${inter.id})</h3>
     <div class="form-group">
       <label class="form-label">Tiempo <span class="form-hint">mm:ss</span></label>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -1474,9 +1490,9 @@ function renderEditor() {
           <div class="options-list" id="optionsList">
             ${inter.data.options.map((opt, idx) => `
               <div class="option-row">
-                <div class="option-id">${opt.id}</div>
-                <input type="radio" name="correct-option" value="${opt.id}" ${opt.id === inter.data.correctId ? 'checked' : ''}>
-                <input type="text" class="form-input option-text-input" value="${escapeAttr(opt.text)}" placeholder="Opcion ${opt.id.toUpperCase()}">
+                <div class="option-id">${escapeHtml(String(opt.id))}</div>
+                <input type="radio" name="correct-option" value="${escapeAttr(String(opt.id))}" ${opt.id === inter.data.correctId ? 'checked' : ''}>
+                <input type="text" class="form-input option-text-input" value="${escapeAttr(opt.text)}" placeholder="Opcion ${escapeAttr(String(opt.id).toUpperCase())}">
                 ${inter.data.options.length > 2 ? `<button class="btn-remove-option" onclick="removeOption(${idx})">&times;</button>` : ''}
               </div>
             `).join('')}
@@ -1518,7 +1534,7 @@ function renderEditor() {
       html += `
         <div class="form-group">
           <label class="form-label">Duracion en segundos</label>
-          <input type="number" class="form-input" id="edit-duration" value="${inter.duration || 5}" min="1" style="max-width:120px">
+          <input type="number" class="form-input" id="edit-duration" value="${numeroAttr(inter.duration) || 5}" min="1" style="max-width:120px">
         </div>
         <div class="form-group">
           <label class="form-label">Texto de la etiqueta</label>
@@ -1533,11 +1549,11 @@ function renderEditor() {
           <div class="form-row">
             <div>
               <label class="form-label">X%</label>
-              <input type="number" class="form-input" id="edit-label-x" value="${inter.data.x || 50}" min="0" max="100">
+              <input type="number" class="form-input" id="edit-label-x" value="${numeroAttr(inter.data.x) || 50}" min="0" max="100">
             </div>
             <div>
               <label class="form-label">Y%</label>
-              <input type="number" class="form-input" id="edit-label-y" value="${inter.data.y || 30}" min="0" max="100">
+              <input type="number" class="form-input" id="edit-label-y" value="${numeroAttr(inter.data.y) || 30}" min="0" max="100">
             </div>
           </div>
         </div>`;
@@ -1547,15 +1563,15 @@ function renderEditor() {
       html += `
         <div class="form-group">
           <label class="form-label">Duracion en segundos</label>
-          <input type="number" class="form-input" id="edit-duration" value="${inter.duration || 8}" min="1" style="max-width:120px">
+          <input type="number" class="form-input" id="edit-duration" value="${numeroAttr(inter.duration) || 8}" min="1" style="max-width:120px">
         </div>
         <div class="form-group">
           <label class="form-label">Puntos</label>
           <div class="spots-list" id="spotsList">
             ${(inter.data.spots || []).map((spot, idx) => `
               <div class="spot-row spot-data-row">
-                <input type="number" class="form-input spot-x" value="${spot.x}" min="0" max="100" placeholder="X%">
-                <input type="number" class="form-input spot-y" value="${spot.y}" min="0" max="100" placeholder="Y%">
+                <input type="number" class="form-input spot-x" value="${numeroAttr(spot.x)}" min="0" max="100" placeholder="X%">
+                <input type="number" class="form-input spot-y" value="${numeroAttr(spot.y)}" min="0" max="100" placeholder="Y%">
                 <input type="text" class="form-input spot-label" value="${escapeAttr(spot.label)}" placeholder="Label">
                 <input type="text" class="form-input spot-info" value="${escapeAttr(spot.info)}" placeholder="Info">
                 <button class="btn-remove-spot" onclick="removeSpot(${idx})">&times;</button>
@@ -1987,7 +2003,9 @@ function loadConfig(config) {
   counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0, label: 0 };
 
   let importSeq = 0;
-  interactions = (config.interactions || []).map(inter => {
+  // Sólo los cinco tipos del reproductor (esTipoDeInteraccion): lo demás se descarta.
+  const externas = Array.isArray(config.interactions) ? config.interactions : [];
+  interactions = externas.filter(inter => inter && typeof inter === 'object' && esTipoDeInteraccion(inter.type)).map(inter => {
     // Track counters for future IDs
     const prefix = inter.type === 'multiple-choice' ? 'mc' : inter.type === 'true-false' ? 'tf' : inter.type;
     const safeId = sanitizeExternalId(inter.id, prefix + '-imp' + (++importSeq));
@@ -1998,11 +2016,11 @@ function loadConfig(config) {
     const result = {
       id: safeId,
       type: inter.type,
-      time: inter.time || 0,
-      data: inter.data || {}
+      time: numeroAttr(inter.time, 0),
+      data: (inter.data && typeof inter.data === 'object') ? inter.data : {}
     };
     if (inter.type === 'hotspot' || inter.type === 'label') {
-      result.duration = inter.duration || (inter.type === 'label' ? 5 : 8);
+      result.duration = numeroAttr(inter.duration) || (inter.type === 'label' ? 5 : 8);
     }
     return result;
   });
@@ -2192,6 +2210,8 @@ var moodleOrigin = null;
 // inyectarle un config malicioso por postMessage.
 function isAllowedMoodleOrigin(origin) {
   if (origin === 'https://academy.hubeducation.com.ar') return true;
+  // El entorno de prueba del campus: ahí se prueba todo antes de producción (plan Bunny).
+  if (origin === 'https://test-academy.hubeducation.com.ar') return true;
   if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
   return false;
 }

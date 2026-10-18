@@ -136,7 +136,8 @@ class mod_ivplayer_mod_form extends moodleform_mod {
                         var m = Math.floor(ia.time/60);
                         var s = ia.time % 60;
                         var time = m + ":" + String(s).padStart(2,"0");
-                        var label = typeNames[ia.type] || ia.type;
+                        // Escapado: el tipo viene del JSON guardado o del configurador.
+                        var label = escapeHtml(typeNames[ia.type] || ia.type);
                         var color = typeColors[ia.type] || "#fff";
                         var summary = "";
                         var d = ia.data || {};
@@ -160,6 +161,19 @@ class mod_ivplayer_mod_form extends moodleform_mod {
 
             var colorStatus = status.style.color;
 
+            // La ventana del configurador que abrió esta página: sólo de ella se aceptan las
+            // interacciones de vuelta. El origen solo no alcanza: es el de TODAS las páginas
+            // de GitHub Pages de la cuenta.
+            var ventanaConfigurador = null;
+            function esElConfigurador(fuente) {
+                if (!fuente) return false;
+                if (fuente === ventanaConfigurador) return true;
+                // La que abrió esta página antes de recargarse: la variable se perdió con la
+                // recarga, pero el opener de esa ventana sigue siendo ésta. (opener se puede
+                // leer entre orígenes.)
+                try { return fuente.opener === window; } catch(err) { return false; }
+            }
+
             btn.addEventListener("click", function() {
                 status.textContent = "";
                 status.style.color = colorStatus;
@@ -179,6 +193,7 @@ class mod_ivplayer_mod_form extends moodleform_mod {
 
                 // Open configurator with config.
                 var w = window.open(CONFIGURATOR_URL, "ivplayer_editor", "width=1200,height=800");
+                if (w) ventanaConfigurador = w;
 
                 // Send config to configurator once loaded.
                 var sent = false;
@@ -198,6 +213,7 @@ class mod_ivplayer_mod_form extends moodleform_mod {
             // Listen for config coming back from configurator.
             window.addEventListener("message", function(e) {
                 if (e.origin !== CONFIGURATOR_ORIGIN) return;
+                if (!esElConfigurador(e.source)) return;
                 if (!e.data || e.data.type !== "ivplayer-save-config") return;
                 var config = e.data.config;
                 if (config && config.interactions) {

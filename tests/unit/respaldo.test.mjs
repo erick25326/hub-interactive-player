@@ -10,12 +10,13 @@ import assert from 'node:assert/strict';
 import {
   causaDelRespaldo, decidirRespaldo, datosDelError, yaEsRespaldo, urlDeRespaldo, interpretarRespaldo, pedirRespaldo,
 } from '../../src/respaldo.js';
+import { errorDelSondeo } from '../../src/sondeo.js';
 
 // Los errores como los emite nativePlayer (_fallar).
 const err = (tipo, code = null, extra = {}) => ({ fatal: true, tipo, code, message: 'x', ...extra });
 
 describe('con qué error salta (causaDelRespaldo)', () => {
-  test('fallas del CDN: 404, 5xx, sin red, medio y otros fatales de hls.js', () => {
+  test('fallas del CDN: 404, 5xx, sin red y medio', () => {
     assert.equal(causaDelRespaldo(err('acceso', 404, { message: 'manifestLoadError' })), 'http-404');
     assert.equal(causaDelRespaldo(err('red', 503)), 'http-503');
     assert.equal(causaDelRespaldo(err('red', 500)), 'http-500');
@@ -23,7 +24,11 @@ describe('con qué error salta (causaDelRespaldo)', () => {
     assert.equal(causaDelRespaldo(err('red', null)), 'red');
     assert.equal(causaDelRespaldo(err('red', 200)), 'red', 'un 200 que no sirve (un portal cautivo): red');
     assert.equal(causaDelRespaldo(err('medio')), 'medio');
-    assert.equal(causaDelRespaldo(err('otro')), 'otro');
+  });
+
+  test("cualquier otro fatal de hls.js ('otro': MUX, KEY_SYSTEM, OTHER) no salta: el plan cuenta sólo red, 5xx, 404 y medio", () => {
+    assert.equal(causaDelRespaldo(err('otro')), null);
+    assert.equal(causaDelRespaldo(err('otro', 503)), null);
   });
 
   test('NUNCA por la firma: 401, 403 o 410, con firma vencida o vigente, venga con el tipo que venga', () => {
@@ -46,6 +51,22 @@ describe('con qué error salta (causaDelRespaldo)', () => {
     assert.equal(causaDelRespaldo(err('medio', null, { renovacion: 'otro' })), null);
     // Un 404 con la última renovación fallida por red sí: el 404 lo dijo el CDN.
     assert.equal(causaDelRespaldo(err('acceso', 404, { renovacion: 'red' })), 'http-404');
+  });
+
+  // El HLS nativo (iPhone) arma el error con lo que contesta el CDN (src/sondeo.js): la
+  // decisión tiene que ser la misma que con hls.js para el mismo código.
+  test('el HLS nativo con el sondeo del CDN: la misma regla que hls.js', () => {
+    const nativo = (estado, paso = 'playlist') => { const e = errorDelSondeo({ estado, paso }); return causaDelRespaldo(err(e.tipo, e.code)); };
+    assert.equal(nativo(404), 'http-404', 'el playlist no está (un GUID que no existe)');
+    assert.equal(nativo(404, 'segmento'), 'http-404');
+    assert.equal(nativo(503, 'segmento'), 'http-503');
+    assert.equal(nativo(0), 'red', 'sin respuesta del CDN');
+    assert.equal(nativo(200, 'segmento'), 'medio', 'el CDN contesta bien: el medio');
+    for (const code of [401, 403, 410]) {
+      assert.equal(nativo(code), null, `${code} del playlist: la firma, no salta`);
+      assert.equal(nativo(code, 'segmento'), null, `${code} de un segmento con la firma vigente: no salta (como hls.js)`);
+    }
+    assert.equal(nativo(429), null, 'otro 4xx: no salta (hls.js lo da como acceso)');
   });
 
   test('sin fuente, sin soporte, sin `fatal` (Vimeo: un play rechazado) o nada: no salta', () => {

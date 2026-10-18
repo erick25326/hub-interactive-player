@@ -9,10 +9,12 @@ defined('MOODLE_INTERNAL') || die();
  *
  * Una fila por salto, con la causa en `other`:
  *   causa    'http-404', 'http-5NN' (el CDN contestó con ese error), 'red' (no se llegó al
- *            CDN o lo que llegó no servía), 'medio' (error fatal del medio) u 'otro'.
+ *            CDN o lo que llegó no servía) o 'medio' (error fatal del medio).
  *   codigo   el código HTTP (0 si no hubo).
  *   detalle  el nombre del error (hls.js: manifestLoadError = el playlist,
- *            levelLoadError = el de una calidad, fragLoadError = un segmento).
+ *            levelLoadError = el de una calidad, fragLoadError = un segmento; HLS nativo
+ *            de iPhone/Safari: nativo-playlist, nativo-variante, nativo-segmento, o
+ *            nativo-medio si el CDN contestó bien).
  * Es lo que se cuenta para separar "falla de Bunny" de "señal mala" (README, "Red de
  * seguridad"). La firma vencida y la sesión cerrada no saltan, así que acá no aparecen.
  *

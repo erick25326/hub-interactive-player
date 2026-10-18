@@ -7,9 +7,9 @@ import archiver from "archiver";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 
-// Sin config, el paquete saldría con el video y las interacciones DEMO
-// hardcodeadas en DEFAULT_CONFIG (footgun clásico: subirlo a Moodle y ver el
-// demo). Exigir un config real: node scripts/build-scorm.js --config mi.json
+// Sin config, el paquete saldría sin video (DEFAULT_CONFIG no trae ninguno desde la
+// 1.4.0: el reproductor diría "No hay video para mostrar"). Exigir un config real:
+// node scripts/build-scorm.js --config mi.json
 // (el flujo normal sigue siendo "Descargar SCORM" desde el configurador).
 const cfgFlag = process.argv.indexOf("--config");
 const cfgPath = cfgFlag > -1 ? process.argv[cfgFlag + 1] : null;

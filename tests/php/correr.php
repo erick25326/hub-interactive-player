@@ -556,13 +556,16 @@ chequear('causa: 404', ivplayer_respaldo_datos('http-404', 404, 'manifestLoadErr
 chequear('causa: 503 (el código sale de la causa)', ivplayer_respaldo_datos('http-503', '503', 'fragLoadError'), ['causa' => 'http-503', 'codigo' => 503, 'detalle' => 'fragLoadError']);
 chequear('causa: un código que contradice la causa HTTP se corrige', ivplayer_respaldo_datos('http-502', 0, ''), ['causa' => 'http-502', 'codigo' => 502, 'detalle' => '']);
 chequear('causa: red sin código', ivplayer_respaldo_datos('red', 0, 'manifestLoadError'), ['causa' => 'red', 'codigo' => 0, 'detalle' => 'manifestLoadError']);
-chequear('causa: medio y otro', [ivplayer_respaldo_datos('medio', '', '')['causa'] ?? null, ivplayer_respaldo_datos('otro', null, null)['causa'] ?? null], ['medio', 'otro']);
-foreach (['http-401', 'http-403', 'http-410', 'http-400', 'http-200', 'http-5000', 'sesion', 'permiso', 'acceso', '', 'RED', ' red', "red\n", 'http-404x'] as $mala) {
+chequear('causa: medio', ivplayer_respaldo_datos('medio', '', '')['causa'] ?? null, 'medio');
+chequear('causa: el detalle del HLS nativo (nativo-segmento) pasa entero',
+    ivplayer_respaldo_datos('http-404', 404, 'nativo-segmento'), ['causa' => 'http-404', 'codigo' => 404, 'detalle' => 'nativo-segmento']);
+// 'otro' (cualquier otro fatal de hls.js) no está en la lista del plan: ni salta ni se registra.
+foreach (['otro', 'http-401', 'http-403', 'http-410', 'http-400', 'http-200', 'http-5000', 'sesion', 'permiso', 'acceso', '', 'RED', ' red', "red\n", 'http-404x'] as $mala) {
     chequear('causa rechazada: ' . json_encode($mala), ivplayer_respaldo_datos($mala, 0, ''), null);
 }
 chequear('causa rechazada: no es texto', [ivplayer_respaldo_datos(null, 0, ''), ivplayer_respaldo_datos(['red'], 0, ''), ivplayer_respaldo_datos(404, 404, '')], [null, null, null]);
 chequear('nunca por la firma, aunque venga con otra causa: 401/403/410',
-    [ivplayer_respaldo_datos('red', 403, ''), ivplayer_respaldo_datos('medio', '401', ''), ivplayer_respaldo_datos('otro', 410, '')], [null, null, null]);
+    [ivplayer_respaldo_datos('red', 403, ''), ivplayer_respaldo_datos('medio', '401', ''), ivplayer_respaldo_datos('http-404', 410, '')], [null, null, null]);
 chequear('código fuera de rango o raro: 0',
     [ivplayer_respaldo_datos('red', 9999, '')['codigo'], ivplayer_respaldo_datos('red', -5, '')['codigo'], ivplayer_respaldo_datos('red', 'x', '')['codigo']], [0, 0, 0]);
 $dmal = ivplayer_respaldo_datos('medio', 0, "PIPELINE_ERROR_DECODE: <script>alert('x')</script>\n" . str_repeat('a', 200));

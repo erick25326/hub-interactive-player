@@ -238,7 +238,10 @@ export function registrar(entorno, { avisar = () => {} } = {}) {
       const guardar = (config, vimeoAntes) => ev(`(() => {
         const w = document.getElementById('modFormDePrueba').contentWindow, d = w.document;
         if (${JSON.stringify(vimeoAntes)} !== null) d.getElementById('id_vimeoid').value = ${JSON.stringify(vimeoAntes)};
-        w.dispatchEvent(new w.MessageEvent('message', { origin: ${JSON.stringify(origen)}, data: { type: 'ivplayer-save-config', config: ${JSON.stringify(config)} } }));
+        // Como "Editar interacciones" (una vez): la ventana que abre es esta página (la del
+        // configurador), y sólo de ella acepta lo que vuelve.
+        if (!w.__abrioConfigurador) { w.open = () => window; d.getElementById('ivplayer-edit-btn').click(); w.__abrioConfigurador = true; }
+        w.dispatchEvent(new w.MessageEvent('message', { origin: ${JSON.stringify(origen)}, source: window, data: { type: 'ivplayer-save-config', config: ${JSON.stringify(config)} } }));
         return { vimeo: d.getElementById('id_vimeoid').value, json: d.getElementById('id_interactions_json').value };
       })()`);
       try {
@@ -369,6 +372,34 @@ export function registrar(entorno, { avisar = () => {} } = {}) {
       await ev(`reproductor.setCurrentTime(1e6).then(() => true)`);
       await esperar(`videoDuration > 5 && videoDuration < 7 && document.getElementById('previewTimelineWrap').style.display === 'block'`, 10000,
         'no llegó la duración cuando el navegador la supo');
+    });
+
+    // Revisión de seguridad de la 1.4.0 (venía de antes): el tipo de una interacción
+    // externa (un JSON importado, lo que manda Moodle) iba crudo al HTML de la barra
+    // lateral, y el id de una opción, x/y y la duración, al del editor. Esta página es la
+    // que tiene el enlace firmado de Bunny y la que le escribe a Moodle.
+    paso('un JSON con un tipo o campos armados no ejecuta nada: entran sólo los cinco tipos y los números como números', async () => {
+      const marca = (n) => `<img src=x onerror=window.__xssConfigurador=(window.__xssConfigurador||0)+${n}>`;
+      await ev('window.__xssConfigurador = 0, true');
+      await importar('armado.json', { title: 'Armado', interactions: [
+        { id: 'malo', type: marca(1), time: 1, data: {} },
+        null,
+        { id: 'mc-1', type: 'multiple-choice', time: '5', data: { question: 'P', options: [{ id: `a"><b>${marca(10)}`, text: 'x' }, { id: 'b', text: 'y' }], correctId: 'b' } },
+        { id: 'label-1', type: 'label', time: 7, duration: `3">${marca(100)}`, data: { text: 'T', definition: 'D', x: `1">${marca(1000)}`, y: 20 } },
+        { id: 'hotspot-1', type: 'hotspot', time: 9, data: { spots: [{ x: `2">${marca(10000)}`, y: 30, label: 'L', info: 'I' }] } },
+      ] });
+      await esperar(`interactions.length === 3`, 3000, 'no se importó el JSON (o entró el tipo armado)');
+      assert.deepEqual(await ev('interactions.map((i) => i.type)'), ['multiple-choice', 'label', 'hotspot'], 'entró un tipo que no es de los cinco');
+      assert.equal(await ev('interactions[0].time'), 5, 'el tiempo tenía que entrar como número');
+      assert.equal(await ev('interactions[1].duration'), 5, 'una duración que no es un número: la de siempre');
+      // Abrir cada una en el editor (ahí van el id de la opción, x/y y la duración).
+      for (const id of ['mc-1', 'label-1', 'hotspot-1']) {
+        await ev(`selectInteraction(${JSON.stringify(id)}), true`);
+        await esperar(`!!document.getElementById('edit-time')`, 3000, `no se abrió el editor de ${id}`);
+      }
+      await dormir(300);   // el error de un <img> es asincrónico
+      assert.equal(await ev('window.__xssConfigurador'), 0, 'se ejecutó algo de lo importado');
+      assert.equal(await ev(`document.querySelectorAll('#sidebarList img, #editorPanel img').length`), 0, 'lo importado armó elementos');
     });
   });
 }

@@ -878,17 +878,18 @@ function ivplayer_respaldo_forzar($ajuste, $vimeoid, $origen): bool {
  * 🔴 Es la lista de causaDelRespaldo() (src/respaldo.js), del lado del servidor: aunque un
  * reproductor viejo o tocado lo pidiera, por la firma (401/403/410) no se salta ni se
  * registra. Con una causa HTTP el código es el de la causa: no se guardan dos datos que
- * se contradigan.
+ * se contradigan. Cualquier otro error de hls.js ('otro') tampoco: el plan cuenta sólo
+ * la red, un 5xx, un 404 o un error fatal del medio.
  *
  * Pura a propósito (tests/php/correr.php).
  *
- * @param mixed $causa 'red', 'medio', 'otro', 'http-404' o 'http-5NN'.
+ * @param mixed $causa 'red', 'medio', 'http-404' o 'http-5NN'.
  * @param mixed $codigo Código HTTP (0 si no hubo).
  * @param mixed $detalle El nombre del error (hls.js: manifestLoadError, fragLoadError…).
  * @return array{causa: string, codigo: int, detalle: string}|null
  */
 function ivplayer_respaldo_datos($causa, $codigo, $detalle): ?array {
-    if (!is_string($causa) || !preg_match('/^(red|medio|otro|http-404|http-5\d\d)$/D', $causa)) {
+    if (!is_string($causa) || !preg_match('/^(red|medio|http-404|http-5\d\d)$/D', $causa)) {
         return null;
     }
     $codigo = is_numeric($codigo) ? (int) $codigo : 0;

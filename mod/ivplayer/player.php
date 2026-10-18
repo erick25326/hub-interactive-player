@@ -44,8 +44,9 @@ $bunny = $forzarvimeo ? null : ivplayer_bunny_de_actividad($ivplayer, $playerhtm
 $video = null;
 if ($bunny !== null) {
     $video = [
-        // Vacíos a propósito: con videoUrl el reproductor no crea el de Vimeo, pero así
-        // no queda dando vueltas el video de ejemplo de su config por defecto.
+        // Vacíos a propósito: con videoUrl el reproductor no crea el de Vimeo, y así no
+        // se mezcla nada de su config por defecto (que desde la 1.4.0 no trae ningún
+        // video: ver src/configuracion.js).
         'vimeoId' => '',
         'vimeoHash' => null,
         // 🔴 El GUID queda como tramo "/<guid>/" de la URL, firmada o no: de ahí saca el
@@ -177,7 +178,7 @@ $playerhtml = str_replace('</head>', $configscript . "\n</head>", $playerhtml);
 //
 // SOBRE LA CACHÉ, PORQUE YA SE INTENTÓ Y SE VOLVIÓ ATRÁS (3-ago-2026).
 //
-// El HTML pesa ~259 KB y hoy NO se cachea: Moodle arranca la sesión con
+// El HTML pesa ~945 KB (~290 KB comprimido, con hls.js adentro) y hoy NO se cachea: Moodle arranca la sesión con
 // `session.cache_limiter = nocache` y, como este archivo nunca llama a
 // `$OUTPUT->header()`, esos headers quedan. Es tentador ponerle un ETag con
 // `private, must-revalidate` para ahorrarse el cuerpo en las recargas. Se probó

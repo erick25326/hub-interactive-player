@@ -222,7 +222,11 @@ export function registrar(entorno, { avisar = () => {} } = {}) {
         try {
           const r = await ev(`(() => {
             const w = document.getElementById('modFormDePrueba').contentWindow, d = w.document;
-            w.dispatchEvent(new w.MessageEvent('message', { origin: ${JSON.stringify(origen)}, data: ${JSON.stringify(data)} }));
+            // Como "Editar interacciones": la ventana que abre es esta página (la del
+            // configurador), y sólo de ella acepta lo que vuelve.
+            w.open = () => window;
+            d.getElementById('ivplayer-edit-btn').click();
+            w.dispatchEvent(new w.MessageEvent('message', { origin: ${JSON.stringify(origen)}, data: ${JSON.stringify(data)}, source: window }));
             return { vimeo: d.getElementById('id_vimeoid').value, bunny: d.getElementById('id_videourl').value, json: d.getElementById('id_interactions_json').value };
           })()`);
           assert.equal(r.vimeo, vimeoAntes, 'Moodle cambió el campo de Vimeo');
@@ -396,6 +400,86 @@ export function registrar(entorno, { avisar = () => {} } = {}) {
         assert.equal(r.recibidos[0].data.config.vimeoId, VIMEO_DE_MOODLE);
       } finally {
         await cerrar();
+      }
+    });
+
+    // Lo que encontró la revisión de seguridad de la 1.4.0 (venía de antes): el tipo de una
+    // interacción iba crudo al innerHTML de la vista previa, y el manejador aceptaba las
+    // interacciones de CUALQUIER página del origen del configurador (el de todas las
+    // páginas de GitHub Pages de la cuenta), sin mirar quién las mandaba.
+    paso('mod_form.php: la vista previa no ejecuta un tipo armado, y lo que vuelve se acepta sólo de la ventana que abrió', async () => {
+      const { js, origen } = codigoModForm();
+      // Si el <img> se ejecutara, marca la ventana del formulario.
+      const TIPO = '<img src=x onerror=window.__xssModForm=(window.__xssModForm||0)+1>';
+      const guardado = [{ id: 'x1', type: TIPO, time: 3, data: {} }];
+      const html = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      const formulario = '<!doctype html><textarea id="id_interactions_json">' + html(JSON.stringify(guardado)) + '</textarea>'
+        + `<input id="id_videourl" value=""><input id="id_vimeoid" value="${VIMEO_DE_MOODLE}">`
+        + '<div id="ivplayer-interactions-preview"></div><button type="button" id="ivplayer-edit-btn"></button>'
+        + `<span id="ivplayer-edit-status"></span><script>${js}</script>`;
+      await ev(`new Promise((ok) => {
+        const f = document.createElement('iframe');
+        f.id = 'modFormSeguro';
+        f.style.display = 'none';
+        f.onload = () => ok(true);
+        f.srcdoc = ${JSON.stringify(formulario)};
+        document.body.appendChild(f);
+      })`);
+      const W = `document.getElementById('modFormSeguro').contentWindow`;
+      // Lo que ve el formulario: los ids del campo, si se ejecutó algo y qué hay en la vista previa.
+      const estado = () => ev(`(() => {
+        const w = ${W}, d = w.document, p = d.getElementById('ivplayer-interactions-preview');
+        let ids = null; try { ids = JSON.parse(d.getElementById('id_interactions_json').value).map((i) => i.id); } catch (e) {}
+        return { ids, xss: w.__xssModForm || 0, imgs: p.querySelectorAll('img').length, texto: p.textContent };
+      })()`);
+      // Un "Guardar en Moodle" con estas interacciones desde `fuente` (una expresión que da
+      // una ventana, o 'null': sin fuente, como un evento armado).
+      const devolver = (interacciones, fuente) => ev(`(() => {
+        const w = ${W};
+        w.dispatchEvent(new w.MessageEvent('message', { origin: ${JSON.stringify(origen)}, source: ${fuente},
+          data: { type: 'ivplayer-save-config', config: { vimeoId: '', interactions: ${JSON.stringify(interacciones)} } } }));
+        return true;
+      })()`);
+      try {
+        await dormir(300);   // el error del <img> es asincrónico
+        let e = await estado();
+        assert.equal(e.xss, 0, 'el tipo guardado se ejecutó al cargar el formulario');
+        assert.equal(e.imgs, 0, 'el tipo guardado armó un elemento en la vista previa');
+        assert.ok(e.texto.includes('<img src=x'), `la vista previa tenía que mostrar el tipo como texto: ${e.texto}`);
+
+        // Con el origen correcto pero de una ventana que el formulario no abrió: no.
+        await devolver([NOTA('ajena', 5)], 'window');
+        await devolver([NOTA('sin-fuente', 5)], 'null');
+        await ev(`(() => { const f = document.createElement('iframe'); f.id = 'otraPagina'; f.style.display = 'none'; document.body.appendChild(f); return true; })()`);
+        await devolver([NOTA('otra-pagina', 5)], `document.getElementById('otraPagina').contentWindow`);
+        e = await estado();
+        assert.deepEqual(e.ids, ['x1'], 'aceptó interacciones de una ventana que no abrió');
+
+        // La ventana que abrió esta página antes de recargarse (su opener es ésta): sí.
+        const pop = await entorno.cdp.cmd('Runtime.evaluate', {
+          expression: `(() => { window.__popModForm = ${W}.open('about:blank', '_blank'); return !!window.__popModForm; })()`,
+          returnByValue: true, userGesture: true,
+        });
+        assert.equal(pop.result && pop.result.value, true, 'no se pudo abrir la ventana de prueba');
+        try {
+          await devolver([NOTA('de-antes', 5)], 'window.__popModForm');
+          e = await estado();
+          assert.deepEqual(e.ids, ['de-antes'], 'no aceptó lo que volvió de una ventana que abrió esta página');
+        } finally {
+          await ev(`(window.__popModForm && window.__popModForm.close(), true)`);
+        }
+
+        // "Editar interacciones" (la ventana que abre es esta página): lo que vuelve de ella
+        // se acepta, y un tipo armado que venga ahí tampoco se ejecuta.
+        await ev(`(() => { const w = ${W}; w.open = () => window; w.document.getElementById('ivplayer-edit-btn').click(); return true; })()`);
+        await devolver([{ id: 'x2', type: TIPO, time: 4, data: {} }], 'window');
+        await dormir(300);
+        e = await estado();
+        assert.deepEqual(e.ids, ['x2'], 'no aceptó lo que volvió del configurador que abrió');
+        assert.equal(e.xss, 0, 'el tipo que vino del configurador se ejecutó en la vista previa');
+        assert.equal(e.imgs, 0);
+      } finally {
+        await ev(`['modFormSeguro', 'otraPagina'].forEach((id) => { const f = document.getElementById(id); if (f) f.remove(); }), true`);
       }
     });
   });

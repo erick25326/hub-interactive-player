@@ -19,12 +19,17 @@
 //   'red'       no se llega al CDN (sin respuesta, conexión rechazada) o lo que llega
 //               no se puede usar.
 //   'medio'     error fatal del medio (hls.js después de recover/swap, o el MediaError
-//               del HLS nativo después de renovar y recargar una vez).
-//   'otro'      cualquier otro error fatal de hls.js.
+//               del HLS nativo después de renovar y recargar una vez, con el CDN
+//               contestando bien).
+// Con el HLS nativo (iPhone, iPad, Safari) el <video> no da el código HTTP: antes del
+// error, nativePlayer le pregunta al CDN por la misma fuente (src/sondeo.js), así que
+// las causas y la regla del 403 son las mismas que con hls.js.
 // Cuándo NO salta nunca:
 //   - la firma (401/403/410 del CDN): vencida o a punto de vencer la renueva firma.js
 //     sola; si no puede, el cartel dice por qué. Un 403 con la firma vigente tampoco: no
 //     es "el servidor se cayó".
+//   - cualquier otro error de hls.js ('otro': MUX, KEY_SYSTEM, OTHER): el plan cuenta sólo
+//     la red, un 5xx, un 404 o un error fatal del medio. Va al cartel de siempre.
 //   - la sesión cerrada o sin permiso (renovación con motivo 'sesion' u 'otro'). Si
 //     saltara, el alumno vería el video con Vimeo sin que se guarde nada: ni avance, ni
 //     respuestas, ni finalización (progress, answer y complete piden la sesión).
@@ -60,8 +65,8 @@ export function causaDelRespaldo(error) {
   if (error.tipo === 'acceso') return code === 404 ? 'http-404' : null;
   if (error.tipo === 'red') return code >= 500 && code <= 599 ? `http-${code}` : 'red';
   if (error.tipo === 'medio') return 'medio';
-  if (error.tipo === 'otro') return 'otro';
-  // 'sin-fuente' y 'sin-soporte' no son fallas del CDN.
+  // 'otro' (cualquier otro fatal de hls.js), 'sin-fuente' y 'sin-soporte' no son fallas
+  // del CDN.
   return null;
 }
 

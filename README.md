@@ -58,9 +58,9 @@ el job queda verde con una advertencia arriba del log.
 
 | Capa | Dónde | Qué protege |
 |---|---|---|
-| Unitarias | `tests/unit/` | El candado (`src/candado.js`: `debeFrenar`, la guardia, `tiempoAGuardar`) con casos fijos y un simulador de ticks; el parser de subtítulos (`src/subtitulos.js`); la firma de Bunny contra los vectores oficiales (espejo en Node), incluida la regla de "¿esta actividad usa Bunny?" que comparten `player.php` y `firma.php`; la renovación de la firma (`src/firma.js`: qué recarga Reintentar según el motivo y si la página de arriba se puede tocar, leer y reescribir las URLs del master, variantes, `.ts` y miniatura, el reloj con la hora del celular corrida, el Renovador contra un `firma.php` falso); el adaptador de Chromecast (`CastPlayer`) contra una TV falsa que avisa un salto en un solo estado; la config por defecto sin video y cuándo hay video para reproducir (`src/configuracion.js`, y que `config.example.js` tal cual no traiga uno); el puente con hub-app (`src/puenteApp.js`: sobres, respuestas de otra instancia, topes, el saludo sin respuesta, latido y adios) y el SDK imitado (`src/castNativo.js`: un Media por msid, estados repetidos descartados, rechazos de `requestSession`, `CastPlayer` a través del shim); del configurador, lo que acepta del mensaje de `mod_form.php` con el video de Bunny (`fuenteBunnyDeMoodle`), el motor (hls.js o nativo), que el enlace firmado no llegue a lo que se exporta o vuelve a Moodle, y el armado que mete hls.js en el configurador publicado; la red de seguridad (`src/respaldo.js`: con qué errores salta a Vimeo y con cuáles nunca —la firma, la sesión, la TV, sin respaldo ofrecido—, lo que se le manda a `respaldo.php` y cómo se lee su respuesta, la URL con `origen=vimeo`) y el guardado del avance que espera la respuesta (`moodleGuardarAvanceYa`). Además, una huella del código de las funciones de `lib.php` que sólo prueba PHP: si cambian, avisa que hay que correr la prueba PHP. |
+| Unitarias | `tests/unit/` | El candado (`src/candado.js`: `debeFrenar`, la guardia, `tiempoAGuardar`) con casos fijos y un simulador de ticks; el parser de subtítulos (`src/subtitulos.js`); la firma de Bunny contra los vectores oficiales (espejo en Node), incluida la regla de "¿esta actividad usa Bunny?" que comparten `player.php` y `firma.php`; la renovación de la firma (`src/firma.js`: qué recarga Reintentar según el motivo y si la página de arriba se puede tocar, leer y reescribir las URLs del master, variantes, `.ts` y miniatura, el reloj con la hora del celular corrida, el Renovador contra un `firma.php` falso); el adaptador de Chromecast (`CastPlayer`) contra una TV falsa que avisa un salto en un solo estado; la config por defecto sin video y cuándo hay video para reproducir (`src/configuracion.js`, y que `config.example.js` tal cual no traiga uno); el puente con hub-app (`src/puenteApp.js`: sobres, respuestas de otra instancia, topes, el saludo sin respuesta, latido y adios) y el SDK imitado (`src/castNativo.js`: un Media por msid, estados repetidos descartados, rechazos de `requestSession`, `CastPlayer` a través del shim); del configurador, lo que acepta del mensaje de `mod_form.php` con el video de Bunny (`fuenteBunnyDeMoodle`), el motor (hls.js o nativo), que el enlace firmado no llegue a lo que se exporta o vuelve a Moodle, el armado que mete hls.js en el configurador publicado, de qué orígenes acepta el mensaje de Moodle (el campus y test-academy) y que de un JSON o de Moodle entren sólo los cinco tipos de interacción y los números como números; la red de seguridad (`src/respaldo.js`: con qué errores salta a Vimeo y con cuáles nunca —la firma, la sesión, la TV, sin respaldo ofrecido—, lo que se le manda a `respaldo.php` y cómo se lee su respuesta, la URL con `origen=vimeo`), la pregunta al CDN del HLS nativo antes de dar el error (`src/sondeo.js`: qué pide, qué devuelve con cada respuesta, el tope de tiempo y el error que sale) y el guardado del avance que espera la respuesta (`moodleGuardarAvanceYa`). Además, una huella del código de las funciones de `lib.php` que sólo prueba PHP: si cambian, avisa que hay que correr la prueba PHP. |
 | PHP | `tests/php/correr.php` | La sintaxis de cada `.php` del plugin (`php -l`: `player.php` y `firma.php` necesitan Moodle y ninguna otra prueba los ejecuta) y las funciones puras de `mod/ivplayer/lib.php` leídas del archivo real: firma HS256 de Bunny, la regla de qué actividad reproduce Bunny (`ivplayer_bunny_video`, la de `player.php` y `firma.php`, y que la clave no salga) y normalización de subtítulos (BOM, UTF-16, Windows-1252, bytes rotos). Además, el cableado del evento de vista (`ivplayer_view`) con reemplazos mínimos de Moodle: qué evento sale, con qué datos, la finalización después, y que sin la clase (antes del upgrade) la lección no rompe. Y el enlace del configurador con el video de Bunny (`ivplayer_bunny_configurador`: la regla de la lección, vida de 2 a 3 h, sólo el playlist, sin la clave) y el bloque JSON que lo lleva en el formulario (un `</script>` adentro no lo cierra). Y la red de seguridad: la regla con que `player.php` respeta `?origen=vimeo` (ajuste prendido + ID de Vimeo, `ivplayer_respaldo_forzar`), las causas que acepta `respaldo.php` (nunca 401/403/410) y el registro del salto con el evento propio (sin la clase y con ella). El `php -l` corre también en el workflow que publica el ZIP. |
-| Navegador | `tests/navegador/` | El bundle compilado en Chrome, con clics y toques reales por CDP: el candado con hls.js y con HLS nativo (saltos de afuera, también con una nota abierta; restauración; +10 y −10; play de afuera), el cambio de calidad antes de una pregunta (y, con el nativo, un salto del cambio de fuente que aterriza corrido), los subtítulos, la TV con Chromecast y AirPlay simulados (también como adentro de hub-app, por el puente: salir y volver, el saludo sin respuesta, sin Chromecast, iPhone con AirPlay o sin, y el WebView de la app de hoy), la fila de controles a 320 y 360 px en pantalla completa simulada, y la firma de Bunny que vence a los pocos segundos (el servidor de pruebas la valida como el CDN, con 403): sin cortes ni saltos y con el candado intacto, el 403 que se arregla solo (también con la red que tarda en volver), el pedido que espera una renovación en camino, un salto y un play durante esa espera (y, con el nativo, un −10 durante el rescate y la calidad elegida justo al vencer), una calidad rota que no es el vencimiento (con hls.js pasa a otra, sin cartel), el cartel si no se puede renovar, su Reintentar (con la sesión cerrada recarga la página de arriba; con otro motivo, o con la de arriba de otro origen, sólo el iframe) y la TV que recarga con la firma nueva. Sin video configurado (sin `PLAYER_CONFIG`, sin video o con un ID que no es un ID), el cartel "No hay video para mostrar" sin crear ningún reproductor ni pedirle nada a Vimeo. Y el configurador armado como el de GitHub Pages con un MP4 de la compu (generado con ffmpeg): tomar el tiempo, saltar, la vista previa con el reproductor, exportar sin `vimeoId`, liberar el archivo al cambiarlo, un archivo que no es video o que no se puede leer, un video sin la duración en la cabecera (WebM), el JSON de la skill con `videoUrl` y el ida y vuelta con Moodle pasado por el manejador real de `mod_form.php` (el campo de Vimeo no se toca). La red de seguridad con fallas simuladas del CDN (404 del playlist, 503 de los segmentos a mitad de la clase, el CDN caído): recarga sólo el iframe con Vimeo y retoma donde iba, sin pisar el avance; y no salta con la sesión cerrada, con la firma vencida (se renueva o, sin permiso, el cartel), con el ajuste apagado, si respaldo.php no lo deja ni transmitiendo por AirPlay. También con el video de Bunny que manda Moodle (un HLS de ffmpeg servido por un CDN de mentira en otro origen, que valida el token como Bunny): reproducirlo con hls.js (y con el nativo), tomar el tiempo y saltar, la vista previa, exportar y guardar sin el enlace firmado y sin tocar el campo de Vimeo, un archivo de la compu encima y volver, el enlace vencido o rechazado, y del lado de `mod_form.php` (su script real) que el bloque firmado salga de la página y no se mande si se cambió el campo de Bunny o venció, medido con el reloj del servidor. |
+| Navegador | `tests/navegador/` | El bundle compilado en Chrome, con clics y toques reales por CDP: el candado con hls.js y con HLS nativo (saltos de afuera, también con una nota abierta; restauración; +10 y −10; play de afuera), el cambio de calidad antes de una pregunta (y, con el nativo, un salto del cambio de fuente que aterriza corrido), los subtítulos, la TV con Chromecast y AirPlay simulados (también como adentro de hub-app, por el puente: salir y volver, el saludo sin respuesta, sin Chromecast, iPhone con AirPlay o sin, y el WebView de la app de hoy), la fila de controles a 320 y 360 px en pantalla completa simulada, y la firma de Bunny que vence a los pocos segundos (el servidor de pruebas la valida como el CDN, con 403): sin cortes ni saltos y con el candado intacto, el 403 que se arregla solo (también con la red que tarda en volver), el pedido que espera una renovación en camino, un salto y un play durante esa espera (y, con el nativo, un −10 durante el rescate y la calidad elegida justo al vencer), una calidad rota que no es el vencimiento (con hls.js pasa a otra, sin cartel), el cartel si no se puede renovar, su Reintentar (con la sesión cerrada recarga la página de arriba; con otro motivo, o con la de arriba de otro origen, sólo el iframe) y la TV que recarga con la firma nueva. Sin video configurado (sin `PLAYER_CONFIG`, sin video o con un ID que no es un ID), el cartel "No hay video para mostrar" sin crear ningún reproductor ni pedirle nada a Vimeo. Y el configurador armado como el de GitHub Pages con un MP4 de la compu (generado con ffmpeg): tomar el tiempo, saltar, la vista previa con el reproductor, exportar sin `vimeoId`, liberar el archivo al cambiarlo, un archivo que no es video o que no se puede leer, un video sin la duración en la cabecera (WebM), el JSON de la skill con `videoUrl` y el ida y vuelta con Moodle pasado por el manejador real de `mod_form.php` (el campo de Vimeo no se toca). La red de seguridad con fallas simuladas del CDN (404 del playlist, 503 de los segmentos a mitad de la clase, el CDN caído; con el HLS nativo, el 404 salta con la misma causa que hls.js y un 403 de los segmentos con la firma vigente no salta): recarga sólo el iframe con Vimeo y retoma donde iba, sin pisar el avance; y no salta con la sesión cerrada, con la firma vencida (se renueva o, sin permiso, el cartel), con el ajuste apagado, si respaldo.php no lo deja ni transmitiendo por AirPlay. También con el video de Bunny que manda Moodle (un HLS de ffmpeg servido por un CDN de mentira en otro origen, que valida el token como Bunny): reproducirlo con hls.js (y con el nativo), tomar el tiempo y saltar, la vista previa, exportar y guardar sin el enlace firmado y sin tocar el campo de Vimeo, un archivo de la compu encima y volver, el enlace vencido o rechazado, y del lado de `mod_form.php` (su script real) que el bloque firmado salga de la página y no se mande si se cambió el campo de Bunny o venció, medido con el reloj del servidor. Y lo que encontró la revisión de seguridad de la 1.4.0: un tipo de interacción armado no se ejecuta ni en la vista previa de `mod_form.php` ni en el configurador (tampoco el id de una opción, x/y o la duración), y `mod_form.php` acepta lo que vuelve sólo de la ventana que abrió. |
 
 🔴 El simulador de las unitarias (`tests/unit/apoyo/simulador.mjs`) usa las
 decisiones REALES de `candado.js`, pero el efecto de disparo del componente (el orden
@@ -128,6 +128,60 @@ historial de git, también el de `gh-pages`, lo siguen trayendo: no cambian con 
 2. Subir `dist/index.html` como recurso "Archivo" en Moodle
 3. O embeber como iframe en una actividad "Página"
 
+(En el campus va como plugin `mod_ivplayer`: ver la sección siguiente.)
+
+## Instalar el plugin en el campus (a mano, desde el 18-oct-2026)
+
+**Ya no hay instalación automática**: el 18-oct-2026 se borró la tarea programada (cron
+de hPanel) que corría `~/ivplayer-update.php` y bajaba sola cada release. Cada push a
+master sigue publicando un release (`build-plugin.yml`) y el configurador en GitHub
+Pages, pero en el campus no cambia nada hasta que alguien lo instala.
+
+**Primero test-academy**, con el ZIP de la rama: `npm run build:plugin` deja
+`dist/mod_ivplayer.zip`, que se sube en *Administración del sitio → Plugins → Instalar
+plugins* (o se copia `mod/ivplayer` y se corren el segundo y el tercer comando de abajo
+con la carpeta de test-academy). 🔴 Nunca correr `build-plugin.yml` a mano
+(`workflow_dispatch`) desde una rama: también publica un release marcado como el último,
+que es el que baja `ivplayer-update.php` en producción.
+
+**Después producción, de noche**, con la rama ya en master y el workflow "Build &
+Deploy" terminado, por SSH:
+
+```bash
+php ~/ivplayer-update.php                               # baja el último release y copia mod/ivplayer
+php <moodle>/admin/cli/upgrade.php --non-interactive    # registra la versión nueva (clases nuevas, ajustes)
+php <moodle>/admin/cli/purge_caches.php                 # nadie queda con el mapa de clases o el player.html viejos
+```
+
+`<moodle>` es la carpeta web del sitio (la que tiene `admin/` y `mod/`).
+
+- 🔴 **Los tres seguidos.** Entre el primero y el segundo corre el código nuevo con la
+  versión vieja registrada: las clases nuevas no están (no se registran las vistas ni los
+  saltos de la red) y las casillas nuevas quedan sin valor, o sea apagadas. Nada se rompe
+  en ese rato (`class_exists`), pero no hay que dejarlo así.
+- Al terminar: *Administración del sitio → Notificaciones* sin nada pendiente, y
+  *Plugins → Módulos de actividad → Video Interactivo* con la versión del release (1.4.0,
+  2026101902).
+- 🔴 `scripts/moodle-auto-update.php` (el original de `~/ivplayer-update.php`) deja el
+  respaldo de la versión anterior en `mod/ivplayer_backup/`, adentro de la carpeta web:
+  ahí se puede abrir por web y corre el reproductor viejo (sin evento de vista ni red de
+  seguridad). En el servidor, `$BACKUP_DIR` tiene que apuntar fuera de la carpeta web
+  (plan de migración a Bunny, tramo 0.2).
+- **Volver atrás:** Moodle no deja bajar de versión. Se publica una versión nueva hacia
+  adelante (después de la 1.4.0, una 1.4.1); nunca se copia encima la carpeta vieja
+  entera. La red de seguridad y el aviso de la app vienen detrás de casillas apagadas
+  (apagarlas es su vuelta atrás); el evento de vista y el Reintentar con la sesión
+  cerrada no tienen casilla.
+
+### Ajustes nuevos de la 1.4.0 (los dos vienen apagados)
+
+*Administración del sitio → Plugins → Módulos de actividad → Video Interactivo*:
+
+| Ajuste | Qué hace | Cuándo prenderlo |
+|---|---|---|
+| **Red de seguridad: Vimeo si Bunny falla** (`respaldovimeo`) | Si el CDN de Bunny falla, la lección se recarga con el Vimeo de la actividad y retoma del avance (ver "Red de seguridad"). | Probada en test-academy. 🔴 Apagarla el día en que los videos de Vimeo pasen a privados. |
+| **La app con Chromecast ya está publicada** (`appcastpublicada`) | Adentro de una app vieja (sin el puente con el reproductor), el botón de la TV pasa a decir que actualicen la app. | Cuando la versión de la app con Chromecast esté disponible para todos en las tiendas. |
+
 ## Vistas en el log del campus (evento de vista)
 
 Hasta la 1.3.3, `view.php` marcaba el "visto" de la finalización pero no disparaba
@@ -141,15 +195,21 @@ finalización, como `page_view()` de core.
   iframe) no registra nada: se recarga solo (giro en iOS, "Reintentar") y contaría de más.
 - Las vistas de antes no se recuperan: el log cuenta desde que se instala.
 - La clase nueva entra al mapa de clases de Moodle con el **upgrade** (por eso subió
-  `$plugin->version`). Si el actualizador automático copió los archivos y el upgrade
-  todavía no corrió, la lección abre igual y la vista no queda registrada hasta entonces.
+  `$plugin->version`). Si se copiaron los archivos y el upgrade todavía no corrió, la
+  lección abre igual y la vista no queda registrada hasta entonces (por eso la
+  instalación a mano corre los tres comandos seguidos: ver "Instalar el plugin en el
+  campus").
+- 🔴 Ahora cualquier plugin del campus que escuche `course_module_viewed` (insignias,
+  gamificación, `tool_monitor`, los propios de Hub) empieza a ver las lecciones de
+  Video interactivo. Mirarlo en test-academy antes de producción.
 
 **Verificar en el campus (test-academy primero):**
 
-1. Instalar y completar el upgrade (Administración del sitio → Notificaciones).
-2. Con una cuenta de alumno, abrir una lección de Video interactivo (en producción,
-   cm 393) y recargar una vez la página entera: son dos cargas. Si se puede, girar el
-   iPhone con la lección abierta: eso recarga sólo el iframe y no tiene que sumar.
+1. Instalar y completar el upgrade (ver "Instalar el plugin en el campus").
+2. Con una cuenta de alumno, abrir una lección de Video interactivo (`<cmid>` = el
+   número de `id=` en la dirección de la lección) y recargar una vez la página entera:
+   son dos cargas. Si se puede, girar el iPhone con la lección abierta: eso recarga sólo
+   el iframe y no tiene que sumar.
 3. Como admin, Administración del sitio → Informes → Registros (o el curso → Informes
    → Registros), filtrar por esa actividad: tiene que haber **dos** filas "Módulo de
    curso visto" (`\mod_ivplayer\event\course_module_viewed`) de ese alumno, una por cada
@@ -244,6 +304,15 @@ ID de Bunny guardado, "Editar interacciones" → tiene que verse el video y deci
 las…"; marcar un tiempo, "Guardar en Moodle" y guardar el formulario → el campo de Vimeo
 y el de Bunny siguen iguales. Con un usuario sin permiso de edición, el formulario ni
 abre (lo frena `modedit.php`).
+
+🔴 **El configurador es uno solo para los dos sitios** (el de GitHub Pages, que se publica
+con cada push a master), así que esta prueba se puede hacer recién **después** de pasar la
+rama a master: antes, test-academy abre el configurador publicado viejo. Desde la 1.4.0 el
+configurador acepta el mensaje de `https://test-academy.hubeducation.com.ar` (antes sólo
+el del campus y el de esta compu: desde test-academy abría vacío y "Guardar en Moodle"
+se perdía). Las dos combinaciones de versiones son compatibles (formulario viejo con
+configurador nuevo y al revés: sin `bunny` en el mensaje, el configurador sigue con
+Vimeo), y para los alumnos el riesgo es cero: el configurador sólo lo abre quien edita.
 
 ### Configurar el sitio
 
@@ -359,6 +428,9 @@ reproducir hasta que aparezca "Se cerró tu sesión del campus" y tocar Reintent
 que aparecer el ingreso de Moodle en la página completa, no adentro del video, y al
 ingresar volver a la lección. En la app (Android e iPhone), lo mismo tiene que terminar
 en el ingreso automático y de vuelta en la lección, sin pedir usuario y contraseña.
+Adentro de la app no hay "otra pestaña": la sesión se cierra desde la compu, con el mismo
+usuario (*Preferencias → Sesiones del navegador*, cerrar la de la app), o se baja el
+tiempo de sesión de test-academy (`sessiontimeout`) y se espera.
 
 `firma.php` (POST `cmid` + `sesskey`) pide lo mismo que `player.php` (curso, actividad
 visible, `mod/ivplayer:view`) más el sesskey, contesta siempre JSON y sin caché
@@ -400,8 +472,17 @@ reintentos que ya hace el reproductor:
 | `http-404` | El playlist o un segmento no está. También: firmado con la autenticación de Bunny apagada, o un GUID que no existe. |
 | `http-5NN` | El CDN contestó con un error del servidor (500, 502, 503…). |
 | `red` | No se llegó al CDN (sin respuesta, conexión rechazada) o lo que llegó no servía. |
-| `medio` | Error fatal del video (hls.js después de recuperar, o el del HLS nativo después de renovar y recargar una vez). |
-| `otro` | Cualquier otro error fatal de hls.js. |
+| `medio` | Error fatal del video (hls.js después de recuperar, o el del HLS nativo después de renovar y recargar una vez, con el CDN contestando bien). |
+
+Cualquier otro error de hls.js (`otro`: MUX, KEY_SYSTEM, OTHER) **no** salta: el plan
+cuenta sólo la red, un 5xx, un 404 o un error fatal del medio. Va al cartel de siempre.
+
+**iPhone, iPad y Safari (HLS nativo):** el `<video>` no dice el código HTTP de lo que
+falló. Antes de dar el error, el reproductor le pregunta al CDN por la misma fuente: el
+playlist, la primera calidad y su primer segmento (sólo los encabezados; `src/sondeo.js`).
+Así las causas y la regla del 403 son las mismas que en Android y en la compu. Lo que
+no se ve así: una calidad o un segmento que fallen y no sean los primeros (ahí queda
+`medio`, como antes). Si el CDN no contestara con CORS a ese pedido, saldría `red`.
 
 **Cuándo no salta nunca:**
 
@@ -441,11 +522,13 @@ reproductor repite eso 3 veces más. Es lo mismo que tarda hoy el cartel: la red
 el momento en que antes aparecía. Acortarlo es cambiar los reintentos del reproductor
 para todas las lecciones (decisión aparte).
 
-🔴 **Un 403 de Bunny nunca salta**, tampoco con la firma vigente: por regla, todo
+🔴 **Un 403 de Bunny nunca salta**, tampoco con la firma vigente y en ninguna plataforma
+(desde que el HLS nativo le pregunta al CDN, tampoco en iPhone): por regla, todo
 401/403/410 es "la firma". Si Bunny contestara 403 por otra cosa (la cuenta suspendida
 por falta de saldo, una restricción de dominios), la red no cubre ese caso. Conviene
-medir en test-academy qué contesta la biblioteca de prueba deshabilitada antes de contar
-con la red para eso.
+medir en test-academy qué contesta la biblioteca de prueba deshabilitada, y qué contesta
+un GUID que no existe (la prueba del punto 2 de abajo supone un 404: con un 403 no
+salta), antes de contar con la red para eso.
 
 ### Prenderla
 
@@ -461,7 +544,8 @@ a privados**: si no, salta a un video que no se ve.
    biblioteca de prueba (con el formato correcto). Abrirla como alumno con avance: tiene
    que recargarse sola con Vimeo y retomar donde iba, sin cartel.
 3. Con la sesión vencida (duración del token en el mínimo, 1 h, y la sesión cerrada en
-   otra pestaña): no salta y aparece "Se cerró tu sesión del campus".
+   otra pestaña; en la app, desde la compu: ver "Qué pasa cuando vence el token"): no
+   salta y aparece "Se cerró tu sesión del campus".
 4. Con la firma vencida y la sesión abierta: la renueva sin saltar.
 5. En Registros, el salto del punto 2 con su causa (ver abajo).
 6. Lo mismo en la app (Android e iPhone): la recarga del iframe tiene que pasar sin que
@@ -474,19 +558,38 @@ Cada salto es una fila **"Red de seguridad: la lección pasó a Vimeo"** en Admi
 del sitio → Informes → Registros (o el curso → Informes → Registros), con la causa en la
 descripción ("cause 'http-503', HTTP code 503, detail 'fragLoadError'"). El detalle dice
 qué falló: `manifestLoadError` es el playlist, `levelLoadError` el de una calidad y
-`fragLoadError` un segmento.
+`fragLoadError` un segmento. Con el HLS nativo (iPhone, iPad, Safari) es
+`nativo-playlist`, `nativo-variante` o `nativo-segmento` (el pedido que falló al
+preguntarle al CDN), o `nativo-medio` si el CDN contestó bien: así también se separan
+los saltos de los dispositivos de Apple.
+
+🔴 **Contar alumnos, no filas.** Cualquier alumno con la lección abierta puede llamar a
+`respaldo.php` las veces que quiera (tiene el sesskey) y sumar filas; lo que no se puede
+inflar así es cuántos alumnos distintos saltaron por día y lección (`alumnos` en las
+consultas de abajo). Y al revés: alguien que abre a mano `player.php?…&origen=vimeo` ve la
+lección con Vimeo sin dejar ninguna fila (se registra el salto, no la carga).
 
 Por SQL, en MySQL/MariaDB (prefijo según el sitio; `other` se guarda como JSON; el `LIKE`
 evita escribir las barras invertidas del nombre del evento, que en MySQL hay que duplicar):
 
 ```sql
+-- Alumnos que saltaron por día y lección, últimos 30 días (lo que no se puede inflar).
+SELECT FROM_UNIXTIME(timecreated, '%Y-%m-%d') AS dia, contextinstanceid AS cmid,
+       COUNT(DISTINCT userid) AS alumnos, COUNT(*) AS saltos
+  FROM mdl_logstore_standard_log
+ WHERE component = 'mod_ivplayer' AND eventname LIKE '%respaldo_vimeo_usado'
+   AND timecreated > UNIX_TIMESTAMP() - 30 * 86400
+ GROUP BY dia, cmid
+ ORDER BY dia, alumnos DESC;
+
 -- Saltos por día y causa, últimos 30 días.
-SELECT FROM_UNIXTIME(timecreated, '%Y-%m-%d') AS dia, other, COUNT(*) AS saltos
+SELECT FROM_UNIXTIME(timecreated, '%Y-%m-%d') AS dia, other,
+       COUNT(DISTINCT userid) AS alumnos, COUNT(*) AS saltos
   FROM mdl_logstore_standard_log
  WHERE component = 'mod_ivplayer' AND eventname LIKE '%respaldo_vimeo_usado'
    AND timecreated > UNIX_TIMESTAMP() - 30 * 86400
  GROUP BY dia, other
- ORDER BY dia, saltos DESC;
+ ORDER BY dia, alumnos DESC;
 
 -- Por causa y lección (MySQL/MariaDB con JSON).
 SELECT JSON_UNQUOTE(JSON_EXTRACT(other, '$.causa')) AS causa, contextinstanceid AS cmid,
@@ -494,7 +597,7 @@ SELECT JSON_UNQUOTE(JSON_EXTRACT(other, '$.causa')) AS causa, contextinstanceid 
   FROM mdl_logstore_standard_log
  WHERE component = 'mod_ivplayer' AND eventname LIKE '%respaldo_vimeo_usado'
  GROUP BY causa, cmid
- ORDER BY saltos DESC;
+ ORDER BY alumnos DESC;
 ```
 
 Para leerlos: muchos `http-5NN` o `http-404` en un mismo rato y en varias lecciones es

@@ -18,6 +18,8 @@ A standalone interactive video player that replaces H5P for Hub Education's Mood
   reproductor). Para probar con un video, `window.PLAYER_CONFIG`; nunca acá.
 - `src/respaldo.js` — la red de seguridad (Vimeo si el CDN de Bunny falla): cuándo salta
   (puro) y el aviso a `respaldo.php`. Ver "Red de seguridad".
+- `src/sondeo.js` — HLS nativo: antes del error, le pregunta al CDN qué pasó (el
+  `<video>` no da el código HTTP). Ver "Red de seguridad".
 - `src/styles.css` — All styles with `.iv-` prefix namespace
 - `src/main.jsx` — React entry point
 - `vite.config.js` — Build config with singlefile plugin
@@ -237,6 +239,23 @@ del mensaje, aparte de `config`. El configurador lo reproduce con `crearReproduc
   con el HMAC real del espejo (`tests/unit/apoyo/bunny-espejo.mjs`), con las URLs de la
   forma exacta de `lib.php`. Si se restringen los "Allowed domains" en Bunny, sumar
   `erick25326.github.io`.
+- 🔴 **`mod_form.php` acepta lo que vuelve sólo de la ventana que abrió**
+  (`esElConfigurador(e.source)`: la que devolvió `window.open`, o una cuyo `opener` es
+  esta página, que cubre la recarga del formulario con el configurador abierto). El
+  origen solo no alcanza: `erick25326.github.io` es el de TODAS las páginas de GitHub
+  Pages de la cuenta. Las pruebas que le mandan un mensaje armado tienen que hacer clic
+  en "Editar interacciones" con un `window.open` que devuelva una ventana DE VERDAD y
+  mandarlo con esa `source` (un objeto común no sirve de `source` de un MessageEvent).
+- 🔴 **El tipo de una interacción es HTML si nadie lo filtra.** Iba crudo al `innerHTML`
+  de la vista previa de `mod_form.php` (ahora `escapeHtml`) y a la clase y la etiqueta de
+  la barra lateral del configurador: `loadConfig` deja entrar sólo los cinco tipos
+  (`esTipoDeInteraccion`) y el tiempo y la duración como números (`numeroAttr`, también
+  x/y en el editor); el id de una opción se escapa. Encontrado en la revisión de seguridad
+  de la 1.4.0 (venía de antes). Un campo nuevo que se interpole en un template, escapado.
+- 🔴 **El configurador acepta el mensaje de `academy.`, `test-academy.` y localhost**
+  (`isAllowedMoodleOrigin`). Pero es UNO para los dos sitios y GitHub Pages lo publica sólo
+  con un push a master: en test-academy, el configurador nuevo se prueba recién después
+  del pase a master. Formulario viejo + configurador nuevo y al revés son compatibles.
 
 ## Renovación de la firma de Bunny (firma.php + src/firma.js, oct-2026) — trampas
 Con la lección abierta, el reproductor pide una firma nueva 10 min antes del
@@ -497,11 +516,22 @@ Uso, cómo probarla y cómo contar los saltos: README ("Red de seguridad").
   el iframe con `player.php?…&origen=vimeo`. El componente no sabe cambiar de motor (el
   efecto que crea el reproductor sale si ya hay uno) y el motor propio está atado a la
   firma, a la TV y al candado.
-- 🔴 **Sólo fallas del CDN** (`causaDelRespaldo`, `src/respaldo.js`): 404, 5xx, red, medio,
-  otro, DESPUÉS de los reintentos del reproductor. **Nunca** 401/403/410 (la firma: la
+- 🔴 **Sólo fallas del CDN** (`causaDelRespaldo`, `src/respaldo.js`): 404, 5xx, red y
+  medio, DESPUÉS de los reintentos del reproductor. **Nunca** 401/403/410 (la firma: la
   renueva firma.js), nunca con renovación 'sesion' u 'otro', nunca transmitiendo (`tvRef`
   o `playerRef.current.esTV`). La misma lista del lado del servidor
   (`ivplayer_respaldo_datos`): un reproductor viejo o tocado tampoco salta por la firma.
+  El tipo de error 'otro' de hls.js (MUX, KEY_SYSTEM, OTHER) tampoco salta desde la
+  revisión de la 1.4.0: no está en la lista del plan (red, 5xx, 404, medio).
+- 🔴 **El HLS nativo le pregunta al CDN antes de dar el error** (`_fallarMedio` en
+  nativePlayer → `src/sondeo.js`): el `<video>` no da el código HTTP y todo salía
+  'medio' sin código, así que en iPhone la red saltaba con un 403 (con hls.js no) y el
+  registro no separaba Bunny de la señal. Pide la fuente actual, la PRIMERA variante y su
+  PRIMER segmento (sólo encabezados) y arma el error como hls.js (4xx → 'acceso', 5xx y
+  sin respuesta → 'red', todo 200 → 'medio'; detalle `nativo-playlist|variante|segmento|medio`).
+  Mientras pregunta (`_sondeando`, tope 8 s) no se cambia de fuente ni se vuelve a
+  rescatar. Una variante o un segmento rotos que no sean los primeros siguen dando 'medio'.
+  Lo prueban `sondeo.test.mjs` y las dos de "HLS nativo" de `escenarios/respaldo.mjs`.
 - 🔴 **respaldo.php confirma ANTES de recargar**: con la sesión cerrada contesta 401 y el
   reproductor NO salta (cartel de la sesión: Reintentar recarga `window.top`). Saltar sin
   sesión era ver Vimeo sin guardar nada, y player.php sin sesión pone el login de Moodle
@@ -541,9 +571,27 @@ verificarlo en el campus: README, "Vistas en el log del campus".
   solo (giro en iOS, "Reintentar") y contaría vistas de más. Lo vigila `lib-php.test.mjs`.
 - 🔴 **Una clase nueva en `classes/` la ve Moodle recién después del upgrade** (que purga el
   mapa de clases). Por eso subió `$plugin->version`, y por eso `ivplayer_view` pregunta
-  `class_exists` antes: el actualizador automático copia los archivos y deja el upgrade
-  para cuando entra un admin; sin la pregunta, en ese rato TODAS las lecciones daban
-  "clase no encontrada". Vale para cualquier clase nueva del plugin.
+  `class_exists` antes: entre que se copian los archivos y corre el upgrade, sin la
+  pregunta TODAS las lecciones daban "clase no encontrada". Vale para cualquier clase
+  nueva del plugin.
+- Ahora cualquier observador de `course_module_viewed` del campus (insignias,
+  gamificación, `tool_monitor`, plugins propios) ve las lecciones: mirarlo en test-academy.
+
+## Instalación en el campus (a mano desde el 18-oct-2026) — trampas
+El cron de hPanel que corría `~/ivplayer-update.php` con cada release se borró el 18-oct:
+un push a master publica el release y el configurador, pero el campus no cambia hasta
+instalarlo. Procedimiento completo en el README ("Instalar el plugin en el campus").
+- 🔴 **Tres comandos seguidos, de noche:** `php ~/ivplayer-update.php`,
+  `php <moodle>/admin/cli/upgrade.php --non-interactive` y
+  `php <moodle>/admin/cli/purge_caches.php`. Sin el upgrade las clases nuevas no existen
+  (vistas y saltos sin registrar) y las casillas nuevas quedan apagadas.
+- 🔴 **test-academy primero, con el ZIP de la rama** (`npm run build:plugin`). Nunca
+  `workflow_dispatch` de `build-plugin.yml` desde una rama: publica un release
+  `make_latest`, el que baja `ivplayer-update.php`.
+- 🔴 `scripts/moodle-auto-update.php` deja el respaldo en `mod/ivplayer_backup/` (adentro
+  de la carpeta web: se sirve y corre el reproductor viejo). En el servidor, `$BACKUP_DIR`
+  fuera de la carpeta web (plan Bunny, tramo 0.2).
+- Vuelta atrás: una versión nueva hacia adelante (1.4.1); Moodle no deja bajar.
 - `ivplayer_view` no es pura: la prueba `correr.php` aparte, con reemplazos mínimos de
   `\core\event\course_module_viewed` y `completion_info` (el cableado, no el log).
 
@@ -578,7 +626,7 @@ cada capa, en el README.
   `::warning::` y el job queda verde: mirar la advertencia.
 - **Unitarias** (`tests/unit/`, node:test, sin dependencias): `src/candado.js`,
   `src/subtitulos.js`, `src/firma.js` (con fetch, timers y relojes de mentira), el
-  espejo en Node de la firma de Bunny y `CastPlayer` de
+  espejo en Node de la firma de Bunny, `src/sondeo.js` (con un CDN de mentira) y `CastPlayer` de
   `src/cast.js` contra una TV falsa (sin SDK: con `window` vacío, `sdk()` da null y
   no se manda ningún comando; sólo se mira cómo lee los avisos de la TV). 🔴 `node
   --test tests/unit` NO anda en Node 22+ (toma la carpeta como archivo): usar
@@ -593,8 +641,10 @@ cada capa, en el README.
   si se toca una en `lib.php`, esa prueba avisa que hay que re-traducir el espejo.
   `ivplayer_subtitulos_normalizar` no tiene espejo: `tests/unit/lib-php.test.mjs` fija
   su huella sólo para avisar que hay que correr la prueba PHP (antes un cambio ahí
-  pasaba toda la suite local). correr.php todavía no se corrió nunca: no hay PHP en
-  esta PC; la primera corrida va a ser la de CI.
+  pasaba toda la suite local). No hay PHP en esta PC: correr.php corre en CI o en el
+  servidor (alias SSH `hub-moodle`, PHP 8.3), en una carpeta descartable: copiar
+  `tests/php` y `mod/ivplayer` a `~/wf-php`, `php tests/php/correr.php` y borrarla. Nada
+  más en el servidor.
 - **Navegador** (`tests/navegador/`): el bundle COMPILADO (a una carpeta temporal,
   `dist/` no se toca) en Chrome headless por CDP crudo, con clics y toques reales
   (`Input.dispatchMouseEvent` / `dispatchTouchEvent`). Los receptores simulados de la

@@ -130,6 +130,12 @@ test('el enlace de Bunny del configurador: sólo para quien edita, en el bloque 
   assert.match(form, /bloqueFirmado\.parentNode\.removeChild\(bloqueFirmado\);/);
   assert.match(form, /var mensaje = \{ type: "ivplayer-load-config", config: config \};/);
   assert.match(form, /w\.postMessage\(mensaje, CONFIGURATOR_ORIGIN\);/);
+  // Lo que vuelve: sólo de la ventana que abrió esta página (el origen solo es el de
+  // TODAS las páginas de GitHub Pages de la cuenta), y el tipo se escapa en la vista
+  // previa (venía crudo al innerHTML). El recorrido, en escenarios/configurador-bunny.mjs.
+  assert.ok(form.includes('if (!esElConfigurador(e.source)) return;'), 'el manejador de mod_form.php no mira e.source');
+  assert.ok(form.includes('if (w) ventanaConfigurador = w;'));
+  assert.ok(form.includes('var label = escapeHtml(typeNames[ia.type] || ia.type);'), 'el tipo va crudo a la vista previa');
 });
 
 // La red de seguridad (plan Bunny 0.4): Vimeo si el CDN de Bunny falla. Lo que hacen las
@@ -145,7 +151,7 @@ test('la red de seguridad: player.php, respaldo.php, el ajuste apagado y el even
   const huellas = {
     ivplayer_respaldo_vimeo: '5d9175d30c381769',
     ivplayer_respaldo_forzar: '26a77b798830dc40',
-    ivplayer_respaldo_datos: '7f907762218595a6',
+    ivplayer_respaldo_datos: 'e84b63b4a6724f54',
     ivplayer_respaldo_registrar: '99b8ec1221a05941',
   };
   for (const [nombre, esperada] of Object.entries(huellas)) {

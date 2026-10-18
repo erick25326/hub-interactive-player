@@ -82,6 +82,33 @@ export function registrar(entorno) {
       await comprobarSalto(antes, { causa: 'http-404', codigo: 404, detalle: 'manifestLoadError', desdeT: 12 });
     }, { timeout: 90000 });
 
+    // HLS nativo (el camino de iPhone y Safari; acá, el de Chrome): el <video> no da el
+    // código HTTP, así que antes del error nativePlayer le pregunta al CDN por la misma
+    // fuente (src/sondeo.js). Sin eso la causa era 'medio' sin código y un 403 saltaba.
+    const skipNativo = entorno.sinNativo || false;
+    paso(entorno, 'HLS nativo · 404 del playlist: le pregunta al CDN, salta con la misma causa que hls.js y retoma', async () => {
+      const antes = foto();
+      await p.abrir({ pagina: 'marco.html', query: query({ motor: 'nativo', falla: 'playlist-404' }), progreso: AVANCE, listo: LISTO_VIMEO, esperarEn: 12 });
+      await comprobarSalto(antes, { causa: 'http-404', codigo: 404, detalle: 'nativo-playlist', desdeT: 12 });
+    }, { skip: skipNativo, timeout: 90000 });
+
+    paso(entorno, 'HLS nativo · 403 de los segmentos con la firma vigente: NO salta (como hls.js) y el cartel es el del acceso', async () => {
+      const antes = foto();
+      const r0 = F().rechazos.length;
+      R().fallaSegmentos = 403;
+      let error;
+      try {
+        error = await abrirHastaElCartel(query({ motor: 'nativo' }));
+      } finally {
+        R().fallaSegmentos = null;
+      }
+      assert.match(error, /El acceso al video venció/, `cartel: ${error}`);
+      assert.ok(F().rechazos.slice(r0).some((r) => r.motivo === 'falla 403' && /\.ts$/i.test(r.resto)), 'la prueba tenía que pasar por un 403 de un segmento');
+      await dormir(1000);
+      const d = desde(antes);
+      assert.deepEqual([d.pedidos.length, d.vimeo, d.reproductor], [0, 0, 1], `no tenía que saltar: ${JSON.stringify(d)}`);
+    }, { skip: skipNativo, timeout: 90000 });
+
     paso(entorno, 'el CDN caído (no contesta): recarga con Vimeo después de los reintentos', async () => {
       const antes = foto();
       const t0 = Date.now();
