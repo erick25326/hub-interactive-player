@@ -15,6 +15,10 @@
 //                   para ESTE directorio y con ESTE vencimiento) y el vencimiento, con 403
 //                   (y CORS abierto, como Bunny) si no vale. Ver ?firma=.
 //   /firma          el firma.php de mentira: POST cmid + sesskey → una firma nueva.
+//   /configurador.html
+//                   el configurador de interacciones ARMADO como el que se publica en
+//                   GitHub Pages (scripts/armar-configurador.mjs), con ESTE reproductor
+//                   compilado adentro para la vista previa.
 // Query de /player.html: motor=hls|nativo|auto · progreso=<json del avance> ·
 // subs=vtt · cast=fake (la TV simulada + el emisor de Chrome; lat, hayTV… los leen los
 // simulados) · airplay=1 · nofs=1 · webview=1 (como el WebView de hub-app: sin Cast Web
@@ -43,8 +47,10 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { armarConfigurador } from '../../../scripts/armar-configurador.mjs';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
+const RAIZ = path.resolve(AQUI, '..', '..', '..');
 export const GUID_PRUEBA = '11111111-2222-4333-8444-555555555555';
 export const CLAVE_AVANCE = `iv_progress_${GUID_PRUEBA}`;
 
@@ -309,6 +315,12 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
       if (u.pathname === '/player.html') return pagina(paginaReproductor(u.searchParams, origen));
       if (u.pathname === '/marco.html') return pagina(paginaMarco(new URLSearchParams(u.searchParams)));
       if (u.pathname === '/vacio.html') return pagina('<!doctype html><title>vacío</title>');
+      // Se lee en cada pedido: así prueba el configurador como está en el disco.
+      if (u.pathname === '/configurador.html') return pagina(armarConfigurador({
+        playerHtml: html,
+        manifest: fs.readFileSync(path.join(RAIZ, 'scorm', 'imsmanifest.xml'), 'utf8'),
+        configurator: fs.readFileSync(path.join(RAIZ, 'configurator', 'index.html'), 'utf8'),
+      }));
       if (u.pathname === '/firma') return responderFirma(req, u, origen, res);
       if (u.pathname.startsWith('/bcdn_token=')) return await servirFirmado(u.pathname, res);
       const pre = `/hls/${GUID_PRUEBA}/`;

@@ -16,6 +16,7 @@ import * as tv from './escenarios/tv.mjs';
 import * as tvApp from './escenarios/tv-app.mjs';
 import * as angosto from './escenarios/angosto.mjs';
 import * as firma from './escenarios/firma.mjs';
+import * as configurador from './escenarios/configurador.mjs';
 
 const entorno = await prepararEntorno();
 
@@ -66,4 +67,6 @@ if (entorno.omitir) {
   tvApp.registrar(entorno);
   angosto.registrar(entorno);
   firma.registrar(entorno);
+  // Al final: bloquea el SDK de Vimeo y las fuentes mientras corre (y lo devuelve).
+  configurador.registrar(entorno, { avisar: (motivo) => avisarSalteo('parcial', motivo) });
 }

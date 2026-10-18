@@ -280,6 +280,21 @@ body {
   max-width: 640px;
 }
 .video-preview iframe { width: 100%; height: 100%; border: none; }
+/* Video de la compu: ocupa el mismo recuadro 16:9 que el de Vimeo (los puntos y las
+   etiquetas se ubican en % de ese recuadro, igual que en el reproductor). */
+.video-preview video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
+.local-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fuente-local {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--gray-500);
+  background: var(--gray-100);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  max-width: 640px;
+}
+.fuente-local strong { color: var(--gray-700); font-weight: 600; word-break: break-all; }
 #video-placeholder {
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
@@ -605,12 +620,25 @@ body {
       <div class="form-group">
         <label class="form-label">URL o ID de Vimeo</label>
         <div class="form-row">
-          <input type="text" class="form-input" id="vimeoInput" placeholder="Ej: https://vimeo.com/1171751497/415649d0b1">
+          <input type="text" class="form-input" id="vimeoInput" placeholder="Ej: https://vimeo.com/123456789/abcdef1234">
           <button class="btn btn-primary" onclick="loadVideo()" style="flex:none">Cargar video</button>
         </div>
       </div>
+      <div class="form-group">
+        <label class="form-label">O un video de tu computadora <span class="form-hint">(para marcar los tiempos de un video que no está en Vimeo, como los de Bunny; no se sube a ningún lado)</span></label>
+        <div class="local-row">
+          <button type="button" class="btn btn-primary" id="localVideoBtn" onclick="abrirVideoLocal()">Abrir video de tu computadora</button>
+          <input type="file" id="localVideoInput" accept="video/*" class="hidden" onchange="onLocalVideoChange(event)">
+        </div>
+        <div id="fuenteLocal" class="fuente-local" style="display:none"></div>
+        <div id="avisoVideoUrl" class="fuente-local" style="display:none">
+          Este JSON es de un video de Bunny (trae <strong>videoUrl</strong>): acá no se reproduce, porque
+          ese video sólo se ve firmado, desde el campus. Para revisar los tiempos, abrí el mismo video
+          desde tu computadora. El videoUrl se conserva al exportar el JSON.
+        </div>
+      </div>
       <div id="videoContainer">
-        <div id="video-placeholder">Ingresa una URL de Vimeo y haz clic en "Cargar video"</div>
+        <div id="video-placeholder">Ingresa una URL de Vimeo y haz clic en "Cargar video", o abrí un video de tu computadora</div>
       </div>
       <div id="previewTimelineWrap" class="preview-timeline-wrap" style="display:none">
         <div class="preview-timeline-label">Línea de tiempo <span class="form-hint">(clic en la X para eliminar)</span></div>
@@ -640,7 +668,14 @@ body {
 let interactions = [];
 let selectedId = null;
 let counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0, label: 0 };
-let vimeoPlayer = null;
+// El video de la vista previa (Vimeo o un archivo de la compu), siempre detrás de la
+// misma interfaz chica: ver "REPRODUCTOR DE LA VISTA PREVIA".
+let reproductor = null;
+let ultimoTiempo = 0;   // último tiempo que avisó el video (para el botón "Usar tiempo actual")
+// El videoUrl de un JSON importado (el HLS de Bunny que pone la skill interacciones-
+// video, o "PENDIENTE"): se guarda sólo para volver a exportarlo, nunca es la fuente
+// de la vista previa (ver loadConfig y exportJSON).
+let videoUrlImportado = null;
 let videoDuration = 0;
 let placementMode = true;  // true = click-to-place active; false = video controls accessible
 
@@ -693,6 +728,15 @@ function parseVimeoUrl(input) {
   return { vimeoId: clean, vimeoHash: null };
 }
 
+// Lo mismo, pero sólo si sale un ID de Vimeo de verdad (dígitos). Cualquier otra cosa
+// ("PENDIENTE", un enlace de Bunny, texto suelto) da vacío: es lo que se importa y lo
+// que se le devuelve a Moodle, y "Guardar en Moodle" escribe el vimeoId que reciba en
+// el campo de Vimeo de la actividad. Un relleno ahí pisaría el video que tenía.
+function vimeoDe(texto) {
+  const r = parseVimeoUrl(String(texto || ''));
+  return /^\d+$/.test(r.vimeoId) ? r : { vimeoId: '', vimeoHash: null };
+}
+
 function generateId(type) {
   const prefix = type === 'multiple-choice' ? 'mc' : type === 'true-false' ? 'tf' : type;
   counters[type]++;
@@ -734,24 +778,22 @@ function getSummary(interaction) {
 }
 
 // ============================================================
-// VIDEO LOADING
+// REPRODUCTOR DE LA VISTA PREVIA (Vimeo o archivo de la compu)
 // ============================================================
-function loadVideo() {
-  const input = document.getElementById('vimeoInput').value;
-  if (!input.trim()) return;
+// El resto del configurador le habla al video sólo con esta interfaz, así "Usar
+// tiempo actual", "Ir a este tiempo", la duración y la línea de tiempo andan igual
+// con Vimeo y con un archivo local. Todo devuelve Promises, como el SDK de Vimeo:
+//   ready()                    se cumple cuando ya se puede leer la duración
+//   getCurrentTime()           segundos
+//   setCurrentTime(s)          se cumple con el salto hecho
+//   play() / pause()
+//   getDuration()              segundos (0 si todavía no se sabe)
+//   on('timeupdate', fn)       fn(segundos) mientras avanza y al saltar
+//   on('durationchange', fn)   fn(segundos) si la duración llega o cambia después
+//   destroy()                  lo saca (y, el local, libera el archivo)
+//   tipo                       'vimeo' | 'local'
 
-  const { vimeoId, vimeoHash } = parseVimeoUrl(input);
-  const container = document.getElementById('videoContainer');
-
-  // Remove old content
-  container.innerHTML = '';
-
-  // Create wrapper div
-  const wrapper = document.createElement('div');
-  wrapper.className = 'video-preview';
-  wrapper.id = 'vimeoPlayerDiv';
-  container.appendChild(wrapper);
-
+function crearReproductorVimeo(elemento, vimeoId, vimeoHash) {
   // Build options — use URL for private videos, ID for public
   const opts = { width: 640, responsive: true };
   if (vimeoHash) {
@@ -759,20 +801,214 @@ function loadVideo() {
   } else {
     opts.id = parseInt(vimeoId);
   }
+  const p = new Vimeo.Player(elemento, opts);
+  return {
+    tipo: 'vimeo',
+    ready: function() { return p.ready(); },
+    getCurrentTime: function() { return p.getCurrentTime(); },
+    setCurrentTime: function(s) { return p.setCurrentTime(s); },
+    play: function() { return p.play(); },
+    pause: function() { return p.pause(); },
+    getDuration: function() { return p.getDuration().then(function(d) { return d || 0; }); },
+    on: function(evento, fn) {
+      if (evento === 'timeupdate') {
+        p.on('timeupdate', function(d) { fn(d.seconds); });
+        p.on('seeked', function(d) { fn(d.seconds); });
+      } else if (evento === 'durationchange') {
+        p.on('durationchange', function(d) { fn(d.duration || 0); });
+      }
+    },
+    destroy: function() { return p.destroy().catch(function() {}); }
+  };
+}
+
+// Archivo de la compu en un <video>, con una URL blob: que vive sólo en esta pestaña
+// (y en la ventana de la vista previa, que es del mismo origen). Nada sale de la PC.
+function crearReproductorLocal(elemento, archivo) {
+  const url = URL.createObjectURL(archivo);
+  const v = document.createElement('video');
+  v.controls = true;
+  v.playsInline = true;
+  v.preload = 'auto';
+  v.src = url;
+  elemento.appendChild(v);
+  const listo = new Promise(function(ok, mal) {
+    if (v.readyState >= 1) { ok(); return; }
+    v.addEventListener('loadedmetadata', function() { ok(); }, { once: true });
+    v.addEventListener('error', function() { mal(new Error('el navegador no pudo leer el video')); }, { once: true });
+  });
+  listo.catch(function() {});   // el error lo muestra usarReproductor
+  // Un video sin la duración en la cabecera (algunos WebM) da Infinity hasta leerlo
+  // entero: mientras tanto se informa 0 y llega después por 'durationchange'.
+  const duracion = function() { return (isFinite(v.duration) && v.duration > 0) ? v.duration : 0; };
+  return {
+    tipo: 'local',
+    url: url,
+    nombre: archivo.name,
+    video: v,
+    ready: function() { return listo; },
+    getCurrentTime: function() { return Promise.resolve(v.currentTime); },
+    setCurrentTime: function(s) {
+      return listo.then(function() {
+        return new Promise(function(ok) {
+          const d = duracion();
+          const t = Math.max(0, d ? Math.min(Number(s) || 0, d) : (Number(s) || 0));
+          // Se espera el 'seeked' para que quien lea el tiempo después lea el nuevo.
+          // Con tope: un salto que el navegador descarta no tiene que colgar a nadie.
+          let hecho = false;
+          const fin = function() { if (hecho) return; hecho = true; clearTimeout(tope); v.removeEventListener('seeked', fin); ok(v.currentTime); };
+          const tope = setTimeout(fin, 3000);
+          v.addEventListener('seeked', fin);
+          v.currentTime = t;
+        });
+      });
+    },
+    play: function() { return v.play(); },
+    pause: function() { v.pause(); return Promise.resolve(); },
+    getDuration: function() { return listo.then(duracion); },
+    on: function(evento, fn) {
+      if (evento === 'timeupdate') v.addEventListener('timeupdate', function() { fn(v.currentTime); });
+      else if (evento === 'durationchange') v.addEventListener('durationchange', function() { fn(duracion()); });
+    },
+    destroy: function() {
+      v.pause();
+      v.removeAttribute('src');
+      v.load();   // corta la lectura del archivo antes de liberar la URL
+      v.remove();
+      URL.revokeObjectURL(url);
+      // La vista previa con el reproductor guarda el avance con la URL como clave
+      // (iv_progress_<url>); esa URL no vuelve a existir, así que no queda colgado.
+      try { localStorage.removeItem('iv_progress_' + url); } catch (e) {}
+    }
+  };
+}
+
+// Saca el video que hubiera (si era local, libera su URL) y deja un recuadro vacío.
+function prepararRecuadroVideo() {
+  if (reproductor) {
+    try { reproductor.destroy(); } catch (e) {}
+    reproductor = null;
+  }
+  ultimoTiempo = 0;
+  videoDuration = 0;
+  renderPreviewTimeline();
+  mostrarFuenteLocal(null);
+  mostrarAvisoVideoUrl();
+  const container = document.getElementById('videoContainer');
+  // Remove old content
+  container.innerHTML = '';
+  // Create wrapper div
+  const wrapper = document.createElement('div');
+  wrapper.className = 'video-preview';
+  container.appendChild(wrapper);
+  return wrapper;
+}
+
+function mostrarErrorVideo(mensaje) {
+  document.getElementById('videoContainer').innerHTML = '<div id="video-placeholder" style="color:var(--danger)">' + mensaje + '</div>';
+}
+
+function usarReproductor(r, mensajeError) {
+  reproductor = r;
+  r.on('timeupdate', function(t) {
+    if (reproductor !== r) return;
+    ultimoTiempo = t || 0;
+    mostrarTiempoActual();
+  });
+  r.on('durationchange', function(d) {
+    if (reproductor !== r || !d) return;
+    videoDuration = d;
+    renderPreviewTimeline();
+  });
+  mostrarTiempoActual();
+  renderHotspotOverlay();
+  r.ready().then(function() {
+    return r.getDuration();
+  }).then(function(d) {
+    if (reproductor !== r) return;   // se cambió de video mientras cargaba
+    videoDuration = d || 0;
+    renderPreviewTimeline();
+  }).catch(function() {
+    if (reproductor !== r) return;
+    // Un archivo que el navegador no puede leer (un .mkv, un MP4 roto o en un códec que
+    // no tiene) no queda como "el video abierto": si no, el JSON seguía saliendo sin
+    // vimeoId, la vista previa abría una URL que no reproduce, el cartel decía
+    // "Reproduciendo…" y la URL quedaba viva. Se libera y queda sin video.
+    if (r.tipo === 'local') {
+      try { r.destroy(); } catch (e) {}
+      reproductor = null;
+      mostrarFuenteLocal(null);
+      mostrarAvisoVideoUrl();
+      mostrarTiempoActual();
+    }
+    mostrarErrorVideo(mensajeError);
+  });
+}
+
+// ============================================================
+// VIDEO LOADING
+// ============================================================
+function loadVideo() {
+  const input = document.getElementById('vimeoInput').value;
+  if (!input.trim()) return;
+
+  const { vimeoId, vimeoHash } = parseVimeoUrl(input);
+  const wrapper = prepararRecuadroVideo();
+  wrapper.id = 'vimeoPlayerDiv';
 
   try {
-    vimeoPlayer = new Vimeo.Player('vimeoPlayerDiv', opts);
-    vimeoPlayer.ready().then(function() {
-      return vimeoPlayer.getDuration();
-    }).then(function(d) {
-      videoDuration = d || 0;
-      renderPreviewTimeline();
-    }).catch(function() {
-      container.innerHTML = '<div id="video-placeholder" style="color:var(--danger)">Error al cargar el video. Verifica la URL y que el video permita embedding.</div>';
-    });
+    usarReproductor(crearReproductorVimeo(wrapper, vimeoId, vimeoHash),
+      'Error al cargar el video. Verifica la URL y que el video permita embedding.');
   } catch (e) {
-    container.innerHTML = '<div id="video-placeholder" style="color:var(--danger)">Error al cargar el video. Verifica la URL.</div>';
+    mostrarErrorVideo('Error al cargar el video. Verifica la URL.');
   }
+}
+
+function abrirVideoLocal() {
+  document.getElementById('localVideoInput').click();
+}
+
+function onLocalVideoChange(event) {
+  const archivo = event.target.files && event.target.files[0];
+  // Vaciarlo ya: así elegir otra vez el MISMO archivo vuelve a disparar el cambio.
+  event.target.value = '';
+  if (!archivo) return;
+  if (archivo.type && !archivo.type.startsWith('video/')) {
+    alert('El archivo tiene que ser un video (MP4, WebM…).');
+    return;
+  }
+  cargarVideoLocal(archivo);
+}
+
+function cargarVideoLocal(archivo) {
+  const wrapper = prepararRecuadroVideo();
+  const r = crearReproductorLocal(wrapper, archivo);
+  usarReproductor(r, 'No se pudo reproducir el archivo. Probá con un MP4 (H.264) o un WebM.');
+  mostrarFuenteLocal(archivo.name);
+  mostrarAvisoVideoUrl();
+}
+
+function mostrarFuenteLocal(nombre) {
+  const el = document.getElementById('fuenteLocal');
+  if (!el) return;
+  if (!nombre) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.innerHTML = 'Reproduciendo <strong>' + escapeHtml(nombre) + '</strong> desde tu computadora. '
+    + 'El JSON se exporta sin video (vimeoId vacío): en Moodle, el video se carga en la actividad '
+    + '(el ID de Bunny o el de Vimeo) y "Guardar en Moodle" sólo cambia las interacciones.';
+  el.style.display = 'block';
+}
+
+// El aviso de que el JSON importado trae videoUrl (Bunny) y por qué no se reproduce:
+// mientras no haya un video de la compu abierto, que es la forma de verlo acá.
+function mostrarAvisoVideoUrl() {
+  const el = document.getElementById('avisoVideoUrl');
+  if (el) el.style.display = (videoUrlImportado && !esVideoLocal()) ? 'block' : 'none';
+}
+
+// El tiempo del video en el botón "Usar tiempo actual", para ver qué se va a tomar.
+function mostrarTiempoActual() {
+  const el = document.getElementById('tiempoActual');
+  if (el) el.textContent = reproductor ? '(' + formatTime(Math.floor(ultimoTiempo)) + ')' : '';
 }
 
 // ============================================================
@@ -1029,8 +1265,11 @@ function renderEditor() {
       <label class="form-label">Tiempo <span class="form-hint">mm:ss</span></label>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <input type="text" class="form-input" id="edit-time" value="${formatTime(inter.time)}" placeholder="0:00" style="max-width:120px" onchange="onTimeChange()">
-        <button type="button" class="btn btn-ghost btn-sm" onclick="useCurrentTime()" title="Tomar el tiempo actual del video">
-          ⏱ Usar tiempo actual
+        <button type="button" class="btn btn-ghost btn-sm" id="usarTiempoBtn" onclick="useCurrentTime()" title="Tomar el tiempo actual del video">
+          ⏱ Usar tiempo actual <span id="tiempoActual">${reproductor ? '(' + formatTime(Math.floor(ultimoTiempo)) + ')' : ''}</span>
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" id="irTiempoBtn" onclick="irAlTiempo()" title="Llevar el video a este tiempo (queda en pausa)">
+          ↦ Ir a este tiempo
         </button>
       </div>
     </div>`;
@@ -1221,11 +1460,11 @@ function removeImage() {
 }
 
 function useCurrentTime() {
-  if (!vimeoPlayer) {
+  if (!reproductor) {
     alert('Primero cargá un video.');
     return;
   }
-  vimeoPlayer.getCurrentTime().then(function(t) {
+  reproductor.getCurrentTime().then(function(t) {
     const timeEl = document.getElementById('edit-time');
     if (timeEl) {
       timeEl.value = formatTime(Math.floor(t));
@@ -1233,6 +1472,24 @@ function useCurrentTime() {
     }
   }).catch(function() {
     alert('No se pudo obtener el tiempo actual del video.');
+  });
+}
+
+// Lleva el video al tiempo de la interacción y lo deja en pausa ahí: sirve para
+// revisar un tiempo marcado y para ubicar puntos y etiquetas sobre el cuadro justo.
+function irAlTiempo() {
+  if (!reproductor) {
+    alert('Primero cargá un video.');
+    return;
+  }
+  const timeEl = document.getElementById('edit-time');
+  if (!timeEl) return;
+  const t = parseTime(timeEl.value);
+  const r = reproductor;
+  r.pause().catch(function() {}).then(function() {
+    return r.setCurrentTime(t);
+  }).catch(function() {
+    alert('No se pudo llevar el video a ese tiempo.');
   });
 }
 
@@ -1408,9 +1665,21 @@ document.addEventListener('click', (e) => {
 // ============================================================
 // BUILD CONFIG
 // ============================================================
+function esVideoLocal() {
+  return !!reproductor && reproductor.tipo === 'local';
+}
+
 function buildConfig() {
   saveCurrentForm();
-  const { vimeoId, vimeoHash } = parseVimeoUrl(document.getElementById('vimeoInput').value || '');
+  // Con un video de la compu, el JSON sale SIN video (vimeoId vacío): el archivo no
+  // tiene ningún id que sirva fuera de esta pestaña. No rompe Moodle: "Guardar en
+  // Moodle" copia el vimeoId al formulario sólo si viene con algo (mod_form.php), y
+  // el video de Bunny se carga en la actividad por su GUID, no desde acá. Importar
+  // este JSON acá tampoco borra la URL de Vimeo ni el video abierto (loadConfig).
+  // Con Vimeo, sólo un ID de verdad (vimeoDe): un relleno en el campo no viaja.
+  const { vimeoId, vimeoHash } = esVideoLocal()
+    ? { vimeoId: '', vimeoHash: null }
+    : vimeoDe(document.getElementById('vimeoInput').value);
   return {
     ...passthroughConfig, // subtitlesUrl / loop de un config importado
     title: document.getElementById('courseTitle').value || 'Sin titulo',
@@ -1435,7 +1704,15 @@ function buildConfig() {
 // EXPORT JSON
 // ============================================================
 function exportJSON() {
-  const config = buildConfig();
+  let config = buildConfig();
+  // El videoUrl de un JSON importado vuelve a salir (para no perderlo en un
+  // importar→exportar), pero sólo si el JSON sale sin Vimeo: con los dos, la skill
+  // interacciones-video lo rechaza (una sola fuente por archivo). Va sólo acá: ni la
+  // vista previa, ni el SCORM, ni "Guardar en Moodle" lo reciben.
+  if (videoUrlImportado && !config.vimeoId) {
+    const { interactions: lista, ...resto } = config;
+    config = { ...resto, videoUrl: videoUrlImportado, interactions: lista };
+  }
   const json = JSON.stringify(config, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1489,12 +1766,26 @@ function loadConfig(config) {
 
   // No tocar el input de Vimeo si el config no trae vimeoId (ej. el flujo
   // Moodle mandaba solo interactions y esto borraba la URL recién cargada).
-  if (config.vimeoId !== undefined) {
-    let vimeoStr = config.vimeoId || '';
-    if (config.vimeoHash) vimeoStr = `https://vimeo.com/${config.vimeoId}/${config.vimeoHash}`;
+  // Vacío cuenta como "no trae": es lo que exporta el configurador con un video de
+  // la compu, y reimportar ese JSON no tiene que borrar la URL de Vimeo. Lo que no es
+  // un ID de Vimeo (el "PENDIENTE" de los JSON viejos de la skill, un enlace de Bunny)
+  // tampoco: ni se carga ni queda en el campo para volver a Moodle (vimeoDe).
+  let vimeoStr = config.vimeoId ? String(config.vimeoId) : '';
+  if (vimeoStr && config.vimeoHash) vimeoStr = `https://vimeo.com/${config.vimeoId}/${config.vimeoHash}`;
+  if (vimeoStr && vimeoDe(vimeoStr).vimeoId) {
     document.getElementById('vimeoInput').value = vimeoStr;
-    if (config.vimeoId) loadVideo();
+    // Con un video de la compu abierto, importar no lo cambia: se está marcando sobre
+    // ése. Para pasar a Vimeo está "Cargar video".
+    if (!esVideoLocal()) loadVideo();
   }
+
+  // El videoUrl (el HLS de Bunny que pone la skill interacciones-video, o "PENDIENTE")
+  // se acepta pero NO es la fuente del video: sin firma no se reproduce, y el video de
+  // la actividad lo pone Moodle. Sólo se guarda para volver a exportarlo (exportJSON).
+  // Una URL blob: no sirve fuera de la pestaña que la creó: se descarta.
+  const vu = typeof config.videoUrl === 'string' ? config.videoUrl.trim() : '';
+  videoUrlImportado = (vu && !/^blob:/i.test(vu)) ? vu : null;
+  mostrarAvisoVideoUrl();
 
   passthroughConfig = {};
   if (config.subtitlesUrl) passthroughConfig.subtitlesUrl = config.subtitlesUrl;
@@ -1531,10 +1822,24 @@ function loadConfig(config) {
 // Expose buildConfig globally for build script injection
 window.generateConfig = function() { return buildConfig(); };
 
+// Sólo para la vista previa, nunca para exportar: con un video de la compu se le
+// pasa al reproductor la URL blob: del archivo. La ventana de la vista previa se
+// abre con window.open('') + document.write, así que es del mismo origen y puede
+// leerla; afuera de esta pestaña esa URL no existe.
+window.generatePreviewConfig = function() {
+  const config = buildConfig();
+  if (esVideoLocal()) config.videoUrl = reproductor.url;
+  return config;
+};
+
 // ============================================================
 // SCORM DOWNLOAD
 // ============================================================
 function downloadSCORM() {
+  if (esVideoLocal()) {
+    alert('El paquete SCORM necesita un video de Vimeo: el de tu computadora sólo sirve para marcar los tiempos y no se sube a ningún lado.');
+    return;
+  }
   if (window.downloadScormReal) {
     window.downloadScormReal();
   } else {
@@ -1553,9 +1858,12 @@ function downloadSCORM() {
 function preview() {
   if (window.previewWithPlayer) { window.previewWithPlayer(); return; }
   const config = buildConfig();
+  // Vista previa simple (configurador sin compilar): con un video de la compu va un
+  // <video> con su URL blob:, que esta ventana (mismo origen) puede leer.
+  const local = esVideoLocal();
 
-  if (!config.vimeoId) {
-    alert('Primero carga un video de Vimeo.');
+  if (!config.vimeoId && !local) {
+    alert('Primero cargá un video (de Vimeo o de tu computadora).');
     return;
   }
 
@@ -1609,7 +1917,7 @@ function preview() {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Preview: ${esc(config.title)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://player.vimeo.com/api/player.js"><\/script>
+${local ? '' : '<script src="https://player.vimeo.com/api/player.js"><\/script>'}
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Work Sans', sans-serif; background: #F4F6F9; color: #374151; }
@@ -1631,16 +1939,18 @@ function preview() {
 </div>
 <div class="container">
   <div class="video-wrap">
-    <div id="vimeoPlayer"></div>
+    ${local
+      ? `<video controls playsinline src="${esc(reproductor.url)}" style="width:100%;display:block"></video>`
+      : '<div id="vimeoPlayer"></div>'}
   </div>
-  <script>
+  ${local ? '' : `<script>
     new Vimeo.Player('vimeoPlayer', {
       id: ${parseInt(config.vimeoId)},
       ${config.vimeoHash ? `h: '${config.vimeoHash}',` : ''}
       width: 854,
       responsive: true
     });
-  <\/script>
+  <\/script>`}
 
   <h2>Interacciones configuradas</h2>
   <div class="badge">${config.interactions.length} interacciones</div>
@@ -1693,6 +2003,13 @@ function isAllowedMoodleOrigin(origin) {
 window.addEventListener('message', function(e) {
   if (!isAllowedMoodleOrigin(e.origin)) return;
   if (!e.data || e.data.type !== 'ivplayer-load-config') return;
+  // mod_form.php lo manda cada medio segundo durante 10 s (no sabe cuándo terminó de
+  // cargar esta página): vale sólo el primero. Si no, cada repetición volvía a cargar
+  // el video de Vimeo y pisaba las interacciones, el JSON importado o el video de la
+  // compu elegidos en esos segundos. Volver a tocar "Editar interacciones" en Moodle
+  // vuelve a cargar esta ventana (window.open con el mismo nombre), así que un pedido
+  // nuevo sí se recibe.
+  if (isMoodlePopup) return;
   isMoodlePopup = true;
   moodleOrigin = e.origin;
   var config = e.data.config;
