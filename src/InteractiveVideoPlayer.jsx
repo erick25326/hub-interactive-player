@@ -8,95 +8,8 @@ import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInte
 // poder probarlos sin navegador (tests/unit). Acá sólo se llaman.
 import { debeFrenar, tiempoAGuardar, esTickPropio, pendienteARetomar } from "./candado.js";
 import { parseVTT } from "./subtitulos.js";
-
-const DEFAULT_CONFIG = {
-  title: "Hub Education — Video Interactivo",
-  // Acepta: ID numérico, URL pública, o URL con hash para videos privados
-  vimeoId: "1171751497",
-  vimeoHash: "415649d0b1",  // Hash para videos privados/no listados
-  // Alternativa a Vimeo: URL HLS (.m3u8, p. ej. Bunny Stream) o MP4 directo.
-  // Si está, manda sobre vimeoId y se usa el <video> nativo (ver nativePlayer.js).
-  videoUrl: null,
-  poster: null,
-  // Motor del video propio: 'auto' (hls.js; HLS de Safari en Apple), 'hls' o 'nativo'.
-  videoMotor: 'auto',
-  // Chromecast: null = receptor por defecto de Google (sin registro; la TV sólo
-  // muestra el video y las preguntas salen en el celular). Un ID de 8 hexadecimales
-  // = receptor propio registrado en la consola de Cast (ver cast.js y el README).
-  castAppId: null,
-  loop: false,              // true = repetir video al terminar
-  subtitlesUrl: null,
-  subtitlesCues: [],
-  // Texto crudo de un VTT o SRT (lo inyecta player.php desde "Editar transcripción").
-  // Se usa si no vinieron subtitlesCues.
-  subtitlesVtt: null,
-  // Los subtitulos arrancan APAGADOS. El boton sigue estando: el alumno que los
-  // quiera los prende y ahi se quedan mientras dure el video.
-  // Antes arrancaban prendidos y ademas el reproductor le pedia a Vimeo que
-  // activara la pista apenas cargaba, asi que aparecian solos en cada video aunque
-  // nadie los hubiera pedido. Un video de catedra con el texto encima tapa
-  // justamente lo que se esta mostrando -- un mapa, una pantalla de DJI Pilot.
-  // Se puede prender por video con `subtitlesOn: true` en el PLAYER_CONFIG.
-  subtitlesOn: false,
-  interactions: [
-    {
-      id: "note-1", type: "note", time: 3,
-      // El texto de las notas, etiquetas y explicaciones acepta un subconjunto
-      // de markdown: **negrita**, _cursiva_, y una linea en blanco para separar
-      // parrafos. Ver el componente RichText mas abajo.
-      data: {
-        title: "📍 Dato importante",
-        text: "En esta sección vamos a ver cómo el dron ajusta su altitud **automáticamente**, usando dos sensores distintos.\n\nEl _barométrico_ mide presión y da la altura relativa al punto de despegue. El _GPS_ da la posición, y con ella la altura sobre el nivel del mar.\nNo son lo mismo, y es la confusión más común.",
-      },
-    },
-    {
-      id: "label-1", type: "label", time: 5, duration: 8,
-      data: {
-        text: "Barómetro",
-        definition: "Sensor que mide la **presión del aire** para estimar la altura.\n\nOjo con una cosa: da la altura _relativa_ al punto de despegue, no sobre el nivel del mar.",
-        x: 1, y: 10,
-      },
-    },
-    {
-      id: "mc-1", type: "multiple-choice", time: 8,
-      data: {
-        question: "¿Cuál es el sensor principal que usa un dron para mantener la altitud?",
-        options: [
-          { id: "a", text: "Sensor barométrico" }, { id: "b", text: "Cámara RGB" },
-          { id: "c", text: "Sensor de ultrasonido" }, { id: "d", text: "Acelerómetro" },
-        ],
-        correctId: "a",
-        explanation: "El sensor barométrico mide la presión atmosférica para calcular la altitud relativa.",
-      },
-    },
-    {
-      id: "hotspot-1", type: "hotspot", time: 15, duration: 6,
-      data: {
-        spots: [
-          { id: "h1", x: 25, y: 30, label: "Motor CW", info: "Motor en sentido horario." },
-          { id: "h2", x: 72, y: 35, label: "GPS", info: "Módulo GNSS para posicionamiento." },
-          { id: "h3", x: 50, y: 70, label: "Gimbal", info: "Estabilizador de 3 ejes." },
-        ],
-      },
-    },
-    {
-      id: "tf-1", type: "true-false", time: 23,
-      data: {
-        statement: "Un quadcopter puede mantenerse estable si falla uno de sus cuatro motores.",
-        correct: false,
-        explanation: "Falso. Un quadcopter necesita los 4 motores. Solo hexa/octocópteros tienen redundancia.",
-      },
-    },
-    {
-      id: "note-2", type: "note", time: 30,
-      data: { title: "🎓 Resumen", text: "Barométrico para altitud, GPS para posición, IMU para orientación, ultrasonido para proximidad." },
-    },
-  ],
-};
-
-function getConfig() {
-  return window.PLAYER_CONFIG ? { ...DEFAULT_CONFIG, ...window.PLAYER_CONFIG } : DEFAULT_CONFIG;
-}
+// La config por defecto (sin video) y la de window.PLAYER_CONFIG: ver configuracion.js.
+import { getConfig, hayVideo } from "./configuracion.js";
 
 // parseVTT y textoDeCue (subtítulos VTT/SRT) viven en subtitulos.js.
 
@@ -429,10 +342,34 @@ function textoDelError(e) {
   return "Hubo un problema al reproducirlo.";
 }
 
+// Sin nada que reproducir (ver hayVideo en configuracion.js): un cartel que lo dice, en
+// vez de "Cargando video..." para siempre o la pantalla en blanco. Es otro componente, y
+// no un estado del reproductor, a propósito: así no corre ninguno de sus efectos (SDK de
+// Vimeo, Cast, avance en localStorage, puente con la app) sin un video atrás.
+function SinVideo({ title }) {
+  const isEmbedded = window !== window.parent;
+  return (
+    <div className={`iv-wrapper ${isEmbedded ? "embedded" : ""}`}>
+      <div className="iv-top-bar"><span className="iv-top-title">{title}</span></div>
+      <div className="iv-container iv-container-sin-video">
+        <div className="iv-sin-video" role="status">
+          <strong>No hay video para mostrar</strong>
+          <span>A esta actividad le falta el video (de Vimeo o de Bunny Stream).</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function InteractiveVideoPlayer() {
+  const config = getConfig();
+  return hayVideo(config) ? <Reproductor/> : <SinVideo title={config.title}/>;
+}
+
 // Main player
 // debeFrenar, tiempoAGuardar y la decisión de la guardia de saltos viven en candado.js.
 
-export default function InteractiveVideoPlayer() {
+function Reproductor() {
   const config = getConfig();
   const { title, vimeoId, vimeoHash, videoUrl, poster, videoMotor, subtitlesUrl, subtitlesCues, subtitlesVtt, subtitlesOn, interactions, castAppId } = config;
   // Video propio (HLS/MP4) en vez de Vimeo. También se acepta pegado en vimeoId,

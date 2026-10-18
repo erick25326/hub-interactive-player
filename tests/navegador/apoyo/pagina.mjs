@@ -65,7 +65,9 @@ export class Pagina {
   // restauración en sí pasa `ubicar: false` y lo mira ella.
   // `asentar: false` vuelve apenas el componente muestra `esperarEn`, sin esperar al
   // medio (para probar algo DENTRO de la ventana de la restauración).
-  async abrir({ pagina = 'player.html', query = {}, progreso = null, esperarEn = null, asentar = true, ubicar = true, tope = 30000 } = {}) {
+  // `listo`: la condición de "ya se puede probar" (por defecto, A.listo(): controles y
+  // metadata). Sin video no hay ni una cosa ni la otra: ahí se espera el cartel.
+  async abrir({ pagina = 'player.html', query = {}, progreso = null, esperarEn = null, asentar = true, ubicar = true, listo = 'A.listo()', tope = 30000 } = {}) {
     this.marco = pagina === 'marco.html';
     await this.cdp.cmd('Page.navigate', { url: `${this.base}/vacio.html` });
     for (let i = 0; i < 100; i++) {
@@ -76,7 +78,7 @@ export class Pagina {
     const q = new URLSearchParams(query);
     if (progreso) q.set('progreso', JSON.stringify({ updatedAt: Date.now(), ...progreso }));
     await this.cdp.cmd('Page.navigate', { url: `${this.base}/${pagina}?${q}` });
-    await this.debe('A.listo()', tope, 'el reproductor no quedó listo');
+    await this.debe(listo, tope, 'el reproductor no quedó listo');
     const e = await this.estado();
     if (e.error) throw new Error(`el reproductor mostró un error: ${e.error}`);
     if (esperarEn == null) return e;

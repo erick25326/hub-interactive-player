@@ -38,7 +38,10 @@
 // al contestar: un pedido de video que sale en ese rato tiene que esperarla) ·
 // rota=alta (la playlist de la calidad MÁS ALTA da 403 siempre, con cualquier firma y
 // vigente: una variante rota o una regla del CDN, NO el vencimiento) · renovada=<s> (lo
-// que duran las firmas que da /firma; por defecto, lo mismo que la de la página).
+// que duran las firmas que da /firma; por defecto, lo mismo que la de la página) ·
+// video=ninguno (PLAYER_CONFIG sin video: vimeoId vacío y sin videoUrl) · video=texto (un
+// vimeoId que no es un ID, como el de config.example.js) · config=ninguna (sin
+// PLAYER_CONFIG: la config por defecto del bundle).
 // 🔴 renovada: las pruebas de lo que pasa AL vencer la primera firma. Con firmas de 6 s
 // también después, el HLS nativo cambia de fuente cada ~3 s reproduciendo y cada cambio
 // cuesta un salto (2-4 s con el 1080p de Mux, 8 MB por segmento): no avanza y la prueba
@@ -176,6 +179,8 @@ export function crearServidor({ html, video }) {
       interactions: INTERACCIONES,
     };
     if (q.get('subs') === 'vtt') config.subtitlesVtt = VTT_PRUEBA;
+    if (q.get('video') === 'ninguno') { delete config.videoUrl; config.vimeoId = ''; }
+    if (q.get('video') === 'texto') { delete config.videoUrl; config.vimeoId = 'ID_DEL_VIDEO'; config.vimeoHash = 'HASH_DEL_VIDEO'; }
     let contexto = null;
     const ttl = Number(q.get('firma'));
     if (ttl > 0) {
@@ -203,8 +208,9 @@ export function crearServidor({ html, video }) {
     if (q.get('progreso')) antes += `<script>try { localStorage.setItem(${json(CLAVE_AVANCE)}, ${json(q.get('progreso'))}); } catch (e) {}</script>\n`;
     // 🔴 Con función y no con texto de reemplazo: en un texto, "$'" (que aparece en el
     // ayudante: $('.iv-…')) significa "lo que sigue al hallazgo" y rompía la página.
-    return html
-      .replace(/<head>/i, () => `<head>\n${antes}`)
+    const conHead = html.replace(/<head>/i, () => `<head>\n${antes}`);
+    if (q.get('config') === 'ninguna') return conHead;
+    return conHead
       .replace(/<\/head>/i, () => `<script>\nwindow.PLAYER_CONFIG = ${json(config)};${contexto ? `\nwindow.MOODLE_CONTEXT = ${json(contexto)};` : ''}\n</script>\n</head>`);
   }
 

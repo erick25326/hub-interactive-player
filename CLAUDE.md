@@ -11,6 +11,11 @@ A standalone interactive video player that replaces H5P for Hub Education's Mood
 
 ## Key files
 - `src/InteractiveVideoPlayer.jsx` — Main component: player, interactions, subtitles, all in one file
+- `src/configuracion.js` — `DEFAULT_CONFIG`, `getConfig()` y `hayVideo()`. 🔴 La config por
+  defecto NO trae video ni interacciones (plan Bunny 0.3): hasta la 1.4.0 traía una clase
+  real del campus y viaja en player.html, el configurador y cada SCORM (repo público).
+  Sin video, `SinVideo` muestra "No hay video para mostrar" (no corre ningún efecto del
+  reproductor). Para probar con un video, `window.PLAYER_CONFIG`; nunca acá.
 - `src/styles.css` — All styles with `.iv-` prefix namespace
 - `src/main.jsx` — React entry point
 - `vite.config.js` — Build config with singlefile plugin
