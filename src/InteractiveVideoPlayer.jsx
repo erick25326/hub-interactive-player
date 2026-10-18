@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, useId, Fragment } fr
 import Player from "@vimeo/player";
 import NativePlayer from "./nativePlayer.js";
 import { Renovador } from "./firma.js";
-import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, mismoVideo, CastPlayer, castPosible } from "./cast.js";
+import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, mismoVideo, CastPlayer, castPosible, infoApp, pareceApp } from "./cast.js";
 import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
 // El candado de preguntas y el parser de subtítulos son puros y viven aparte para
 // poder probarlos sin navegador (tests/unit). Acá sólo se llaman.
@@ -1175,6 +1175,7 @@ export default function InteractiveVideoPlayer() {
   const anchoTvEnMenu=girarVisible?372:340;
   const etiquetaTV=tv?.tipo==='cast'?(tv.estado==='conectando'?'Cancelar la conexión con la TV':'Dejar de transmitir')
     :tv?.tipo==='airplay'?'Dejar de transmitir o elegir otra TV':'Transmitir a la TV';
+  const tituloMenu=menu==='calidad'?'Calidad':menu==='velocidad'?'Velocidad':menu==='destinoTV'?'Transmitir a la TV':'Ajustes';
   const etiquetaAuto=calidadViendo?`Automática (${calidadViendo}p)`:'Automática';
   const etiquetaCalidad=calidad==='auto'?etiquetaAuto:(calidades.find(q=>q.id===calidad)?.label||calidad);
   // Marca chica sobre el engranaje (no ocupa ancho en la fila): la velocidad si no
@@ -1489,6 +1490,9 @@ export default function InteractiveVideoPlayer() {
     if(!local||local.esTV) return noSeTransmite();
     let adoptar=false;
     if(reanudada){
+      // Con AirPlay andando (iPhone en la app), una sesión de Chromecast que la app
+      // reanuda no se adopta: la TV de AirPlay es la que eligió el alumno.
+      if(tvRef.current?.tipo==='airplay') return;
       const m=sesion.getMediaSession&&sesion.getMediaSession();
       const id=m&&m.media&&(m.media.contentId||m.media.contentUrl);
       if(!(m&&m.playerState!=='IDLE'&&mismoVideo(id,nativeSrc))) return noSeTransmite();
@@ -1593,27 +1597,71 @@ export default function InteractiveVideoPlayer() {
       setTv(null);
       return;
     }
-    if(p&&p.transmitir&&p.airplayPosible&&p.airplayPosible()){
-      p.transmitir().then(ok=>{
-        // prompt() rechaza sin TV; el selector webkit no avisa nada (ok=true).
-        if(!ok&&tvRef.current==null&&!tvDisp.airplay) avisarTVRef.current('No encontramos una TV con AirPlay en esta Wi-Fi. Fijate que el celular y la TV estén en la misma red.');
-      });
-      return;
-    }
+    const app=infoApp();
+    const conAirPlay=!!(p&&p.transmitir&&p.airplayPosible&&p.airplayPosible());
+    if(app.puente){
+      // Modo app (hub-app): AirPlay sólo si la app lo declara ('airplay' en capacidades:
+      // iPhone con allowsAirPlayForMediaPlayback). 🔴 No alcanza con airplayPosible(): la
+      // marca de WebKit existe en cualquier WKWebView, y un iPhone en una casa con
+      // Chromecast y sin Apple TV no llegaba nunca a Chromecast.
+      const caps=app.capacidades||[];
+      if(conAirPlay&&caps.includes('airplay')){
+        // ¿Chromecast ya buscó y no encontró nada? (En iPhone la app dice NOT_CONNECTED
+        // hasta la primera búsqueda, así que eso cuenta como "puede haber".)
+        const sinCast=!caps.includes('cast')||estadoCastActual()==='NO_DEVICES_AVAILABLE';
+        if(tvDisp.airplay&&!sinCast){ irAMenu('destinoTV'); return; }   // las dos: que elija
+        if(tvDisp.airplay||sinCast){ transmitirAirPlay(p); return; }     // sólo AirPlay, o ninguna: lo dice el selector del sistema
+        // Sin TV de AirPlay a la vista: directo a Chromecast (el primer toque es el que
+        // dispara el permiso de red local en iPhone).
+      }
+    } else if(conAirPlay){ transmitirAirPlay(p); return; }
+    tocarCast();
+  };
+  const transmitirAirPlay=(p)=>{
+    p.transmitir().then(ok=>{
+      // prompt() rechaza sin TV; el selector webkit no avisa nada (ok=true).
+      if(!ok&&tvRef.current==null&&!tvDisp.airplay) avisarTVRef.current('No encontramos una TV con AirPlay en esta Wi-Fi. Fijate que el celular y la TV estén en la misma red.');
+    });
+  };
+  const estadoCastActual=()=>{
+    try{
+      const c=castCtxRef.current||(window.cast&&window.cast.framework&&window.cast.framework.CastContext.getInstance());
+      return c?c.getCastState():null;
+    }catch(e){ return null; }
+  };
+  // Textos de "no se puede transmitir". 🔴 "Actualizá la app" sólo con la casilla del
+  // plugin prendida (MOODLE_CONTEXT.appCastPublicada: la versión con Chromecast ya está en
+  // Play para todos), salvo error{version}, que con un solo protocolo hoy no pasa. Antes de
+  // eso, al alumno con la app vieja no se le pide algo que todavía no existe.
+  const textoAbrirEnNavegador=()=>{
+    const nav=/iPhone|iPad|iPod/i.test(navigator.userAgent||'')?'Safari':'Chrome';
+    let publicada=false;
+    try{ publicada=window.MOODLE_CONTEXT?.appCastPublicada===true; }catch(e){}
+    // "MoodleMobile" es también la app oficial de Moodle: el texto sirve para las dos.
+    if(pareceApp()&&publicada) return `Para transmitir a la TV, abrí la lección en ${nav}. Si usás la app de Hub Education, actualizala.`;
+    return `Para transmitir a la TV abrí la lección en ${nav}.`;
+  };
+  const textoSinCast=()=>{
+    const app=infoApp();
+    if(!app.puente) return 'Este navegador no puede transmitir a la TV. Probá con Chrome.';
+    // Adentro de la app nada de "probá con Chrome": el teléfono no tiene Chromecast (sin
+    // Google Play Services), o la app no contestó y el próximo toque vuelve a probar.
+    if(app.motivo==='sin-cast') return 'Este teléfono no puede transmitir a Chromecast.';
+    if(app.motivo==='version') return 'Para transmitir a la TV, actualizá la app de Hub Education.';
+    return 'No se pudo preparar la transmisión. Probá de nuevo.';
+  };
+  // Chromecast: el selector de Chrome o, en la app, el nativo.
+  const tocarCast=()=>{
     const ctx=castCtxRef.current;
     if(!ctx){
-      if(!castPosible()){
-        avisarTVRef.current(/iPhone|iPad|iPod/i.test(navigator.userAgent||'')
-          ?'Para transmitir a la TV abrí la lección en Safari.'
-          :'Para transmitir a la TV abrí la lección en Chrome.');
-        return;
-      }
-      // El SDK todavía no está (en la compu se baja recién con una TV a la vista): se
-      // baja ahora y se abre el selector apenas llega. Chrome deja abrirlo unos
-      // segundos después del toque; si ya venció, se pide tocar de nuevo.
+      if(!castPosible()){ avisarTVRef.current(textoAbrirEnNavegador()); return; }
+      // El SDK todavía no está (en la compu se baja recién con una TV a la vista; en la
+      // app, el saludo pudo no tener respuesta): se baja ahora y se abre el selector
+      // apenas llega. Chrome deja abrirlo unos segundos después del toque; si ya venció,
+      // se pide tocar de nuevo.
       avisarTVRef.current('Buscando TVs…');
       cargarCast().then(ok=>{
-        if(!ok){ avisarTVRef.current('Este navegador no puede transmitir a la TV. Probá con Chrome.'); return; }
+        if(!ok){ avisarTVRef.current(textoSinCast()); return; }
         let c=null;
         try{ c=contextoCast(castAppId); }catch(e){ c=null; }
         if(!c){ avisarTVRef.current('No se pudo preparar la transmisión. Probá de nuevo.'); return; }
@@ -2099,13 +2147,13 @@ export default function InteractiveVideoPlayer() {
             botones con aria-pressed (sin role="menu", que pide manejo de flechas). */}
         {menu&&!activeIA&&<div className="iv-ajustes-capa">
         <div ref={ajustesPanelRef} id="iv-ajustes" className={`iv-ajustes iv-ajustes-${menu}`} role="dialog"
-          aria-label={menu==='calidad'?'Calidad':menu==='velocidad'?'Velocidad':'Ajustes'}
+          aria-label={tituloMenu}
           onClick={e=>e.stopPropagation()} onTouchEnd={e=>e.stopPropagation()}>
           <div className="iv-ajustes-cabecera">
-            {menu!=='principal'&&(hayCalidad||tvEnMenu)
+            {menu!=='principal'&&menu!=='destinoTV'&&(hayCalidad||tvEnMenu)
               ? <button className="iv-ajustes-atras" onClick={()=>irAMenu('principal')}><span aria-hidden="true">‹ </span>Atrás</button>
               : null}
-            <span className="iv-ajustes-titulo">{menu==='calidad'?'Calidad':menu==='velocidad'?'Velocidad':'Ajustes'}</span>
+            <span className="iv-ajustes-titulo">{tituloMenu}</span>
             <button className="iv-ajustes-cerrar" onClick={()=>cerrarMenu(true)} aria-label="Cerrar ajustes"><CloseIcon/></button>
           </div>
           {menu==='principal'&&<div className="iv-ajustes-filas">
@@ -2130,6 +2178,16 @@ export default function InteractiveVideoPlayer() {
             {[...calidades,{id:'auto',label:etiquetaAuto}].map(q=><button key={q.id} className={`iv-ajustes-opcion ${q.id===calidad?'activa':''}`} aria-pressed={q.id===calidad} onClick={()=>elegirCalidad(q.id)}>
               <CheckIcon/>{q.label}
             </button>)}
+          </div>}
+          {/* iPhone en la app con una TV de AirPlay Y Chromecast posible: que elija. Cada
+              fila actúa en el MISMO toque: el selector de AirPlay (prompt) exige el gesto. */}
+          {menu==='destinoTV'&&<div className="iv-ajustes-filas">
+            <button className="iv-ajustes-fila iv-ajustes-tv" onClick={()=>{ const p=playerRef.current; cerrarMenu(); if(p&&p.transmitir) transmitirAirPlay(p); }}>
+              <span>AirPlay</span><span className="iv-ajustes-valor"><CastIcon/></span>
+            </button>
+            <button className="iv-ajustes-fila iv-ajustes-tv" onClick={()=>{ cerrarMenu(); tocarCast(); }}>
+              <span>Chromecast</span><span className="iv-ajustes-valor"><CastIcon/></span>
+            </button>
           </div>}
         </div>
         </div>}
