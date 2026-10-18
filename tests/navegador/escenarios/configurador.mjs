@@ -11,6 +11,8 @@
 // configurador (lo repite cada medio segundo) y lo que devuelve "Guardar en Moodle",
 // pasado por el manejador REAL de mod_form.php (leído del archivo): con un video de la
 // compu, el campo de Vimeo de la actividad no se toca.
+// Las herramientas (clics, descargas, el script de mod_form) están en
+// apoyo/configurador.mjs; el video de Bunny que manda Moodle, en configurador-bunny.mjs.
 // Todos los IDs, hashes y URLs son sintéticos (el repo es público).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -19,42 +21,13 @@ import { spawnSync } from 'node:child_process';
 import { describe, test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { dormir } from '../apoyo/chrome.mjs';
-import { RAIZ } from '../apoyo/entorno.mjs';
 import { GUID_PRUEBA } from '../apoyo/servidor.mjs';
+import { herramientas, codigoModForm, generarMp4, VIMEO_DE_MOODLE } from '../apoyo/configurador.mjs';
 import { hayFfmpeg } from '../../../scripts/generar-video-prueba.mjs';
 
 const DURACION = 12;
-const BLOQUEADAS_SIEMPRE = ['*://www.gstatic.com/cv/*'];   // las de entorno.mjs
-const BLOQUEADAS_ACA = ['*://player.vimeo.com/*', '*://cdnjs.cloudflare.com/*', '*://fonts.googleapis.com/*', '*://fonts.gstatic.com/*'];
-// El campo de Vimeo de la actividad, como lo muestra mod_form.php al editarla.
-const VIMEO_DE_MOODLE = 'https://vimeo.com/123456789/abcdef1234';
 // El videoUrl que pone la skill interacciones-video: el HLS de Bunny sin firmar.
 const BUNNY_DE_LA_SKILL = `https://vz-ejemplo.b-cdn.net/${GUID_PRUEBA}/playlist.m3u8`;
-
-// El <script> de mod_form.php tal como lo emite PHP: vive en un string de comillas
-// simples, donde sólo \\ y \' son escapes. Y el origen que acepta (el del configurador
-// publicado), sacado del mismo código.
-function codigoModForm() {
-  const php = fs.readFileSync(path.join(RAIZ, 'mod', 'ivplayer', 'mod_form.php'), 'utf8');
-  const m = php.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no encontré el <script> de mod_form.php');
-  const js = m[1].replace(/\\([\\'])/g, '$1');
-  const u = js.match(/CONFIGURATOR_URL\s*=\s*"([^"]+)"/);
-  if (!u) throw new Error('no encontré CONFIGURATOR_URL en mod_form.php');
-  return { js, origen: new URL(u[1]).origin };
-}
-
-// 12 s de testsrc2 (el reloj en pantalla), 320×180 a 10 cuadros, un cuadro clave por
-// segundo y sin audio: unos pocos KB. H.264 como lo que exporta un editor de video.
-function generarMp4(destino) {
-  const r = spawnSync('ffmpeg', [
-    '-hide_banner', '-loglevel', 'error', '-y',
-    '-f', 'lavfi', '-i', `testsrc2=size=320x180:rate=10:duration=${DURACION}`,
-    '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-g', '10',
-    '-movflags', '+faststart', '-an', destino,
-  ], { encoding: 'utf8', windowsHide: true });
-  if (r.error || r.status !== 0) throw new Error(`ffmpeg no pudo generar el MP4 de prueba:\n${r.stderr || r.error}`);
-}
 
 // Un WebM "en vivo" (sin Duration ni Cues en la cabecera), como los que graba
 // MediaRecorder: el navegador da duration = Infinity hasta haberlo leído entero.
@@ -69,7 +42,7 @@ function generarWebmSinDuracion(destino, segundos) {
 }
 
 export function registrar(entorno, { avisar = () => {} } = {}) {
-  const { cdp, pagina: p } = entorno;
+  const { pagina: p } = entorno;
   const exigir = process.env.IVP_EXIGIR_NAVEGADOR === '1';
   const faltaFfmpeg = hayFfmpeg() ? null : 'no hay ffmpeg en el PATH para generar el MP4 de prueba';
   // Como el resto de la suite: con IVP_EXIGIR_NAVEGADOR=1 (CI) no se saltea, falla.
@@ -78,111 +51,21 @@ export function registrar(entorno, { avisar = () => {} } = {}) {
 
   describe('configurador · video de la compu (los de Bunny)', () => {
     let tmp = null, mp4 = null, mp4b = null, roto = null, texto = null, webm = null;
-    const excepciones = [];
-    const dialogos = [];
-    const pedidos = [];   // URLs que pidió la página (Network.requestWillBeSent)
-    let soltarOyente = () => {};
-
-    // Cierra las vistas previas abiertas y trae de vuelta adelante la pestaña del
-    // configurador (con la vista previa encima, el botón no abre el diálogo de archivos).
-    async function cerrarVentanas() {
-      try { await cdp.ev(`(window.__ventanas || []).forEach((w) => { try { w.close(); } catch (e) {} }), true`); } catch {}
-      try { await cdp.cmd('Page.bringToFront'); } catch {}
-    }
-
-    // Evalúa en la página del configurador; las expresiones ven sus globales
-    // (reproductor, interactions, buildConfig…: let y function del script).
-    const ev = (expr, tope) => cdp.ev(expr, tope);
-    async function esperar(expr, tope = 10000, que = null) {
-      const fin = Date.now() + tope;
-      for (;;) {
-        const v = await ev(`(() => { try { return (${expr}); } catch (e) { return null; } })()`);
-        if (v) return v;
-        if (Date.now() > fin) throw new Error(`${que || 'no se cumplió: ' + expr} (esperé ${tope} ms)`);
-        await dormir(50);
-      }
-    }
-    // Clic REAL con el mouse en el centro del elemento (lo trae a la vista antes y
-    // confirma que en ese punto está él y no otra cosa).
-    async function clic(sel) {
-      const pos = await ev(`(() => {
-        const e = document.querySelector(${JSON.stringify(sel)});
-        if (!e) return null;
-        e.scrollIntoView({ block: 'center' });
-        const r = e.getBoundingClientRect();
-        const x = r.left + r.width / 2, y = r.top + r.height / 2;
-        const h = document.elementFromPoint(x, y);
-        return { x, y, ok: !!h && (h === e || e.contains(h)) };
-      })()`);
-      if (!pos || !pos.ok) throw new Error(`no se pudo hacer clic en ${sel}: no está o está tapado (${JSON.stringify(pos)})`);
-      await cdp.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pos.x, y: pos.y });
-      await cdp.cmd('Input.dispatchMouseEvent', { type: 'mousePressed', x: pos.x, y: pos.y, button: 'left', clickCount: 1 });
-      await cdp.cmd('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pos.x, y: pos.y, button: 'left', clickCount: 1 });
-    }
-    // "Abrir video de tu computadora" con un clic de verdad: el diálogo de archivos
-    // que abre se intercepta y se le pasa el archivo.
-    async function abrirArchivo(ruta) {
-      const abierto = new Promise((ok, mal) => {
-        const t = setTimeout(() => { soltar(); mal(new Error('el botón no abrió el diálogo de archivos')); }, 5000);
-        const soltar = cdp.on((m) => {
-          if (m.method !== 'Page.fileChooserOpened') return;
-          clearTimeout(t); soltar(); ok(m.params);
-        });
-      });
-      await clic('#localVideoBtn');
-      const d = await abierto;
-      await cdp.cmd('DOM.setFileInputFiles', { files: [ruta], backendNodeId: d.backendNodeId });
-    }
-    // Un input de archivo que no abre diálogo (el de "Importar JSON"): directo.
-    async function ponerArchivo(sel, ruta) {
-      const { root } = await cdp.cmd('DOM.getDocument', { depth: 0 });
-      const { nodeId } = await cdp.cmd('DOM.querySelector', { nodeId: root.nodeId, selector: sel });
-      if (!nodeId) throw new Error(`no está ${sel}`);
-      await cdp.cmd('DOM.setFileInputFiles', { files: [ruta], nodeId });
-    }
-    // "Exportar JSON" y lo que bajó (la descarga queda en la página, ver before()).
-    async function exportar() {
-      await ev('window.__descargas = [], exportJSON(), true');
-      const desc = await ev('Promise.all(window.__descargas)');
-      assert.equal(desc.length, 1, 'no se exportó un JSON');
-      return { nombre: desc[0].nombre, json: JSON.parse(desc[0].texto) };
-    }
-    // Un JSON escrito en la carpeta temporal, importado con "Importar JSON".
-    async function importar(nombre, config) {
-      const ruta = path.join(tmp, nombre);
-      fs.writeFileSync(ruta, JSON.stringify(config));
-      await ponerArchivo('#jsonFileInput', ruta);
-    }
+    const h = herramientas(entorno, { skip: sinFfmpeg });
+    const { ev, esperar, clic, abrirArchivo, exportar, paso, dialogos, pedidos } = h;
+    const importar = (nombre, config) => h.importar(tmp, nombre, config);
+    const cerrarVentanas = () => h.cerrarVentanas();
     const videoLocal = () => ev(`(() => {
       const v = document.querySelector('#videoContainer video');
       return v ? { t: v.currentTime, paused: v.paused, d: v.duration, rs: v.readyState, src: v.currentSrc } : null;
     })()`);
-
-    function paso(nombre, fn, opciones = {}) {
-      test(nombre, { skip: sinFfmpeg || false, timeout: 60000, ...opciones }, async () => {
-        // Lo de cada paso, no lo acumulado: si no, una falla arrastra a todas las siguientes.
-        const exc0 = excepciones.length, dia0 = dialogos.length;
-        try {
-          await fn();
-          const exc = excepciones.slice(exc0), dia = dialogos.slice(dia0);
-          if (exc.length) throw new Error(`excepciones sin atrapar en el configurador: ${JSON.stringify(exc.slice(0, 5))}`);
-          if (dia.length) throw new Error(`el configurador mostró avisos (alert/confirm): ${JSON.stringify(dia)}`);
-        } catch (e) {
-          const dia = dialogos.slice(dia0);
-          if (dia.length) e.message += `\n(avisos que mostró el configurador: ${JSON.stringify(dia)})`;
-          const cap = await p.capturar('configurador ' + nombre);
-          if (cap) e.message += `\n(captura: ${cap})`;
-          throw e;
-        }
-      });
-    }
 
     before(async () => {
       if (sinFfmpeg) return;
       if (faltaFfmpeg) throw new Error(`${faltaFfmpeg} (IVP_EXIGIR_NAVEGADOR=1: no se saltea)`);
       tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ivp-configurador-'));
       mp4 = path.join(tmp, 'clase-de-prueba.mp4');
-      generarMp4(mp4);
+      generarMp4(mp4, DURACION);
       // Una copia con otro nombre, para probar el cambio de archivo.
       mp4b = path.join(tmp, 'otra-clase.mp4');
       fs.copyFileSync(mp4, mp4b);
@@ -194,51 +77,13 @@ export function registrar(entorno, { avisar = () => {} } = {}) {
       fs.writeFileSync(texto, 'notas de la clase');
       webm = path.join(tmp, 'grabacion-sin-duracion.webm');
       generarWebmSinDuracion(webm, 6);
-      await p.vista();
-      await cdp.cmd('Network.setBlockedURLs', { urls: [...BLOQUEADAS_SIEMPRE, ...BLOQUEADAS_ACA] });
-      await cdp.cmd('Page.setInterceptFileChooserDialog', { enabled: true });
-      soltarOyente = cdp.on((m) => {
-        if (m.method === 'Runtime.exceptionThrown') {
-          const d = m.params.exceptionDetails;
-          excepciones.push((d.exception && (d.exception.description || d.exception.value)) || d.text);
-        } else if (m.method === 'Network.requestWillBeSent') {
-          pedidos.push(m.params.request.url);
-        } else if (m.method === 'Page.javascriptDialogOpening') {
-          // Un alert() frena la página hasta que alguien lo cierre: se cierra solo y la
-          // prueba falla diciendo qué decía, en vez de colgarse hasta el tope.
-          dialogos.push(m.params.message);
-          cdp.cmd('Page.handleJavaScriptDialog', { accept: true }).catch(() => {});
-        }
-      });
-      await cdp.cmd('Page.navigate', { url: `${entorno.srv.base}/configurador.html` });
-      await esperar(`location.pathname === '/configurador.html' && document.readyState === 'complete' && typeof window.previewWithPlayer === 'function'`, 15000, 'el configurador armado no cargó');
-      // Las descargas no salen de la página (en headless podrían ir a la carpeta de
-      // Descargas de la PC): se anotan acá con su contenido.
-      await ev(`(() => {
-        window.__blobs = new Map();
-        window.__descargas = [];
-        const crear = URL.createObjectURL;
-        URL.createObjectURL = function(b) { const u = crear.call(URL, b); window.__blobs.set(u, b); return u; };
-        const clicOriginal = HTMLAnchorElement.prototype.click;
-        HTMLAnchorElement.prototype.click = function() {
-          if (!this.download) return clicOriginal.call(this);
-          const b = window.__blobs.get(this.href);
-          window.__descargas.push(b ? b.text().then((texto) => ({ nombre: this.download, texto })) : Promise.resolve({ nombre: this.download, texto: null }));
-        };
-        window.__ventanas = [];
-        const abrir = window.open;
-        window.open = function() { const w = abrir.apply(this, arguments); window.__ventanas.push(w); return w; };
-        return true;
-      })()`);
+      await h.preparar();
+      await h.abrirConfigurador();
     });
 
     after(async () => {
       if (sinFfmpeg) return;
-      soltarOyente();
-      await cerrarVentanas();
-      try { await cdp.cmd('Page.setInterceptFileChooserDialog', { enabled: false }); } catch {}
-      try { await cdp.cmd('Network.setBlockedURLs', { urls: BLOQUEADAS_SIEMPRE }); } catch {}
-      try { await cdp.cmd('Page.navigate', { url: `${entorno.srv.base}/vacio.html` }); } catch {}
+      await h.desarmar();
       if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
     });
 
