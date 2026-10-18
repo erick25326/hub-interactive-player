@@ -58,7 +58,7 @@ test('la casilla appcastpublicada llega al reproductor apagada por defecto', asy
 
 // El evento de vista (1.4.0, plan 0.3). Lo que hace ivplayer_view() lo prueba correr.php
 // con reemplazos mínimos de Moodle (corre en CI); que el log lo guarde, sólo el campus
-// (README, "Verificar el evento de vista en el campus"). Acá, sin PHP: que la función no
+// (README, "Vistas en el log del campus"). Acá, sin PHP: que la función no
 // cambie sin pasar por correr.php y que esté enchufada donde va.
 test('el evento de vista sale de view.php, una vez por carga, y nunca de player.php', async () => {
   const fs = await import('node:fs');

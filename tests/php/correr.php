@@ -356,7 +356,7 @@ seccion('casilla appcastpublicada: booleano, apagada sin guardar');
 // completion_info. Qué evento sale, con qué datos (los que valida el de core: objectid,
 // objecttable y un contexto de módulo), una sola vez, y la finalización DESPUÉS, como
 // page_view() de core. Que la vista llegue al log lo confirma sólo el campus (README,
-// "Verificar el evento de vista en el campus").
+// "Vistas en el log del campus").
 // ivplayer_view no es pura (usa completion_info y la clase del evento): se lee aparte,
 // sin pasar por el control de arriba, y corre sólo contra estos reemplazos.
 if (!defined('MOODLE_INTERNAL')) {
