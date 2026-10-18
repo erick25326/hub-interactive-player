@@ -138,6 +138,10 @@ $contexto = [
     'answerUrl' => (new moodle_url('/mod/ivplayer/answer.php'))->out(false),
     'savedProgress' => $savedprogress,
     'alreadyCompleted' => $progressrec ? (bool)$progressrec->completed : false,
+    // Casilla del sitio: la app con Chromecast ya está en Play (decide si el reproductor
+    // dice "actualizá la app"). En MOODLE_CONTEXT y no en PLAYER_CONFIG: las demos de la
+    // web (scripts/build-demo.mjs) no la tienen y valen "apagada".
+    'appCastPublicada' => ivplayer_app_cast_publicada(get_config('mod_ivplayer', 'appcastpublicada')),
 ];
 if ($bunny !== null && $bunny['firmada']) {
     // Para renovar la firma con la lección abierta, antes de que venza (firma.php; del

@@ -69,6 +69,7 @@ $funciones = [
     'ivplayer_bunny_video',
     'ivplayer_reproductor_soporta_bunny',
     'ivplayer_subtitulos_normalizar',
+    'ivplayer_app_cast_publicada',
 ];
 
 $rutalib = dirname(__DIR__, 2) . '/mod/ivplayer/lib.php';
@@ -333,6 +334,22 @@ for ($i = 0; $i < 500; $i++) {
 }
 chequear('500 entradas de bytes al azar: siempre UTF-8 válido o null', $malos, 0);
 seccion('subtítulos: BOM, UTF-16, Windows-1252, bytes rotos, vacío');
+
+// ─── La casilla "La app con Chromecast ya está publicada" (1.4.0) ────────────
+// player.php pone ivplayer_app_cast_publicada(get_config(...)) en MOODLE_CONTEXT
+// (tests/unit/lib-php.test.mjs mira que siga ahí). get_config da false con el ajuste sin
+// guardar (recién instalado): tiene que quedar apagada, y el reproductor no dice
+// "actualizá la app" hasta que Erick la prenda.
+chequear('sin el ajuste guardado (get_config da false): apagada', ivplayer_app_cast_publicada(false), false);
+chequear('guardado apagado ("0"): apagada', ivplayer_app_cast_publicada('0'), false);
+chequear('guardado prendido ("1"): prendida', ivplayer_app_cast_publicada('1'), true);
+chequear('vacío: apagada', ivplayer_app_cast_publicada(''), false);
+chequear('null: apagada', ivplayer_app_cast_publicada(null), false);
+chequear('cualquier otro texto: apagada', ivplayer_app_cast_publicada('si'), false);
+chequear('un arreglo no la prende', ivplayer_app_cast_publicada(['1']), false);
+chequear('en el contexto del reproductor sale como booleano JSON',
+    json_encode(['appCastPublicada' => ivplayer_app_cast_publicada(false)]), '{"appCastPublicada":false}');
+seccion('casilla appcastpublicada: booleano, apagada sin guardar');
 
 echo PHP_EOL . "$ok ok, $mal mal" . PHP_EOL;
 exit($mal ? 1 : 0);

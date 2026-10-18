@@ -57,6 +57,12 @@ La clave no sale en la exportación de presets del sitio: el plugin la agrega a 
 $string['bunnytokenttl'] = 'Duración del token';
 $string['bunnytokenttl_desc'] = 'Cuánto dura, como mínimo, la URL firmada desde que el alumno abre la lección. El vencimiento se lleva a la hora en punto siguiente (así las recargas de la misma hora aprovechan lo que el navegador ya bajó), de modo que en la práctica dura entre este valor y una hora más. Con la lección abierta, el reproductor pide una URL nueva unos minutos antes de que venza y sigue sin cortes, mientras la sesión del campus siga abierta. Si no puede (se cerró la sesión, sin conexión), al vencer el video se corta y el alumno tiene que tocar "Reintentar", que recarga la lección y la retoma desde su avance guardado. Recomendado: 6 horas. Tiene que estar entre 1 hora y 7 días.';
 
+// Transmitir a la TV desde la app de Hub Education (1.4.0).
+$string['appheading'] = 'Transmitir a la TV desde la app';
+$string['appheading_desc'] = 'Adentro de la app de Hub Education el reproductor transmite a la TV con el Chromecast de la app. Las versiones de la app que no lo tienen siguen como hoy: el reproductor le pide al alumno que abra la lección en Chrome.';
+$string['appcastpublicada'] = 'La app con Chromecast ya está publicada';
+$string['appcastpublicada_desc'] = 'La app de Hub Education con Chromecast ya está publicada en Google Play. Prendela recién cuando la versión esté disponible para todos: cambia el aviso que ven los alumnos con la app vieja, que pasa a decirles que la actualicen.';
+
 // Cartel de player.php cuando no hay nada que reproducir.
 $string['sinvideo'] = 'Esta actividad todavía no tiene un video cargado.';
 $string['sinvideo_bunnysinhost'] = 'El video de esta actividad está en Bunny Stream, pero el campus todavía no tiene Bunny configurado.';

@@ -698,6 +698,25 @@ function ivplayer_reproductor_soporta_bunny(string $html): bool {
     return strpos($html, 'loadSource') !== false;
 }
 
+/* ─── Transmitir a la TV desde hub-app (1.4.0) ─────────────────── */
+
+/**
+ * ¿Ya está publicada la app de Hub Education con Chromecast? (casilla del sitio
+ * appcastpublicada). Va a MOODLE_CONTEXT.appCastPublicada y decide si el reproductor le
+ * dice "actualizá la app" a quien abre la lección en la app vieja: antes de que la
+ * versión con Cast esté en Play para todos, ese pedido no tendría cómo cumplirse.
+ *
+ * Pura a propósito (tests/php/correr.php la prueba sin Moodle): recibe lo que devuelve
+ * get_config, que es false con el ajuste sin guardar (recién instalado) y '0' o '1'
+ * guardado. Sólo '1' prende.
+ *
+ * @param mixed $guardado Valor de get_config('mod_ivplayer', 'appcastpublicada').
+ * @return bool
+ */
+function ivplayer_app_cast_publicada($guardado): bool {
+    return !is_array($guardado) && !is_object($guardado) && (string) $guardado === '1';
+}
+
 /* ─── Subtítulos de la lección ──────────────────────────────── */
 
 /** Tope del archivo de subtítulos que se inyecta en el reproductor (1 MB). */

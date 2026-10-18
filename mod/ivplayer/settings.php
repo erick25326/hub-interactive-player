@@ -82,4 +82,16 @@ if ($ADMIN->fulltree) {
         return get_string('errorbunnyttl', 'ivplayer');
     });
     $settings->add($ttl);
+
+    // Transmitir a la TV desde la app de Hub Education (reproductor 1.4.0, protocolo
+    // ivcast). Apagada por defecto: el reproductor sale antes que la app, y mientras la
+    // versión con Chromecast no esté en Play nadie tiene que leer "actualizá la app". Va
+    // al reproductor en MOODLE_CONTEXT.appCastPublicada (player.php).
+    $settings->add(new admin_setting_heading('mod_ivplayer/appheading',
+        get_string('appheading', 'ivplayer'),
+        get_string('appheading_desc', 'ivplayer')));
+    $settings->add(new admin_setting_configcheckbox('mod_ivplayer/appcastpublicada',
+        get_string('appcastpublicada', 'ivplayer'),
+        get_string('appcastpublicada_desc', 'ivplayer'),
+        0));
 }

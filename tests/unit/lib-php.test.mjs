@@ -27,3 +27,31 @@ test('la normalización de subtítulos de lib.php no cambió sin pasar por la pr
       + `Corré npm run test:php (o el workflow "Pruebas") y, si da bien, poné la huella nueva (${huella(f)})`);
   }
 });
+
+// La casilla "La app con Chromecast ya está publicada" (1.4.0). El valor lo prueba
+// correr.php (PHP de verdad, en CI); acá, sin PHP, que las cuatro puntas sigan
+// enchufadas: la función pura (por huella), el ajuste en settings.php (apagado por
+// defecto), sus textos en los dos idiomas y player.php pasándola en MOODLE_CONTEXT. Si
+// se suelta una, el reproductor nunca dice "actualizá la app", o lo dice desde el día uno.
+test('la casilla appcastpublicada llega al reproductor apagada por defecto', async () => {
+  const fs = await import('node:fs');
+  const leer = (rel) => fs.readFileSync(new URL('../../mod/ivplayer/' + rel, import.meta.url), 'utf8').split('\r\n').join('\n');
+  const f = funcionPhp(leerLib(), 'ivplayer_app_cast_publicada');
+  assert.ok(f, 'ivplayer_app_cast_publicada ya no está en lib.php');
+  assert.equal(huella(f), '0b8dfe15f67f04dc',
+    `ivplayer_app_cast_publicada cambió en lib.php: corré npm run test:php (o el workflow "Pruebas") y, si da bien, poné la huella nueva (${huella(f)})`);
+  const player = leer('player.php');
+  assert.match(player, /'appCastPublicada' => ivplayer_app_cast_publicada\(get_config\('mod_ivplayer', 'appcastpublicada'\)\),/,
+    'player.php tiene que pasar la casilla en $contexto (MOODLE_CONTEXT), no en PLAYER_CONFIG');
+  const iContexto = player.indexOf('$contexto = ['), iCasilla = player.indexOf("'appCastPublicada'"), iJson = player.indexOf('$moodlecontext = json_encode($contexto');
+  assert.ok(iContexto > 0 && iCasilla > iContexto && iJson > iCasilla, 'la casilla tiene que ir dentro de $contexto, antes de armar MOODLE_CONTEXT');
+  const ajustes = leer('settings.php');
+  assert.match(ajustes, /new admin_setting_configcheckbox\('mod_ivplayer\/appcastpublicada',[\s\S]*?get_string\('appcastpublicada_desc', 'ivplayer'\),\s*0\)\);/,
+    'el ajuste tiene que ser una casilla apagada por defecto (0)');
+  for (const idioma of ['es', 'en']) {
+    const lang = leer(`lang/${idioma}/ivplayer.php`);
+    for (const clave of ['appheading', 'appheading_desc', 'appcastpublicada', 'appcastpublicada_desc']) {
+      assert.ok(lang.includes(`$string['${clave}'] = '`), `falta el texto ${clave} en lang/${idioma}`);
+    }
+  }
+});
