@@ -1,27 +1,22 @@
 // Copia, para la suite (tests/navegador), del simulado con que se verificó la etapa
-// 3 de la TV (oct-2026). Lo inyecta el servidor de pruebas con ?cast=fake. No es el
-// SDK de Google ni lo reemplaza: imita sólo lo que usa src/cast.js, con latencia.
+// 3 de la TV (oct-2026). Lo inyecta el servidor de pruebas con ?cast=fake, DESPUÉS de
+// tv-simulada.js (la TV, que comparte con el puente de la app simulada). No es el SDK de
+// Google ni lo reemplaza: imita sólo lo que usa src/cast.js, con latencia.
 //
-// Receptor de Cast SIMULADO: un falso `cast.framework` + `chrome.cast` con la forma
-// del Web Sender SDK 1.0.15 (lo que usa src/cast.js), y una "TV" que corre sola.
-// Se inyecta ANTES del reproductor. Parámetros (query de la página):
-//   lat=120      latencia de UNA vía celular↔TV en ms
+// El emisor de Cast de Chrome SIMULADO: un falso `cast.framework` + `chrome.cast` con la
+// forma del Web Sender SDK 1.0.15 (lo que usa src/cast.js) sobre la TV de window.__tv.
+// Se inyecta ANTES del reproductor. Parámetros (query de la página), además de los de
+// la TV (tv-simulada.js):
 //   hayTV=0      CastState NO_DEVICES_AVAILABLE (el botón está igual; requestSession falla)
 //   reanudar=70  al llamar setOptions, aparece una sesión REANUDADA con este video en 70 s, reproduciendo
 //   ajeno=1      …pero con OTRO video cargado
-//   cargaTarde=1 el LOAD vuelve con error pero la TV carga igual a los 2,5 s
-//   idlePrimero=1 al cargar, primero una media en IDLE (INTERRUPTED) y después la real
+//   inicio=300   cuánto tarda la sesión en arrancar después de elegir la TV
 //   nombre=…     friendlyName (se entrega escapado como HTML, como el SDK real)
-// Control remoto de la TV (window.__tv.remoto): adelantar(s), irA(t), play(), pause(),
-// parar() (CANCELLED), cortarSesion() (Google Home "dejar de transmitir"), otroVideo().
 (() => {
-  const q = new URLSearchParams(location.search);
-  const LAT = Number(q.get('lat') || 120);
-  const T = window.__tv = { log: [], lat: LAT, gestos: [], nombre: q.get('nombre') || 'Living & Comedor' };
-  const t0 = performance.now();
-  const ms = () => Math.round(performance.now() - t0);
-  const anotar = (ev, extra = {}) => T.log.push({ ms: ms(), ev, ...extra });
-  const demora = (fn, d = LAT) => setTimeout(fn, d);
+  const T = window.__tv;
+  const q = T.q;
+  const R = T.receptor;
+  const anotar = T.anotar;
 
   const PlayerState = { IDLE: 'IDLE', PLAYING: 'PLAYING', PAUSED: 'PAUSED', BUFFERING: 'BUFFERING' };
   const IdleReason = { CANCELLED: 'CANCELLED', INTERRUPTED: 'INTERRUPTED', FINISHED: 'FINISHED', ERROR: 'ERROR' };
@@ -50,20 +45,9 @@
     },
   };
 
-  // ---- La TV (el receptor) ----------------------------------------------------
-  const R = T.receptor = { base: 0, hBase: 0, estado: 'IDLE', rate: 1, media: null, idleReason: null, msid: 0, duracion: 260 };
-  R.tiempo = () => R.estado === 'PLAYING' ? Math.min(R.duracion, R.base + (performance.now() - R.hBase) / 1000 * R.rate) : R.base;
-  R.fijar = (t, estado) => { R.base = Math.max(0, Math.min(R.duracion, t)); R.hBase = performance.now(); R.estado = estado; };
-  R.foto = () => ({ t: +R.tiempo().toFixed(3), estado: R.estado, rate: R.rate, idleReason: R.idleReason, msid: R.msid });
-  // Fin del video en la TV.
-  setInterval(() => {
-    if (R.estado === 'PLAYING' && R.tiempo() >= R.duracion) { R.fijar(R.duracion, 'IDLE'); R.idleReason = 'FINISHED'; anotar('TV fin'); difundir(); }
-  }, 30);
-  // MEDIA_STATUS hacia el celular (una vía de latencia).
-  function difundir(alLlegar) {
-    const s = { t: R.tiempo(), estado: R.estado, rate: R.rate, idleReason: R.idleReason, msid: R.msid, media: R.media, h: performance.now() };
-    demora(() => { if (sesion) sesion._recibirEstado(s); if (alLlegar) alLlegar(); });
-  }
+  // Los estados de la TV le llegan a la sesión de este emisor.
+  T.alEstado = (s) => { if (sesion) sesion._recibirEstado(s); };
+  T.alCortar = () => ctx._terminar(true);
 
   // ---- El celular (emisor) ------------------------------------------------------
   class Media {
@@ -72,30 +56,11 @@
     removeUpdateListener(fn) { this._oy = this._oy.filter((x) => x !== fn); }
     getEstimatedTime() { return this.playerState === 'PLAYING' ? this.currentTime + (performance.now() - this._h) / 1000 * this.playbackRate : this.currentTime; }
     supportsCommand() { return true; }
-    _cmd(nombre, ok, mal, alRecibir) {
-      anotar('CMD ' + nombre, { celular: true });
-      demora(() => {
-        if (!R.media || R.msid !== this.mediaSessionId || R.estado === 'IDLE') { demora(() => mal && mal({ code: 'session_error' })); return; }
-        alRecibir(() => difundir(() => ok && ok()));
-      });
-    }
-    play(req, ok, mal) { this._cmd('play', ok, mal, (resp) => { R.fijar(R.tiempo(), 'PLAYING'); anotar('TV play', R.foto()); resp(); }); }
-    pause(req, ok, mal) { this._cmd('pause', ok, mal, (resp) => { R.fijar(R.tiempo(), 'PAUSED'); anotar('TV pause', R.foto()); resp(); }); }
-    getStatus(req, ok, mal) { this._cmd('status', ok, mal, (resp) => resp()); }
-    seek(req, ok, mal) {
-      T.log.push({ ms: ms(), ev: 'CMD seek', t: req.currentTime, resume: req.resumeState });
-      demora(() => {
-        if (!R.media || R.msid !== this.mediaSessionId || R.estado === 'IDLE') { demora(() => mal && mal({ code: 'session_error' })); return; }
-        const antes = R.estado;
-        R.fijar(req.currentTime, 'BUFFERING'); anotar('TV seek', { t: req.currentTime, resume: req.resumeState });
-        difundir();
-        setTimeout(() => {
-          const final = req.resumeState === 'PLAYBACK_PAUSE' ? 'PAUSED' : req.resumeState === 'PLAYBACK_START' ? 'PLAYING' : (antes === 'PAUSED' ? 'PAUSED' : 'PLAYING');
-          R.fijar(req.currentTime, final); anotar('TV seek listo', R.foto());
-          difundir(() => ok && ok());
-        }, 250);
-      });
-    }
+    _cmd(p, ok, mal) { p.then(() => ok && ok(), (c) => mal && mal({ code: c })); }
+    play(req, ok, mal) { this._cmd(T.comando('play', this.mediaSessionId), ok, mal); }
+    pause(req, ok, mal) { this._cmd(T.comando('pause', this.mediaSessionId), ok, mal); }
+    getStatus(req, ok, mal) { this._cmd(T.comando('status', this.mediaSessionId), ok, mal); }
+    seek(req, ok, mal) { this._cmd(T.saltar(this.mediaSessionId, req.currentTime, req.resumeState), ok, mal); }
     _aplicar(s) {
       this.playerState = s.estado; this.currentTime = s.t; this.playbackRate = s.rate; this.idleReason = s.estado === 'IDLE' ? s.idleReason : null; this._h = performance.now();
       if (s.media && s.media.duration) this.media.duration = s.media.duration;
@@ -118,34 +83,17 @@
     setVolume(v) { anotar('CMD setVolume', { v }); this._vol = v; return Promise.resolve(); }
     setMute(m) { anotar('CMD setMute', { m }); this._mute = m; return Promise.resolve(); }
     sendMessage(ns, msg) {
-      T.log.push({ ms: ms(), ev: 'MSG ' + (msg && msg.type), ns, msg });
-      if (msg && msg.type === 'SET_PLAYBACK_RATE') demora(() => { const t = R.tiempo(); R.rate = msg.playbackRate; R.fijar(t, R.estado); difundir(); });
+      T.log.push({ ms: T.ms(), ev: 'MSG ' + (msg && msg.type), ns, msg });
+      if (msg && msg.type === 'SET_PLAYBACK_RATE') T.velocidad(msg.playbackRate);
       return Promise.resolve();
     }
     loadMedia(req) {
-      const dur = (document.querySelector('video') && document.querySelector('video').duration) || 260;
-      T.log.push({ ms: ms(), ev: 'CMD LOAD', t: req.currentTime, autoplay: req.autoplay, contentId: req.media.contentId, contentType: req.media.contentType, hls: req.media.hlsSegmentFormat, hlsv: req.media.hlsVideoSegmentFormat, titulo: req.media.metadata && req.media.metadata.title, poster: !!(req.media.metadata && req.media.metadata.images && req.media.metadata.images[0]), rate: req.playbackRate });
-      return new Promise((ok, mal) => {
-        if (q.get('cargaFalla')) { demora(() => mal('load_media_failed'), LAT * 2 + 300); return; }
-        // cargaTarde=1: como la PRIMERA conexión con una TV real (prueba de Erick, oct-2026):
-        // el pedido vuelve con error enseguida, pero la TV abre la app y carga igual.
-        const tarde = q.get('cargaTarde') ? 2500 : 0;
-        if (tarde) demora(() => mal('session_error'), LAT * 2 + 100);
-        setTimeout(() => demora(() => {
-          // idlePrimero=1: como un Chromecast real, primero aparece una media en IDLE con
-          // motivo y recién después la de verdad, en BUFFERING.
-          if (q.get('idlePrimero')) { R.msid++; this._nuevaMedia({ t: 0, estado: 'IDLE', rate: 1, idleReason: 'INTERRUPTED', msid: R.msid, media: { ...req.media } }); }
-          // La media anterior (si había) queda interrumpida.
-          if (R.media && R.estado !== 'IDLE') { R.idleReason = 'INTERRUPTED'; }
-          R.msid++; R.media = { ...req.media, duration: Number.isFinite(dur) ? dur : 260 }; R.duracion = R.media.duration; R.idleReason = null; R.rate = req.playbackRate || 1;
-          R.fijar(req.currentTime || 0, 'BUFFERING'); anotar('TV LOAD', R.foto());
-          setTimeout(() => {
-            R.fijar(req.currentTime || 0, req.autoplay === false ? 'PAUSED' : 'PLAYING'); anotar('TV cargó', R.foto());
-            const s = { t: R.tiempo(), estado: R.estado, rate: R.rate, idleReason: null, msid: R.msid, media: R.media };
-            demora(() => { this._nuevaMedia(s); ok(null); });
-          }, 600);
-        }), tarde);
-      });
+      const m = req.media;
+      return T.cargar({
+        contentId: m.contentId, contentType: m.contentType, hls: m.hlsSegmentFormat, hlsv: m.hlsVideoSegmentFormat,
+        titulo: m.metadata && m.metadata.title, poster: !!(m.metadata && m.metadata.images && m.metadata.images[0]),
+        t: req.currentTime, autoplay: req.autoplay, rate: req.playbackRate, media: { ...m },
+      }, (s) => this._nuevaMedia(s));
     }
     _nuevaMedia(s) {
       this._media = new Media(s);
@@ -178,10 +126,8 @@
         this._reanudada = true;
         setTimeout(() => {
           sesion = new CastSession();
-          const src = q.get('ajeno') ? 'https://otro.ejemplo.test/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/playlist.m3u8' : window.PLAYER_CONFIG.videoUrl;
-          R.msid++; R.media = { contentId: src, contentType: 'application/x-mpegurl', duration: 260 }; R.duracion = 260; R.idleReason = null;
-          const EST = q.get('reanudarPausado') ? 'PAUSED' : 'PLAYING'; R.fijar(Number(tr), EST);
-          sesion._media = new Media({ t: R.tiempo(), estado: EST, rate: 1, msid: R.msid, media: R.media });
+          const s = T.prepararReanudada({ t: tr, pausado: !!q.get('reanudarPausado'), ajeno: !!q.get('ajeno') });
+          sesion._media = new Media(s);
           this._estado = CS.CONNECTED;
           this._emitir('caststatechanged', { castState: CS.CONNECTED });
           this._emitir('sessionstatechanged', { sessionState: SS.SESSION_RESUMED, session: sesion });
@@ -193,7 +139,7 @@
     getSessionState() { return sesion ? SS.SESSION_STARTED : SS.NO_SESSION; },
     requestSession() {
       const activo = !!(navigator.userActivation && navigator.userActivation.isActive);
-      T.gestos.push({ ms: ms(), que: 'requestSession', activo });
+      T.gestos.push({ ms: T.ms(), que: 'requestSession', activo });
       anotar('requestSession', { activo });
       if (!this._opciones) return Promise.reject('invalid_parameter');
       if (!activo) return Promise.reject('session_error');   // como PresentationRequest.start sin gesto
@@ -218,7 +164,7 @@
     _terminar(stop) {
       if (!sesion) return;
       const s = sesion;
-      if (stop) { R.fijar(R.tiempo(), 'IDLE'); R.idleReason = 'CANCELLED'; R.media = null; anotar('TV app cerrada'); }
+      if (stop) T.cerrarApp();
       this._emitir('sessionstatechanged', { sessionState: SS.SESSION_ENDING, session: s });
       setTimeout(() => {
         sesion = null;
@@ -235,24 +181,6 @@
       CastContextEventType: { CAST_STATE_CHANGED: 'caststatechanged', SESSION_STATE_CHANGED: 'sessionstatechanged' },
       CastState: CS, SessionState: SS,
       SessionEventType: { APPLICATION_STATUS_CHANGED: 'applicationstatuschanged', APPLICATION_METADATA_CHANGED: 'applicationmetadatachanged', ACTIVE_INPUT_STATE_CHANGED: 'activeinputstatechanged', VOLUME_CHANGED: 'volumechanged', MEDIA_SESSION: 'mediasession' },
-    },
-  };
-
-  // ---- Control remoto de la TV (HDMI-CEC / Google Home) -------------------------
-  T.remoto = {
-    adelantar(s) { T.remoto.irA(R.tiempo() + s); },
-    irA(t) {
-      const antes = R.estado; anotar('REMOTO irA', { t, antes });
-      R.fijar(t, 'BUFFERING'); difundir();
-      setTimeout(() => { R.fijar(t, antes === 'PAUSED' ? 'PAUSED' : 'PLAYING'); anotar('REMOTO irA listo', R.foto()); difundir(); }, 250);
-    },
-    play() { anotar('REMOTO play', R.foto()); R.fijar(R.tiempo(), 'PLAYING'); difundir(); },
-    pause() { anotar('REMOTO pause', R.foto()); R.fijar(R.tiempo(), 'PAUSED'); difundir(); },
-    parar() { anotar('REMOTO parar'); R.fijar(R.tiempo(), 'IDLE'); R.idleReason = 'CANCELLED'; difundir(); },
-    cortarSesion() { anotar('REMOTO cortarSesion', R.foto()); ctx._terminar(true); },
-    otroVideo() {
-      anotar('REMOTO otroVideo');
-      R.msid++; R.media = { contentId: 'https://otro.ejemplo.test/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/playlist.m3u8', duration: 100 }; R.idleReason = null; R.fijar(0, 'PLAYING'); difundir();
     },
   };
 })();

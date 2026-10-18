@@ -16,7 +16,13 @@
 //                   (y CORS abierto, como Bunny) si no vale. Ver ?firma=.
 //   /firma          el firma.php de mentira: POST cmid + sesskey → una firma nueva.
 // Query de /player.html: motor=hls|nativo|auto · progreso=<json del avance> ·
-// subs=vtt · cast=fake (+ lat, hayTV… que lee el simulado) · airplay=1 · nofs=1 ·
+// subs=vtt · cast=fake (la TV simulada + el emisor de Chrome; lat, hayTV… los leen los
+// simulados) · airplay=1 · nofs=1 · webview=1 (como el WebView de hub-app: sin Cast Web
+// SDK, sin Presentation API ni window.chrome, y el UA con "MoodleMobile"; con
+// plataforma=ios, el de un iPhone) · appCastPublicada=1 (MOODLE_CONTEXT con la casilla del
+// plugin prendida) · app=fake|mudo (en /marco.html: la TV simulada y hub-app simulada en la
+// página de ARRIBA, como view.php; en el iframe, salvo plataforma=ios, un
+// ReactNativeWebView que le pasa todo al de arriba, como Android) ·
 // firma=<segundos> (el video va firmado y vence a los <segundos>; MOODLE_CONTEXT trae
 // firmaUrl para renovarlo) · renovar=falla (el /firma de esa página contesta "se cerró
 // la sesión", como firma.php sin sesión) · renovar=falla-hasta-403 (contesta 503, como
@@ -59,11 +65,31 @@ export const CUES_PRUEBA = [[1, 5, 'Primer subtítulo de prueba'], [6, 10.5, 'Es
 
 const leerAqui = (...p) => fs.readFileSync(path.join(AQUI, ...p), 'utf8');
 const AYUDANTE = leerAqui('ayudante-pagina.js');
+const TV = leerAqui('..', 'simulados', 'tv-simulada.js');
 const CAST = leerAqui('..', 'simulados', 'cast-simulado.js');
+const PUENTE = leerAqui('..', 'simulados', 'puente-app-simulado.js');
 const AIRPLAY = leerAqui('..', 'simulados', 'airplay-simulado.js');
 
 // Como JSON_HEX_TAG de player.php: un "</script>" dentro de un texto no corta el bloque.
 const json = (x) => JSON.stringify(x).replace(/</g, '\\u003c');
+
+// El WebView de hub-app: ni Cast Web SDK ni Presentation API, y "MoodleMobile" en el UA
+// (lo que pone la app para el autologin del campus). Si el reproductor se cayera al camino
+// web, acá no encuentra nada: la prueba falla en vez de pasar por Chrome.
+const UA_IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MoodleMobile';
+function scriptWebview(q) {
+  const ua = q.get('plataforma') === 'ios' ? JSON.stringify(UA_IPHONE) : 'navigator.userAgent + " MoodleMobile"';
+  return `(() => {
+  const ua = ${ua};
+  try { Object.defineProperty(Navigator.prototype, 'userAgent', { configurable: true, get: () => ua }); } catch (e) {}
+  try { Object.defineProperty(Navigator.prototype, 'presentation', { configurable: true, get: () => undefined }); } catch (e) {}
+  try { Object.defineProperty(window, 'PresentationRequest', { configurable: true, writable: true, value: undefined }); } catch (e) {}
+  try { Object.defineProperty(window, 'chrome', { configurable: true, writable: true, value: undefined }); } catch (e) {}
+})();`;
+}
+// Android: el ReactNativeWebView está en TODOS los marcos (cada uno con el suyo, que va a
+// la misma app). En el iframe, uno que le pasa los mensajes al de la página de arriba.
+const PUENTE_IFRAME = 'window.ReactNativeWebView = { postMessage: (s) => parent.ReactNativeWebView.postMessage(s) };';
 
 // La firma de prueba: el directorio firmado (como token_path=/<guid>/ en Bunny) y lo que
 // manda la página para pedir otra (lo que pondría player.php en MOODLE_CONTEXT).
@@ -159,8 +185,12 @@ export function crearServidor({ html, video }) {
       if (Number(q.get('demora')) > 0) f.set('demora', q.get('demora'));
       contexto = { cmid: CMID_PRUEBA, sesskey: SESSKEY_PRUEBA, firmaUrl: `${origen}/firma?${f}`, firmaAhora: segundos() };
     }
+    // La casilla "La app con Chromecast ya está publicada" (player.php la pone siempre).
+    if (q.get('appCastPublicada') === '1') contexto = { ...(contexto || {}), appCastPublicada: true };
     let antes = `<script>${AYUDANTE}</script>\n`;
-    if (q.get('cast') === 'fake') antes += `<script>${CAST}</script>\n`;
+    if (q.get('webview') === '1') antes += `<script>${scriptWebview(q)}</script>\n`;
+    if (['fake', 'mudo'].includes(q.get('app')) && q.get('plataforma') !== 'ios') antes += `<script>${PUENTE_IFRAME}</script>\n`;
+    if (q.get('cast') === 'fake') antes += `<script>${TV}</script>\n<script>${CAST}</script>\n`;
     if (q.get('airplay') === '1') antes += `<script>${AIRPLAY}</script>\n`;
     // Sin pantalla completa nativa (como el iPhone): fuerza la simulada de la madre.
     if (q.get('nofs') === '1') antes += '<script>delete Element.prototype.requestFullscreen; delete Element.prototype.webkitRequestFullscreen;</script>\n';
@@ -175,7 +205,10 @@ export function crearServidor({ html, video }) {
   function paginaMarco(q) {
     const ancho = /^\d+px$/.test(q.get('ancho') || '') ? q.get('ancho') : '100vw';
     q.delete('ancho');
-    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    // hub-app simulada (y su TV) en la página de arriba: es la que tiene la sesión de Cast,
+    // y sobrevive a que el iframe del reproductor se recargue (salir y volver).
+    const app = ['fake', 'mudo'].includes(q.get('app')) ? `<script>${TV}</script>\n<script>${PUENTE}</script>\n` : '';
+    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${app}
 <style>html,body{margin:0;background:#222}iframe{border:0;width:${ancho};aspect-ratio:16/9;display:block}
 iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;z-index:9}</style></head>
 <body><iframe src="/player.html?${q.toString().replace(/"/g, '&quot;')}" title="Reproductor" allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe>

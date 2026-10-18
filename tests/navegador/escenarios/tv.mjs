@@ -5,6 +5,10 @@
 //    recorrido completo, en orden: conectar, frenar en la pregunta EN LA TV, el control
 //    remoto que adelanta y la vuelta a la pendiente, y cortar la sesión y retomar en el
 //    celular en el mismo segundo.
+//  - El recorrido de Chromecast corre DOS veces contra la misma TV (tv-simulada.js): con el
+//    emisor de Chrome y como en hub-app (1.4.0), por el puente ivcast con la app simulada.
+//    Lo propio del modo app (salir y volver, el saludo sin respuesta, iPhone…) está en
+//    tv-app.mjs.
 //  - AirPlay: el <video> sigue siendo el dueño; se prueba que aparezca el botón con una
 //    TV a la vista y que el selector se abra dentro del toque.
 import { describe } from 'node:test';
@@ -13,10 +17,31 @@ import { paso } from '../apoyo/entorno.mjs';
 import { cerca } from '../apoyo/pagina.mjs';
 import { dormir } from '../apoyo/chrome.mjs';
 
-export function registrar(entorno) {
-  const p = entorno.pagina;
+// El reproductor con la TV simulada, en cada modo:
+//  - 'web': la página del reproductor con el emisor de Chrome simulado (cast=fake).
+//  - 'app': como en hub-app: el reproductor en el iframe de marco.html (que hace de
+//    view.php), en un "WebView" (webview=1: sin Cast Web SDK ni Presentation API, UA
+//    MoodleMobile) y la app simulada arriba (app=fake), que habla ivcast con la TV.
+// En los dos, `window.__tv` (lo que leen las pruebas) está en la pestaña de arriba.
+export function abrirConTV(p, modo, { query = {}, ...resto } = {}) {
+  if (modo === 'app') return p.abrir({ pagina: 'marco.html', query: { app: 'fake', webview: '1', ...query }, ...resto });
+  return p.abrir({ query: { cast: 'fake', ...query }, ...resto });
+}
 
-  describe('transmitir a la TV · Chromecast simulado (recorrido en orden)', () => {
+// En modo app: el SDK imitado y ni un <script> de gstatic (si el reproductor se cayera
+// al camino web, en un WebView de verdad no habría nada).
+export async function comprobarModoApp(p) {
+  const r = await p.a(`({ version: W.cast && W.cast.framework && W.cast.framework.VERSION, gstatic: !!D.querySelector('script[src*="gstatic"]'), modo: W.__ivCastDiag && W.__ivCastDiag.modo })`);
+  assert.equal(r && r.version, 'hub-app-ivcast-1', `en la app tiene que estar el SDK imitado: ${JSON.stringify(r)}`);
+  assert.equal(r.gstatic, false, 'en modo app no se inserta el script de gstatic');
+  assert.equal(r.modo, 'app');
+}
+
+// El recorrido de Chromecast, en orden. `extra`: lo que se suma a la query (latencia del
+// puente, estados repetidos).
+function recorridoChromecast(entorno, modo, titulo, extra) {
+  const p = entorno.pagina;
+  describe(titulo, () => {
     // Cada paso arranca donde dejó el anterior: si uno falla, los que siguen se
     // saltean diciendo por qué, en vez de fallar en cadena por la misma causa.
     let vivo = true;
@@ -24,11 +49,10 @@ export function registrar(entorno) {
       if (!vivo) return t.skip('falló un paso anterior del recorrido');
       try { await fn(t); } catch (e) { vivo = false; throw e; }
     });
-    const tv = () => p.a('window.__tv.receptor.foto()');
     const log = () => p.a('window.__tv.log');
 
     pasoTV('conectar: la TV arranca donde estaba el celular y el <video> queda en pausa', async () => {
-      await p.abrir({ query: { motor: 'hls', cast: 'fake', lat: '120' }, progreso: { completed: ['n8'], currentTime: 18 }, esperarEn: 18 });
+      await abrirConTV(p, modo, { query: { motor: 'hls', lat: '120', ...extra }, progreso: { completed: ['n8'], currentTime: 18 }, esperarEn: 18 });
       await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
       await p.reproducir();
       await p.debe(`A.comp() > 18.8`, 10000, 'no arrancó a reproducir');
@@ -46,6 +70,11 @@ export function registrar(entorno) {
       assert.equal(e.botonTV, 'Dejar de transmitir');
       assert.equal(e.botonFS, null, 'transmitiendo no hay pantalla completa');
       assert.ok(cerca(e.comp, e.tv.t, 0.6), `el componente sigue a la TV: ${JSON.stringify({ comp: e.comp, tv: e.tv })}`);
+      if (modo === 'app') {
+        await comprobarModoApp(p);
+        const latidos = await p.ev('window.__puente.latidos');
+        assert.ok(latidos.some((l) => l.msid != null), `transmitiendo, el latido lleva el msid de su media: ${JSON.stringify(latidos.slice(-3))}`);
+      }
     });
 
     pasoTV('la pregunta de los 25 frena la TV en su segundo, no antes', async () => {
@@ -57,12 +86,17 @@ export function registrar(entorno) {
       assert.ok(e.comp >= 24.98 && e.comp <= 25.35, `el componente en 25: ${e.comp}`);
       const guardados = await p.a('A.guardados');
       assert.ok(guardados.every((g) => g.currentTime <= 25.001), `se guardó un avance más allá de la pregunta: ${JSON.stringify(guardados.slice(-3))}`);
+      if (extra.duplicados) {
+        // Que la prueba pruebe algo: llegaron estados repetidos y el shim los descartó.
+        const repetidos = await p.a('W.__ivCastDiag && W.__ivCastDiag.puenteRepetidos');
+        assert.ok(repetidos > 0, `con duplicados=1 tenían que llegar estados repetidos (y descartarse): ${repetidos}`);
+      }
     });
 
     pasoTV('el control remoto adelanta 40 s cruzando la de 60: la TV vuelve a 60 y la muestra', async () => {
       await p.responder();
       await p.debe(`A.comp() > 27.5 && window.__tv.receptor.estado === 'PLAYING'`, 10000, 'la TV no siguió después de responder');
-      await p.a('(window.__tv.remoto.adelantar(40), true)');
+      await p.ev('(window.__tv.remoto.adelantar(40), true)');
       await p.debe(`A.tarjeta()?.id === 'tf60'`, 10000, 'después del salto remoto no apareció la de los 60');
       await dormir(1500);
       const e = await p.estado();
@@ -91,6 +125,15 @@ export function registrar(entorno) {
       assert.ok(Math.min(...serie.map((m) => m.comp)) >= corte.t - 0.3, 'al volver al celular el tiempo fue para atrás');
     });
   });
+}
+
+export function registrar(entorno) {
+  const p = entorno.pagina;
+
+  recorridoChromecast(entorno, 'web', 'transmitir a la TV · Chromecast simulado (recorrido en orden)', {});
+  // Con más latencia (80 ms por vía en el puente, además de los 120 de la TV) y cada estado
+  // repetido: el freno de la pregunta tiene que seguir cayendo en su segundo.
+  recorridoChromecast(entorno, 'app', 'transmitir a la TV · hub-app simulada por el puente ivcast (recorrido en orden)', { latPuente: '80', duplicados: '1' });
 
   describe('transmitir a la TV · AirPlay simulado', () => {
     // El camino de Safari es el HLS nativo; si este Chrome no lo tiene, hls.js (en

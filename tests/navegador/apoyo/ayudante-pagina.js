@@ -58,7 +58,11 @@
   const etiqueta = (sel) => { const b = $(sel); return b ? b.getAttribute('aria-label') : null; };
   A.estado = () => {
     const v = A.video();
-    const tv = window.__tv && window.__tv.receptor;
+    // La TV simulada: en esta página (emisor de Chrome) o en la de arriba (hub-app
+    // simulada en marco.html, que hace de view.php).
+    let T = window.__tv;
+    if (!T && parent !== window) { try { T = parent.__tv; } catch (e) {} }
+    const tv = T && T.receptor;
     const t = A.tarjeta();
     const sub = $('.iv-subtitle-text');
     const subsBtn = $('button[aria-label="Subtítulos"]');

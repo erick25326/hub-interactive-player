@@ -29,6 +29,7 @@ import { paso } from '../apoyo/entorno.mjs';
 import { anomalias, cerca } from '../apoyo/pagina.mjs';
 import { dormir } from '../apoyo/chrome.mjs';
 import { abrirCalidades } from './calidad.mjs';
+import { abrirConTV, comprobarModoApp } from './tv.mjs';
 
 // Lo que dura cada firma en la prueba (la real, 6 h). Con 10 s, renueva a los 5 (la
 // mitad, ver margenes() en firma.js) y lo urgente del HLS nativo queda a ~1,7 s.
@@ -334,11 +335,16 @@ export function registrar(entorno) {
   // reciba la firma nueva con un LOAD en el mismo segundo, en pausa enseguida (con la
   // pregunta abierta, quieta en la pregunta) y reproduciendo cuando a la suya le falta
   // poco, sin que el componente vea saltos ni la TV pase de largo la pregunta.
-  describe('firma de Bunny que vence · Chromecast simulado', () => {
+  // Lo mismo adentro de hub-app (1.4.0): para la app, cada renovación es un `cargar` más
+  // por el puente, con la URL nueva (la media anterior queda IDLE/INTERRUPTED con otro msid).
+  for (const [modo, titulo, extra] of [
+    ['web', 'firma de Bunny que vence · Chromecast simulado', {}],
+    ['app', 'firma de Bunny que vence · hub-app simulada por el puente ivcast', { latPuente: '80' }],
+  ]) describe(titulo, () => {
     paso(entorno, 'transmitiendo, la TV vuelve a cargar el video con la firma nueva en el mismo segundo', async () => {
       const tok = (u) => (/bcdn_token=([^&/]+)/.exec(String(u)) || [])[1] || null;
       const cargas = async () => (await p.a('window.__tv.log')).filter((x) => x.ev === 'CMD LOAD');
-      await p.abrir({ query: { motor: 'hls', cast: 'fake', lat: '120', firma: TTL }, progreso: { completed: ['n8'], currentTime: 16 }, esperarEn: 16 });
+      await abrirConTV(p, modo, { query: { motor: 'hls', lat: '120', firma: TTL, ...extra }, progreso: { completed: ['n8'], currentTime: 16 }, esperarEn: 16 });
       await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
       await p.reproducir();
       await p.debe(`A.comp() > 16.5`, 10000, 'no arrancó a reproducir');
@@ -381,6 +387,7 @@ export function registrar(entorno) {
       // El componente, de punta a punta: ni una caída ni un salto (los LOAD incluidos).
       assert.deepEqual(anomalias(await p.a('A.serie'), { desdeMs: desde }), [], 'el componente vio el tiempo caer o saltar');
       assert.equal((await p.a('A.marcas')).filter((m) => m.txt === 'tarjeta tf25').length, 1, 'la pregunta apareció una sola vez');
+      if (modo === 'app') await comprobarModoApp(p);
     }, { timeout: 120000 });
   });
 }

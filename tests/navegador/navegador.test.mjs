@@ -13,6 +13,7 @@ import * as candado from './escenarios/candado.mjs';
 import * as calidad from './escenarios/calidad.mjs';
 import * as subtitulos from './escenarios/subtitulos.mjs';
 import * as tv from './escenarios/tv.mjs';
+import * as tvApp from './escenarios/tv-app.mjs';
 import * as angosto from './escenarios/angosto.mjs';
 import * as firma from './escenarios/firma.mjs';
 
@@ -62,6 +63,7 @@ if (entorno.omitir) {
   calidad.registrar(entorno);
   subtitulos.registrar(entorno);
   tv.registrar(entorno);
+  tvApp.registrar(entorno);
   angosto.registrar(entorno);
   firma.registrar(entorno);
 }
