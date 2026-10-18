@@ -70,6 +70,8 @@ $funciones = [
     'ivplayer_reproductor_soporta_bunny',
     'ivplayer_subtitulos_normalizar',
     'ivplayer_app_cast_publicada',
+    'ivplayer_bunny_configurador',
+    'ivplayer_configurador_fuente_html',
 ];
 
 $rutalib = dirname(__DIR__, 2) . '/mod/ivplayer/lib.php';
@@ -103,6 +105,17 @@ foreach ($funciones as $nombre) {
         exit(1);
     }
     $codigo .= $cuerpo . "\n";
+}
+// Las constantes que usan esas funciones, con el valor de lib.php (no copiado).
+foreach (['IVPLAYER_BUNNY_TTL_CONFIGURADOR'] as $constante) {
+    $m = [];
+    if (!preg_match("/^define\\('" . $constante . "', (\\d+)\\);/m", $src, $m)) {
+        fwrite(STDERR, "No encontré la constante $constante en lib.php." . PHP_EOL);
+        exit(1);
+    }
+    if (!defined($constante)) {
+        define($constante, (int) $m[1]);
+    }
 }
 try {
     eval($codigo);
@@ -350,6 +363,57 @@ chequear('un arreglo no la prende', ivplayer_app_cast_publicada(['1']), false);
 chequear('en el contexto del reproductor sale como booleano JSON',
     json_encode(['appCastPublicada' => ivplayer_app_cast_publicada(false)]), '{"appCastPublicada":false}');
 seccion('casilla appcastpublicada: booleano, apagada sin guardar');
+
+// ─── Configurador de interacciones con el video de Bunny (plan 0.3) ──────────
+// mod_form.php firma, para quien puede editar la actividad, un enlace de vida corta al
+// playlist (ivplayer_bunny_configurador) y lo deja en un bloque JSON que su script lee y
+// saca de la página (ivplayer_configurador_fuente_html). Lo que hace el script, el nivel
+// navegador (escenarios/configurador-bunny.mjs).
+$fc = $vectores['firmar'][0];
+$ahorac = 1700000123;
+$expc = ivplayer_bunny_expires($ahorac, IVPLAYER_BUNNY_TTL_CONFIGURADOR);
+$rc = ivplayer_bunny_configurador($fc['guid'], $fc['host'], $fc['clave'], $ahorac, true);
+chequear('firmado como la lección, con la vida del configurador', $rc, [
+    'playlist' => ivplayer_bunny_urls($fc['host'], $fc['guid'], $fc['clave'], $expc)['playlist'],
+    'expires' => $expc,
+    'ahora' => $ahorac,
+    'guid' => $fc['guid'],
+]);
+chequear('vida corta: entre 2 y 3 h (hora en punto siguiente + 2 h)',
+    is_array($rc) && $rc['expires'] - $ahorac > 7200 && $rc['expires'] - $ahorac <= 10800, true);
+chequear('vida mínima del configurador: 2 h, menos que la de la lección por defecto',
+    [IVPLAYER_BUNNY_TTL_CONFIGURADOR, IVPLAYER_BUNNY_TTL_CONFIGURADOR < 21600], [7200, true]);
+chequear('sólo el playlist: ni la miniatura ni el token suelto (query)', array_keys((array) $rc), ['playlist', 'expires', 'ahora', 'guid']);
+chequear('la clave no sale', strpos((string) json_encode($rc, JSON_UNESCAPED_SLASHES), $fc['clave']), false);
+chequear('el GUID guardado a mano en mayúsculas sale normalizado (lo compara el formulario)',
+    ivplayer_bunny_configurador(' ' . strtoupper($fc['guid']) . ' ', $fc['host'], $fc['clave'], $ahorac, true)['guid'] ?? null, $fc['guid']);
+$planac = ivplayer_bunny_configurador($fc['guid'], $fc['host'], '', $ahorac, true);
+chequear('sitio sin clave: el enlace plano, sin vencimiento', $planac, [
+    'playlist' => 'https://' . $fc['host'] . '/' . $fc['guid'] . '/playlist.m3u8',
+    'expires' => null,
+    'ahora' => $ahorac,
+    'guid' => $fc['guid'],
+]);
+// LA regla de la lección: el configurador muestra el video que ve el alumno.
+foreach ($vectores['video'] as $v) {
+    $c = ivplayer_bunny_configurador($v['guardado'], $v['host'], $v['clave'], $v['ahora'], $v['reproductor']);
+    $l = ivplayer_bunny_video($v['guardado'], $v['host'], $v['clave'], $v['ttl'], $v['ahora'], $v['reproductor']);
+    chequear('misma regla que la lección: ' . $v['nombre'], $c === null, $l === null);
+}
+seccion('configurador: enlace de Bunny de vida corta, con la regla de la lección');
+
+chequear('bloque: sin fuente, nada', ivplayer_configurador_fuente_html(null), '');
+$bc = ivplayer_configurador_fuente_html($rc);
+$abre = '<script type="application/json" id="ivplayer-video-firmado">';
+chequear('bloque: un <script type="application/json"> con id fijo', [strpos($bc, $abre), substr($bc, -9)], [0, '</script>']);
+$jsonc = substr($bc, strlen($abre), -9);
+chequear('bloque: el JSON se lee igual (como JSON.parse del script)', json_decode($jsonc, true), $rc);
+$malc = ['playlist' => "https://x/</script><script>alert(1)</script><!--&'\"", 'expires' => 1, 'ahora' => 1, 'guid' => 'g'];
+$bmc = ivplayer_configurador_fuente_html($malc);
+chequear('bloque: un "</script>" adentro no lo cierra antes de tiempo', substr_count(strtolower($bmc), '</script'), 1);
+chequear('bloque: ni "<" ni "<!--" crudos adentro', preg_match('/<|>/', substr($bmc, strlen($abre), -9)), 0);
+chequear('bloque: y se lee igual', json_decode(substr($bmc, strlen($abre), -9), true), $malc);
+seccion('configurador: bloque JSON en el formulario (no es un campo)');
 
 // ─── Evento de vista: view.php → ivplayer_view() ─────────────────────────────
 // Sin Moodle no hay log: se prueba el CABLEADO con lo mínimo de \core\event y de

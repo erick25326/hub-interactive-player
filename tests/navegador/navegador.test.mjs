@@ -19,6 +19,7 @@ import * as firma from './escenarios/firma.mjs';
 import * as sinVideo from './escenarios/sin-video.mjs';
 import * as reintentar from './escenarios/reintentar.mjs';
 import * as configurador from './escenarios/configurador.mjs';
+import * as configuradorBunny from './escenarios/configurador-bunny.mjs';
 
 const entorno = await prepararEntorno();
 
@@ -71,6 +72,7 @@ if (entorno.omitir) {
   firma.registrar(entorno);
   reintentar.registrar(entorno);
   sinVideo.registrar(entorno);
-  // Al final: bloquea el SDK de Vimeo y las fuentes mientras corre (y lo devuelve).
+  // Al final: bloquean el SDK de Vimeo y las fuentes mientras corren (y lo devuelven).
   configurador.registrar(entorno, { avisar: (motivo) => avisarSalteo('parcial', motivo) });
+  configuradorBunny.registrar(entorno, { avisar: (motivo) => avisarSalteo('parcial', motivo) });
 }

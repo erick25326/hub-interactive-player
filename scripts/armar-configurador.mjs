@@ -1,10 +1,37 @@
 // Arma el configurador que se publica: configurator/index.html con el reproductor
 // compilado (en base64) y el manifiesto SCORM adentro, para la vista previa con el
-// reproductor de verdad y el paquete SCORM.
+// reproductor de verdad y el paquete SCORM, y hls.js, para el video de Bunny que manda
+// Moodle (crearReproductorHls en el configurador).
 // Lo usan scripts/build-configurator.js (dist/configurator.html, que se publica en
 // GitHub Pages) y las pruebas de navegador (con el reproductor que compilan a una
 // carpeta temporal): así se prueba exactamente lo que se publica.
-export function armarConfigurador({ playerHtml, manifest, configurator }) {
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+
+// hls.js COMPLETO (no "light"), el mismo paquete que usa el reproductor: con light el
+// video de Bunny se oía mudo en Android (ver src/nativePlayer.js).
+export function leerHlsJs() {
+  const ruta = require.resolve('hls.js/dist/hls.min.js');
+  const { version } = JSON.parse(fs.readFileSync(require.resolve('hls.js/package.json'), 'utf8'));
+  return { codigo: fs.readFileSync(ruta, 'utf8'), version };
+}
+
+// hls.js en un <script> dentro del <head>: ANTES del script del configurador. El HTML
+// armado pesa varios MB y el navegador lo parsea de a pedazos: el mensaje de Moodle (con
+// el video de Bunny) puede llegar antes de que el parser llegue al final del <body>.
+// 🔴 Sin el comentario del source map (pediría un .map que no existe) y con cualquier
+// "</script" o "<!--" escapado: cerrarían el bloque antes de tiempo (hoy no hay ninguno).
+export function scriptHls({ codigo, version }) {
+  const limpio = String(codigo)
+    .replace(/\n?\/\/# sourceMappingURL=\S*\s*$/, '')
+    .replace(/<\/(script)/gi, '<\\/$1')
+    .replace(/<!--/g, '<\\!--');
+  return `<script>/* hls.js ${version} (node_modules/hls.js/dist/hls.min.js) */\n${limpio}\n</script>`;
+}
+
+export function armarConfigurador({ playerHtml, manifest, configurator, hlsJs = leerHlsJs() }) {
   const playerBase64 = Buffer.from(playerHtml).toString("base64");
 
   // Build the injection script — uses the hooks already in the configurator:
@@ -64,7 +91,13 @@ export function armarConfigurador({ playerHtml, manifest, configurator }) {
 })();
 </script>`;
 
+  // hls.js antes del PRIMER </head>: el del documento (los de más abajo están adentro de
+  // textos del JS, como el de la vista previa simple).
+  const finHead = configurator.indexOf('</head>');
+  if (finHead < 0) throw new Error('el configurador no tiene </head>');
+  const conHls = configurator.slice(0, finHead) + scriptHls(hlsJs) + '\n' + configurator.slice(finHead);
+
   // Inject before the LAST </body> (not one inside JS strings)
-  const lastIdx = configurator.lastIndexOf('</body>');
-  return configurator.slice(0, lastIdx) + injectedScript + '\n' + configurator.slice(lastIdx);
+  const lastIdx = conHls.lastIndexOf('</body>');
+  return conHls.slice(0, lastIdx) + injectedScript + '\n' + conHls.slice(lastIdx);
 }

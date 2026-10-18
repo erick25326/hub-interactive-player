@@ -694,6 +694,77 @@ function ivplayer_bunny_de_actividad(stdClass $ivplayer, string $playerhtml, int
         ivplayer_bunny_ttl(), $ahora, ivplayer_reproductor_soporta_bunny($playerhtml));
 }
 
+/* ─── Configurador de interacciones con el video de Bunny ───── */
+//
+// "Editar interacciones" (mod_form.php) abre el configurador publicado en GitHub Pages y
+// le pasa por postMessage lo de la actividad. El configurador no tiene la clave: si la
+// actividad reproduce Bunny, mod_form le firma ACÁ un enlace al playlist HLS, de vida
+// corta, y se lo manda junto con lo de siempre. Uso y trampas: README ("Marcar los
+// tiempos de un video de Bunny") y CLAUDE.md.
+
+// Vida mínima del enlace del configurador: 2 h. Es lo que se puede tener abierto el
+// formulario antes de tocar "Editar interacciones" (después hay que recargarlo) y lo
+// que sirve un enlace que se filtre. Con el redondeo de ivplayer_bunny_expires, dura
+// entre 2 y 3 h.
+define('IVPLAYER_BUNNY_TTL_CONFIGURADOR', 7200);
+
+/**
+ * El video de Bunny de la actividad para el configurador, firmado con vida corta, o null
+ * si la actividad no reproduce Bunny.
+ *
+ * La regla de "¿usa Bunny?" es LA de la lección (ivplayer_bunny_video): el configurador
+ * muestra el video que ve el alumno. Si el player.html instalado no reproduce Bunny, la
+ * lección va por Vimeo y el configurador también.
+ *
+ * Pura a propósito (tests/php/correr.php la prueba). mod_form.php la llama sólo para quien
+ * puede editar la actividad. 🔴 Lo que devuelve sale al navegador del docente y a ningún
+ * otro lado: no se guarda en la base, no va a un log ni a un campo del formulario.
+ *
+ * @param string|null $guardado Lo que guarda la actividad en `videourl` (el GUID).
+ * @param string $host Host del CDN del sitio ('' = Bunny apagado en el sitio).
+ * @param string $clave Clave de token del sitio ('' = enlace sin firmar). Nunca sale.
+ * @param int $ahora UNIX en segundos (time() del servidor).
+ * @param bool $reproductorbunny ¿El player.html instalado reproduce Bunny?
+ * @return array{playlist: string, expires: int|null, ahora: int, guid: string}|null
+ *         guid: para que el formulario no lo mande si se cambió el campo sin guardar.
+ *         ahora: la hora del servidor al firmar, para medir el vencimiento sin el reloj
+ *         de la compu. Sin poster ni query: el configurador no los usa.
+ */
+function ivplayer_bunny_configurador($guardado, string $host, string $clave, int $ahora, bool $reproductorbunny): ?array {
+    $video = ivplayer_bunny_video($guardado, $host, $clave, IVPLAYER_BUNNY_TTL_CONFIGURADOR, $ahora, $reproductorbunny);
+    if ($video === null) {
+        return null;
+    }
+    return [
+        'playlist' => $video['playlist'],
+        'expires' => $video['expires'],
+        'ahora' => $ahora,
+        'guid' => ivplayer_bunny_normalizar_guid($guardado),
+    ];
+}
+
+/**
+ * El bloque que lleva el enlace del configurador en la página del formulario: un
+ * <script type="application/json"> que el script de "Editar interacciones" lee y SACA de
+ * la página al cargar. No es un campo del formulario, así que no viaja al guardar.
+ *
+ * @param array|null $fuente Lo de ivplayer_bunny_configurador().
+ * @return string '' sin fuente.
+ */
+function ivplayer_configurador_fuente_html(?array $fuente): string {
+    if ($fuente === null) {
+        return '';
+    }
+    // 🔴 JSON_HEX_TAG: con "<" escapado no puede aparecer un "</script>" que cierre el
+    // bloque antes de tiempo. Adentro de un <script> no se decodifican entidades: va el
+    // JSON crudo.
+    $json = json_encode($fuente, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES);
+    if ($json === false) {
+        return '';
+    }
+    return '<script type="application/json" id="ivplayer-video-firmado">' . $json . '</script>';
+}
+
 /* ─── Reproductor instalado (player.html) ───────────────────── */
 
 /**

@@ -192,7 +192,49 @@ sólo por la interfaz de "REPRODUCTOR DE LA VISTA PREVIA" (`crearReproductorVime
   `build-configurator.js` y el servidor de pruebas en `/configurador.html`): se prueba
   lo mismo que se publica. La prueba (`escenarios/configurador.mjs`) necesita ffmpeg;
   bloquea el SDK de Vimeo, JSZip y las fuentes, y corre el `<script>` REAL de
-  `mod_form.php` (leído del archivo) en un iframe para el ida y vuelta con Moodle.
+  `mod_form.php` (leído del archivo) en un iframe para el ida y vuelta con Moodle. Las
+  herramientas que comparte con la de Bunny están en `tests/navegador/apoyo/configurador.mjs`.
+
+## Configurador con el video de Bunny de la actividad (1.4.0) — trampas
+"Editar interacciones" firma en el servidor un enlace de vida corta al playlist
+(`ivplayer_bunny_configurador`, `lib.php`; TTL `IVPLAYER_BUNNY_TTL_CONFIGURADOR` = 2 h,
+que con el redondeo de `ivplayer_bunny_expires` dura de 2 a 3 h) y lo manda en `bunny`
+del mensaje, aparte de `config`. El configurador lo reproduce con `crearReproductorHls`
+(tipo `'hls'`, misma interfaz que Vimeo y el local). Uso, en el README.
+- 🔴 **El enlace nunca va a `config` ni a un campo.** `mod_form.php` lo deja en un
+  `<script type="application/json" id="ivplayer-video-firmado">` (el elemento `html` del
+  editor, ANTES del script) que el script lee y SACA de la página al cargar. Va en
+  `mensaje.bunny`, no en `config`, porque lo que vuelve de "Guardar en Moodle" es config.
+  En el configurador vive sólo en `fuenteBunny`: `buildConfig`/`exportJSON` no lo miran
+  (lo vigila `tests/unit/configurador.test.mjs`) y sólo la vista previa (misma pestaña)
+  lo recibe por `generatePreviewConfig`. Un `videoUrl` firmado en un JSON importado se
+  descarta.
+- 🔴 **Sólo para quien edita y sólo el GUID GUARDADO** (`$this->current->videourl`, con
+  `has_capability('moodle/course:manageactivities')` antes de firmar; `lib-php.test.mjs`
+  mira el orden). El script no lo manda si el campo de Bunny ya no contiene ese GUID
+  (se cambió o vació sin guardar) y manda `{ vencido: true }` con menos de 5 min,
+  medido con el reloj del SERVIDOR (`ahora` del bloque → `desfase`), no el de la compu.
+- **Si hay Bunny, es Bunny** (`fuenteSinVimeo()`): con el HLS abierto, o con Bunny que no
+  cargó (vencido, 403), el JSON sale sin `vimeoId` (no se toca el campo de Vimeo) e
+  importar un JSON no carga Vimeo. Con "Cargar video" de Vimeo a mano, sí lo lleva. Un
+  archivo de la compu ya abierto no se saca al llegar el mensaje; "Video de la actividad
+  (Bunny)" (`volverBunnyBtn`) vuelve al de Bunny.
+- La regla de "¿usa Bunny?" es la de la lección (`ivplayer_bunny_configurador` llama a
+  `ivplayer_bunny_video`): con un player.html sin hls.js, la lección va por Vimeo y el
+  configurador también. No duplicar esa regla.
+- **hls.js va adentro del configurador**, en el `<head>` (`scriptHls` en
+  armar-configurador): el HTML armado pesa MB y el mensaje de Moodle puede llegar antes
+  de que el parser llegue al final del `<body>`. Completo, no light (el de Bunny se oía
+  mudo en Android con light). hls.js primero, nativo si no (`motorHls`), igual que el
+  reproductor. Configurador sin armar: sólo nativo.
+- Un 401/403 del CDN es `'firma'` (venció o no es de este video); el resto, `'red'`.
+  Antes de cargar falla `ready()`; después, avisa por `on('error')`. En los dos casos
+  `soltarReproductorCaido` lo libera (no queda como "el video abierto").
+- La prueba (`escenarios/configurador-bunny.mjs`) sirve un HLS de ffmpeg desde
+  `apoyo/cdn-bunny.mjs`: OTRO origen, CORS abierto (también en el 403) y token validado
+  con el HMAC real del espejo (`tests/unit/apoyo/bunny-espejo.mjs`), con las URLs de la
+  forma exacta de `lib.php`. Si se restringen los "Allowed domains" en Bunny, sumar
+  `erick25326.github.io`.
 
 ## Renovación de la firma de Bunny (firma.php + src/firma.js, oct-2026) — trampas
 Con la lección abierta, el reproductor pide una firma nueva 10 min antes del

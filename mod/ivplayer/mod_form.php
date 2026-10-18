@@ -78,9 +78,37 @@ class mod_ivplayer_mod_form extends moodleform_mod {
             var btn = document.getElementById("ivplayer-edit-btn");
             var status = document.getElementById("ivplayer-edit-status");
             var vimeoField = document.getElementById("id_vimeoid");
+            var bunnyField = document.getElementById("id_videourl");
 
             var CONFIGURATOR_URL = "https://erick25326.github.io/hub-interactive-player/configurator.html";
             var CONFIGURATOR_ORIGIN = new URL(CONFIGURATOR_URL).origin;
+
+            // El video de Bunny de la actividad, firmado en el servidor para el configurador
+            // (ivplayer_bunny_configurador, sólo para quien puede editarla). Se lee y se saca
+            // de la página: no es un campo del formulario, no viaja al guardar y sólo sale
+            // en el mensaje al configurador, con su origen explícito.
+            var videoFirmado = null;
+            var desfase = 0;   // reloj de esta compu menos el del servidor, en segundos
+            var bloqueFirmado = document.getElementById("ivplayer-video-firmado");
+            if (bloqueFirmado) {
+                try { videoFirmado = JSON.parse(bloqueFirmado.textContent); } catch(e) {}
+                bloqueFirmado.parentNode.removeChild(bloqueFirmado);
+                if (videoFirmado && videoFirmado.ahora) desfase = Date.now() / 1000 - videoFirmado.ahora;
+            }
+
+            // Lo que va en "bunny" del mensaje: el enlace y cuánto le queda, { vencido: true }
+            // si ya no sirve, o null si no corresponde mandarlo.
+            function bunnyParaElConfigurador() {
+                if (!videoFirmado || !videoFirmado.playlist || !videoFirmado.guid) return null;
+                // Firmado es el GUID GUARDADO: si se cambió o se vació el campo sin guardar,
+                // ya no es el video de la actividad (sin Bunny, el configurador usa Vimeo).
+                if (!bunnyField || bunnyField.value.toLowerCase().indexOf(videoFirmado.guid) === -1) return null;
+                if (!videoFirmado.expires) return { playlist: videoFirmado.playlist, restan: null };
+                // Con el reloj del servidor. Con menos de 5 min no alcanza para marcar nada.
+                var restan = Math.floor(videoFirmado.expires - (Date.now() / 1000 - desfase));
+                if (restan < 300) return { vencido: true };
+                return { playlist: videoFirmado.playlist, restan: restan };
+            }
 
             function escapeHtml(str) {
                 var div = document.createElement("div");
@@ -130,11 +158,24 @@ class mod_ivplayer_mod_form extends moodleform_mod {
 
             renderPreview();
 
+            var colorStatus = status.style.color;
+
             btn.addEventListener("click", function() {
+                status.textContent = "";
+                status.style.color = colorStatus;
                 // Build config to send to configurator.
                 var config = { vimeoId: "", interactions: [] };
                 if (vimeoField) config.vimeoId = vimeoField.value;
                 try { config.interactions = JSON.parse(jsonField.value) || []; } catch(e) {}
+                // Aparte de config: lo que vuelve de "Guardar en Moodle" es config, y el enlace
+                // firmado no tiene que poder volver a ningún campo.
+                var mensaje = { type: "ivplayer-load-config", config: config };
+                var bunny = bunnyParaElConfigurador();
+                if (bunny) mensaje.bunny = bunny;
+                if (bunny && bunny.vencido) {
+                    status.style.color = "#B91C1C";
+                    status.textContent = "El enlace del video de Bunny venció: guardá los cambios o recargá la página para verlo en el configurador.";
+                }
 
                 // Open configurator with config.
                 var w = window.open(CONFIGURATOR_URL, "ivplayer_editor", "width=1200,height=800");
@@ -146,7 +187,7 @@ class mod_ivplayer_mod_form extends moodleform_mod {
                     try {
                         // targetOrigin explícito (no "*"): la config no debe poder
                         // filtrarse a otro documento que ocupe esa ventana.
-                        w.postMessage({ type: "ivplayer-load-config", config: config }, CONFIGURATOR_ORIGIN);
+                        w.postMessage(mensaje, CONFIGURATOR_ORIGIN);
                     } catch(e) {}
                 }, 500);
 
@@ -162,6 +203,7 @@ class mod_ivplayer_mod_form extends moodleform_mod {
                 if (config && config.interactions) {
                     jsonField.value = JSON.stringify(config.interactions, null, 2);
                     renderPreview();
+                    status.style.color = colorStatus;
                     status.textContent = "Interacciones actualizadas";
                     setTimeout(function() { status.textContent = ""; }, 3000);
                 }
@@ -174,12 +216,41 @@ class mod_ivplayer_mod_form extends moodleform_mod {
         })();
         </script>';
 
-        $mform->addElement('html', $editorhtml);
+        // El bloque con el video de Bunny firmado va ANTES del script, que lo lee al cargar.
+        $mform->addElement('html', ivplayer_configurador_fuente_html($this->video_para_configurador()) . $editorhtml);
 
         // Standard elements (grading section: max grade, category, pass grade).
         $this->standard_grading_coursemodule_elements();
         $this->standard_coursemodule_elements();
         $this->add_action_buttons();
+    }
+
+    /**
+     * El video de Bunny GUARDADO en la actividad, firmado con vida corta para el
+     * configurador (ivplayer_bunny_configurador), o null.
+     *
+     * Sólo al editar una actividad que ya existe (al agregarla todavía no hay GUID
+     * guardado) y sólo para quien puede editarla: modedit.php ya lo exige, y esto lo
+     * vuelve a mirar porque el enlace abre el video. Nunca rompe el formulario: ante
+     * cualquier problema, el configurador sigue como antes (Vimeo o un archivo de la compu).
+     * 🔴 Ni el enlace ni la clave van a un log, a la base o a un campo del formulario.
+     *
+     * @return array|null
+     */
+    protected function video_para_configurador(): ?array {
+        try {
+            $cm = $this->get_coursemodule();
+            $guardado = $this->current->videourl ?? '';
+            if (!$cm || trim((string) $guardado) === ''
+                    || !has_capability('moodle/course:manageactivities', $this->get_context())) {
+                return null;
+            }
+            $html = ivplayer_reproductor_html();
+            return ivplayer_bunny_configurador($guardado, ivplayer_bunny_host(), ivplayer_bunny_clave(), time(),
+                $html !== null && ivplayer_reproductor_soporta_bunny($html));
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     /**

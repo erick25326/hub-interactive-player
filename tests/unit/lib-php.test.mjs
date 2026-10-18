@@ -84,3 +84,50 @@ test('el evento de vista sale de view.php, una vez por carga, y nunca de player.
   assert.match(clase, /class course_module_viewed extends \\core\\event\\course_module_viewed \{/);
   assert.match(clase, /\$this->data\['objecttable'\] = 'ivplayer';\s*parent::init\(\);/);
 });
+
+// El configurador con el video de Bunny (plan 0.3): mod_form.php firma un enlace de vida
+// corta y lo deja en un bloque JSON que su script lee y saca de la página. Lo que hacen
+// las dos funciones puras lo prueba correr.php (PHP de verdad, en CI); el script, el
+// nivel navegador (escenarios/configurador-bunny.mjs). Acá, sin PHP: que no cambien sin
+// pasar por correr.php y que el enlace sólo se arme para quien puede editar la actividad,
+// sin ir a un campo del formulario, a la base ni a un log.
+test('el enlace de Bunny del configurador: sólo para quien edita, en el bloque y en ningún campo', async () => {
+  const fs = await import('node:fs');
+  const leer = (rel) => fs.readFileSync(new URL('../../mod/ivplayer/' + rel, import.meta.url), 'utf8').split('\r\n').join('\n');
+  const huellas = {
+    ivplayer_bunny_configurador: '6cb9fb3cee671199',
+    ivplayer_configurador_fuente_html: '79736422d51d0038',
+  };
+  const lib = leerLib();
+  for (const [nombre, esperada] of Object.entries(huellas)) {
+    const f = funcionPhp(lib, nombre);
+    assert.ok(f, `${nombre} ya no está en lib.php`);
+    assert.equal(huella(f), esperada,
+      `${nombre} cambió en lib.php: corré npm run test:php (o el workflow "Pruebas") y, si da bien, poné la huella nueva (${huella(f)})`);
+  }
+  // La regla de "¿usa Bunny?" es la de la lección, con la vida corta del configurador.
+  assert.match(funcionPhp(lib, 'ivplayer_bunny_configurador'), /ivplayer_bunny_video\(\$guardado, \$host, \$clave, IVPLAYER_BUNNY_TTL_CONFIGURADOR, \$ahora, \$reproductorbunny\)/);
+  assert.match(lib, /^define\('IVPLAYER_BUNNY_TTL_CONFIGURADOR', 7200\);$/m, 'la vida mínima del enlace del configurador es 2 h');
+
+  const form = leer('mod_form.php');
+  // Se arma en UN lugar, después de mirar la capacidad de edición, y con el GUID guardado.
+  assert.equal((form.match(/ivplayer_bunny_configurador\(/g) || []).length, 1);
+  const metodo = form.slice(form.indexOf('protected function video_para_configurador()'), form.indexOf('public function add_completion_rules()'));
+  const iPermiso = metodo.indexOf("has_capability('moodle/course:manageactivities', $this->get_context())");
+  assert.ok(iPermiso > 0 && iPermiso < metodo.indexOf('ivplayer_bunny_configurador('), 'el enlace se firma sólo después de mirar que pueda editar la actividad');
+  assert.match(metodo, /\$this->get_coursemodule\(\)/, 'sólo al editar una actividad que ya existe');
+  assert.match(metodo, /\$this->current->videourl/, 'firma el GUID guardado, no lo que se tipeó');
+  assert.match(metodo, /catch \(Throwable \$e\) \{\s*return null;\s*\}/, 'un problema no rompe el formulario');
+  // Va en el elemento html del editor (no en un campo) y antes del script que lo lee.
+  assert.match(form, /\$mform->addElement\('html', ivplayer_configurador_fuente_html\(\$this->video_para_configurador\(\)\) \. \$editorhtml\);/);
+  assert.doesNotMatch(form, /addElement\('hidden'/, 'el formulario no tiene campos ocultos: el enlace no va en uno');
+  // 🔴 Nada que escriba a un log o a la pantalla de depuración, ni guardarlo en la base.
+  for (const [archivo, src] of [['mod_form.php', form], ['lib.php (las dos funciones)', funcionPhp(lib, 'ivplayer_bunny_configurador') + funcionPhp(lib, 'ivplayer_configurador_fuente_html')]]) {
+    assert.doesNotMatch(src, /\b(debugging|error_log|mtrace|print_r|var_dump|var_export|add_to_log|set_config|insert_record|update_record|set_field)\s*\(/, `${archivo} no tiene que registrar ni guardar el enlace`);
+  }
+  // El script lo saca de la página al leerlo y lo manda aparte de config (lo que vuelve
+  // de "Guardar en Moodle" es config) y con el origen explícito.
+  assert.match(form, /bloqueFirmado\.parentNode\.removeChild\(bloqueFirmado\);/);
+  assert.match(form, /var mensaje = \{ type: "ivplayer-load-config", config: config \};/);
+  assert.match(form, /w\.postMessage\(mensaje, CONFIGURATOR_ORIGIN\);/);
+});

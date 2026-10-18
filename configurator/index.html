@@ -625,16 +625,19 @@ body {
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">O un video de tu computadora <span class="form-hint">(para marcar los tiempos de un video que no está en Vimeo, como los de Bunny; no se sube a ningún lado)</span></label>
+        <label class="form-label">O un video de tu computadora <span class="form-hint">(para marcar los tiempos de un video que no está en Vimeo ni llegó firmado desde el campus; no se sube a ningún lado)</span></label>
         <div class="local-row">
           <button type="button" class="btn btn-primary" id="localVideoBtn" onclick="abrirVideoLocal()">Abrir video de tu computadora</button>
+          <!-- Vuelve al video de Bunny que mandó Moodle (sólo si lo mandó y no es el abierto). -->
+          <button type="button" class="btn btn-outline" id="volverBunnyBtn" onclick="cargarVideoBunny()" style="display:none">Video de la actividad (Bunny)</button>
           <input type="file" id="localVideoInput" accept="video/*" class="hidden" onchange="onLocalVideoChange(event)">
         </div>
         <div id="fuenteLocal" class="fuente-local" style="display:none"></div>
         <div id="avisoVideoUrl" class="fuente-local" style="display:none">
           Este JSON es de un video de Bunny (trae <strong>videoUrl</strong>): acá no se reproduce, porque
-          ese video sólo se ve firmado, desde el campus. Para revisar los tiempos, abrí el mismo video
-          desde tu computadora. El videoUrl se conserva al exportar el JSON.
+          ese video sólo se ve firmado. Para verlo, abrí el configurador desde la actividad del campus
+          ("Editar interacciones"), o abrí el mismo video desde tu computadora. El videoUrl se conserva
+          al exportar el JSON.
         </div>
       </div>
       <div id="videoContainer">
@@ -676,6 +679,12 @@ let ultimoTiempo = 0;   // último tiempo que avisó el video (para el botón "U
 // video, o "PENDIENTE"): se guarda sólo para volver a exportarlo, nunca es la fuente
 // de la vista previa (ver loadConfig y exportJSON).
 let videoUrlImportado = null;
+// El video de Bunny de la actividad, firmado por Moodle para esta ventana (mod_form.php,
+// ivplayer_bunny_configurador): { playlist, vence } o { vencido: true } (ver
+// fuenteBunnyDeMoodle). 🔴 Vive sólo acá: ni el JSON exportado, ni "Guardar en Moodle",
+// ni el SCORM lo llevan (buildConfig no lo mira) y no se muestra en pantalla; lo recibe
+// sólo la vista previa, que es una ventana de esta misma pestaña.
+let fuenteBunny = null;
 let videoDuration = 0;
 let placementMode = true;  // true = click-to-place active; false = video controls accessible
 
@@ -778,11 +787,12 @@ function getSummary(interaction) {
 }
 
 // ============================================================
-// REPRODUCTOR DE LA VISTA PREVIA (Vimeo o archivo de la compu)
+// REPRODUCTOR DE LA VISTA PREVIA (Vimeo, archivo de la compu o Bunny)
 // ============================================================
 // El resto del configurador le habla al video sólo con esta interfaz, así "Usar
 // tiempo actual", "Ir a este tiempo", la duración y la línea de tiempo andan igual
-// con Vimeo y con un archivo local. Todo devuelve Promises, como el SDK de Vimeo:
+// con Vimeo, con un archivo local y con el HLS de Bunny. Todo devuelve Promises, como
+// el SDK de Vimeo:
 //   ready()                    se cumple cuando ya se puede leer la duración
 //   getCurrentTime()           segundos
 //   setCurrentTime(s)          se cumple con el salto hecho
@@ -790,8 +800,9 @@ function getSummary(interaction) {
 //   getDuration()              segundos (0 si todavía no se sabe)
 //   on('timeupdate', fn)       fn(segundos) mientras avanza y al saltar
 //   on('durationchange', fn)   fn(segundos) si la duración llega o cambia después
+//   on('error', fn)            sólo el de Bunny: fn(motivo) si se cae DESPUÉS de cargar
 //   destroy()                  lo saca (y, el local, libera el archivo)
-//   tipo                       'vimeo' | 'local'
+//   tipo                       'vimeo' | 'local' | 'hls'
 
 function crearReproductorVimeo(elemento, vimeoId, vimeoHash) {
   // Build options — use URL for private videos, ID for public
@@ -822,29 +833,22 @@ function crearReproductorVimeo(elemento, vimeoId, vimeoHash) {
   };
 }
 
-// Archivo de la compu en un <video>, con una URL blob: que vive sólo en esta pestaña
-// (y en la ventana de la vista previa, que es del mismo origen). Nada sale de la PC.
-function crearReproductorLocal(elemento, archivo) {
-  const url = URL.createObjectURL(archivo);
+function crearElementoVideo(elemento) {
   const v = document.createElement('video');
   v.controls = true;
   v.playsInline = true;
   v.preload = 'auto';
-  v.src = url;
   elemento.appendChild(v);
-  const listo = new Promise(function(ok, mal) {
-    if (v.readyState >= 1) { ok(); return; }
-    v.addEventListener('loadedmetadata', function() { ok(); }, { once: true });
-    v.addEventListener('error', function() { mal(new Error('el navegador no pudo leer el video')); }, { once: true });
-  });
-  listo.catch(function() {});   // el error lo muestra usarReproductor
+  return v;
+}
+
+// Lo que comparten el archivo de la compu y el HLS de Bunny: un <video> de esta página
+// detrás de la interfaz de arriba. `listo` se cumple con la metadata (o falla).
+function interfazDeVideo(v, listo) {
   // Un video sin la duración en la cabecera (algunos WebM) da Infinity hasta leerlo
   // entero: mientras tanto se informa 0 y llega después por 'durationchange'.
   const duracion = function() { return (isFinite(v.duration) && v.duration > 0) ? v.duration : 0; };
   return {
-    tipo: 'local',
-    url: url,
-    nombre: archivo.name,
     video: v,
     ready: function() { return listo; },
     getCurrentTime: function() { return Promise.resolve(v.currentTime); },
@@ -869,18 +873,137 @@ function crearReproductorLocal(elemento, archivo) {
     on: function(evento, fn) {
       if (evento === 'timeupdate') v.addEventListener('timeupdate', function() { fn(v.currentTime); });
       else if (evento === 'durationchange') v.addEventListener('durationchange', function() { fn(duracion()); });
-    },
+    }
+  };
+}
+
+// Corta la lectura del <video> y lo saca de la página.
+function soltarVideo(v) {
+  v.pause();
+  v.removeAttribute('src');
+  v.load();
+  v.remove();
+}
+
+// Archivo de la compu en un <video>, con una URL blob: que vive sólo en esta pestaña
+// (y en la ventana de la vista previa, que es del mismo origen). Nada sale de la PC.
+function crearReproductorLocal(elemento, archivo) {
+  const url = URL.createObjectURL(archivo);
+  const v = crearElementoVideo(elemento);
+  v.src = url;
+  const listo = new Promise(function(ok, mal) {
+    if (v.readyState >= 1) { ok(); return; }
+    v.addEventListener('loadedmetadata', function() { ok(); }, { once: true });
+    v.addEventListener('error', function() { mal(new Error('el navegador no pudo leer el video')); }, { once: true });
+  });
+  listo.catch(function() {});   // el error lo muestra usarReproductor
+  return Object.assign(interfazDeVideo(v, listo), {
+    tipo: 'local',
+    url: url,
+    nombre: archivo.name,
     destroy: function() {
-      v.pause();
-      v.removeAttribute('src');
-      v.load();   // corta la lectura del archivo antes de liberar la URL
-      v.remove();
+      soltarVideo(v);   // corta la lectura del archivo antes de liberar la URL
       URL.revokeObjectURL(url);
       // La vista previa con el reproductor guarda el avance con la URL como clave
       // (iv_progress_<url>); esa URL no vuelve a existir, así que no queda colgado.
       try { localStorage.removeItem('iv_progress_' + url); } catch (e) {}
     }
+  });
+}
+
+// Motor para el HLS de Bunny: hls.js donde hay MSE (lo mete adentro el armado del
+// configurador, scripts/armar-configurador.mjs), el HLS nativo si no (Safari en iPhone,
+// o el configurador sin armar en un navegador que lo trae), o null. hls.js primero, igual
+// que el reproductor: Chrome 142+ dice "maybe" al nativo pero falla con algunos streams.
+function motorHls(Hls, video) {
+  if (Hls && typeof Hls.isSupported === 'function' && Hls.isSupported()) return 'hls';
+  if (video && video.canPlayType && video.canPlayType('application/vnd.apple.mpegurl')) return 'nativo';
+  return null;
+}
+
+// El video de Bunny de la actividad, por el enlace firmado que mandó Moodle. Se pide al
+// CDN de Bunny (otro origen: hls.js lo baja con CORS, que Bunny tiene abierto).
+// 🔴 La URL (con la firma) no se muestra ni se anota en ningún lado: es la que abre el video.
+function crearReproductorHls(elemento, url) {
+  const v = crearElementoVideo(elemento);
+  const motor = motorHls(window.Hls, v);
+  v.dataset.motor = motor || '';
+  let hls = null;
+  let cargo = false;
+  const oyentesError = [];
+  let fallar = function() {};
+  const listo = new Promise(function(ok, mal) {
+    fallar = function(motivo) { mal(new Error(motivo)); };
+    v.addEventListener('loadedmetadata', function() { cargo = true; ok(); }, { once: true });
+  });
+  listo.catch(function() {});   // el error lo muestra usarReproductor
+  // Antes de cargar falla `listo`; después, se avisa por on('error').
+  const caer = function(motivo) {
+    if (!cargo) fallar(motivo);
+    else oyentesError.forEach(function(fn) { fn(motivo); });
   };
+  if (motor === 'hls') {
+    hls = new window.Hls({ capLevelToPlayerSize: true });
+    hls.on(window.Hls.Events.ERROR, function(evento, d) {
+      if (!d || !d.fatal) return;   // lo que hls.js recupera solo no se avisa
+      const codigo = d.response && d.response.code;
+      // 401/403: el CDN rechazó la firma (venció, o no es de este video).
+      caer(codigo === 403 || codigo === 401 ? 'firma' : 'red');
+    });
+    hls.loadSource(url);
+    hls.attachMedia(v);
+  } else if (motor === 'nativo') {
+    // El nativo no dice el código HTTP: cualquier falla es "no se pudo".
+    v.addEventListener('error', function() { caer('red'); });
+    v.src = url;
+  } else {
+    fallar('sin-hls');
+  }
+  const base = interfazDeVideo(v, listo);
+  const onVideo = base.on;   // antes del assign, que lo reemplaza
+  return Object.assign(base, {
+    tipo: 'hls',
+    url: url,
+    motor: motor,
+    on: function(evento, fn) {
+      if (evento === 'error') oyentesError.push(fn);
+      else onVideo(evento, fn);
+    },
+    destroy: function() {
+      if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+      soltarVideo(v);
+    }
+  });
+}
+
+// Lo que manda mod_form.php en `bunny`: { playlist, restan } (el enlace firmado y los
+// segundos que le quedan, con el reloj del servidor; restan null si el sitio no firma) o
+// { vencido: true }. Devuelve { playlist, vence } (vence: ms de esta compu, o null),
+// { vencido: true }, o null si no trae nada que sirva. Pura: la prueban las unitarias.
+function fuenteBunnyDeMoodle(dato, ahoraMs) {
+  if (!dato || typeof dato !== 'object') return null;
+  if (dato.vencido === true) return { vencido: true };
+  const url = typeof dato.playlist === 'string' ? dato.playlist.trim() : '';
+  // https (el CDN de Bunny) o, para desarrollo y pruebas, http en esta compu (el mismo
+  // criterio que isAllowedMoodleOrigin). Sin espacios ni comillas: va a un src.
+  const https = /^https:\/\/[^\s"'<>\\]+$/i.test(url);
+  const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/[^\s"'<>\\]*$/i.test(url);
+  if (url.length > 4096 || !(https || local) || !/\.m3u8(?:[?#]|$)/i.test(url)) return null;
+  if (dato.restan === null || dato.restan === undefined) return { playlist: url, vence: null };
+  const restan = Number(dato.restan);
+  if (!isFinite(restan)) return null;
+  if (restan <= 0) return { vencido: true };
+  return { playlist: url, vence: ahoraMs + restan * 1000 };
+}
+
+// Por qué no se pudo ver el video de Bunny, para el recuadro del video.
+function mensajeErrorBunny(motivo) {
+  const recargar = 'Cerrá esta ventana, recargá la página de la actividad en Moodle (guardá antes si cambiaste algo) '
+    + 'y volvé a tocar "Editar interacciones". Mientras tanto, podés abrir el mismo video desde tu computadora.';
+  if (motivo === 'vencido') return 'El enlace del video de Bunny que mandó Moodle venció. ' + recargar;
+  if (motivo === 'firma') return 'El CDN de Bunny rechazó el enlace del video (venció o no es de esta actividad). ' + recargar;
+  if (motivo === 'sin-hls') return 'Este navegador no reproduce el video de Bunny (HLS). Probá con Chrome, Edge, Firefox o Safari, o abrí el video desde tu computadora.';
+  return 'No se pudo cargar el video de Bunny. Revisá la conexión y tocá "Video de la actividad (Bunny)" para volver a intentar, o abrí el video desde tu computadora.';
 }
 
 // Saca el video que hubiera (si era local, libera su URL) y deja un recuadro vacío.
@@ -892,7 +1015,7 @@ function prepararRecuadroVideo() {
   ultimoTiempo = 0;
   videoDuration = 0;
   renderPreviewTimeline();
-  mostrarFuenteLocal(null);
+  mostrarFuente();
   mostrarAvisoVideoUrl();
   const container = document.getElementById('videoContainer');
   // Remove old content
@@ -908,8 +1031,21 @@ function mostrarErrorVideo(mensaje) {
   document.getElementById('videoContainer').innerHTML = '<div id="video-placeholder" style="color:var(--danger)">' + mensaje + '</div>';
 }
 
+// Un video propio (archivo o Bunny) que no se pudo ver no queda como "el video abierto":
+// se libera y queda sin video, con el cartel de por qué.
+function soltarReproductorCaido(r, mensaje) {
+  try { r.destroy(); } catch (e) {}
+  reproductor = null;
+  mostrarFuente();
+  mostrarAvisoVideoUrl();
+  mostrarTiempoActual();
+  mostrarErrorVideo(mensaje);
+}
+
+// mensajeError: el texto del cartel si no carga, o una función que lo arma con el motivo.
 function usarReproductor(r, mensajeError) {
   reproductor = r;
+  const texto = function(motivo) { return typeof mensajeError === 'function' ? mensajeError(motivo) : mensajeError; };
   r.on('timeupdate', function(t) {
     if (reproductor !== r) return;
     ultimoTiempo = t || 0;
@@ -920,6 +1056,12 @@ function usarReproductor(r, mensajeError) {
     videoDuration = d;
     renderPreviewTimeline();
   });
+  // Bunny caído DESPUÉS de cargar (el enlace venció con la ventana abierta, o se cortó
+  // la red): lo que ya bajó se seguiría viendo, pero un salto o un play más adelante no.
+  r.on('error', function(motivo) {
+    if (reproductor !== r) return;
+    soltarReproductorCaido(r, texto(motivo));
+  });
   mostrarTiempoActual();
   renderHotspotOverlay();
   r.ready().then(function() {
@@ -928,20 +1070,17 @@ function usarReproductor(r, mensajeError) {
     if (reproductor !== r) return;   // se cambió de video mientras cargaba
     videoDuration = d || 0;
     renderPreviewTimeline();
-  }).catch(function() {
+  }).catch(function(e) {
     if (reproductor !== r) return;
     // Un archivo que el navegador no puede leer (un .mkv, un MP4 roto o en un códec que
     // no tiene) no queda como "el video abierto": si no, el JSON seguía saliendo sin
     // vimeoId, la vista previa abría una URL que no reproduce, el cartel decía
-    // "Reproduciendo…" y la URL quedaba viva. Se libera y queda sin video.
-    if (r.tipo === 'local') {
-      try { r.destroy(); } catch (e) {}
-      reproductor = null;
-      mostrarFuenteLocal(null);
-      mostrarAvisoVideoUrl();
-      mostrarTiempoActual();
+    // "Reproduciendo…" y la URL quedaba viva. Lo mismo un Bunny que no carga.
+    if (r.tipo === 'local' || r.tipo === 'hls') {
+      soltarReproductorCaido(r, texto(e && e.message));
+      return;
     }
-    mostrarErrorVideo(mensajeError);
+    mostrarErrorVideo(texto(e && e.message));
   });
 }
 
@@ -984,25 +1123,61 @@ function cargarVideoLocal(archivo) {
   const wrapper = prepararRecuadroVideo();
   const r = crearReproductorLocal(wrapper, archivo);
   usarReproductor(r, 'No se pudo reproducir el archivo. Probá con un MP4 (H.264) o un WebM.');
-  mostrarFuenteLocal(archivo.name);
+  mostrarFuente();
   mostrarAvisoVideoUrl();
 }
 
-function mostrarFuenteLocal(nombre) {
+// El video de Bunny que mandó Moodle (al abrir, o con "Video de la actividad (Bunny)"
+// después de abrir un archivo de la compu). Con el enlace vencido, sólo el cartel.
+function cargarVideoBunny() {
+  if (!fuenteBunny) return;
+  if (fuenteBunny.vencido || (fuenteBunny.vence && Date.now() >= fuenteBunny.vence)) {
+    fuenteBunny = { vencido: true };
+    prepararRecuadroVideo();
+    mostrarErrorVideo(mensajeErrorBunny('vencido'));
+    return;
+  }
+  const wrapper = prepararRecuadroVideo();
+  usarReproductor(crearReproductorHls(wrapper, fuenteBunny.playlist), mensajeErrorBunny);
+  mostrarFuente();
+  mostrarAvisoVideoUrl();
+}
+
+// De dónde sale el video abierto (el archivo o Bunny), debajo de los botones, y el
+// botón para volver al de Bunny cuando hay uno y no es el abierto.
+// 🔴 Nunca la URL de Bunny: con la firma, es la que abre el video.
+function mostrarFuente() {
   const el = document.getElementById('fuenteLocal');
-  if (!el) return;
-  if (!nombre) { el.style.display = 'none'; el.innerHTML = ''; return; }
-  el.innerHTML = 'Reproduciendo <strong>' + escapeHtml(nombre) + '</strong> desde tu computadora. '
-    + 'El JSON se exporta sin video (vimeoId vacío): en Moodle, el video se carga en la actividad '
-    + '(el ID de Bunny o el de Vimeo) y "Guardar en Moodle" sólo cambia las interacciones.';
-  el.style.display = 'block';
+  const tipo = reproductor ? reproductor.tipo : null;
+  if (el) {
+    if (tipo === 'local') {
+      el.innerHTML = 'Reproduciendo <strong>' + escapeHtml(reproductor.nombre) + '</strong> desde tu computadora. '
+        + 'El JSON se exporta sin video (vimeoId vacío): en Moodle, el video se carga en la actividad '
+        + '(el ID de Bunny o el de Vimeo) y "Guardar en Moodle" sólo cambia las interacciones.';
+      el.style.display = 'block';
+    } else if (tipo === 'hls') {
+      // En la hora de esta compu: vence sale de lo que le quedaba según el servidor.
+      const vence = fuenteBunny && fuenteBunny.vence
+        ? ' (vence a las ' + new Date(fuenteBunny.vence).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) + ')'
+        : '';
+      el.innerHTML = 'Reproduciendo <strong>el video de Bunny de la actividad</strong>, con el enlace firmado que mandó Moodle'
+        + vence + '. El JSON se exporta sin video (vimeoId vacío) y sin ese enlace, y "Guardar en Moodle" sólo '
+        + 'cambia las interacciones.';
+      el.style.display = 'block';
+    } else {
+      el.style.display = 'none';
+      el.innerHTML = '';
+    }
+  }
+  const volver = document.getElementById('volverBunnyBtn');
+  if (volver) volver.style.display = (fuenteBunny && fuenteBunny.playlist && tipo !== 'hls') ? '' : 'none';
 }
 
 // El aviso de que el JSON importado trae videoUrl (Bunny) y por qué no se reproduce:
-// mientras no haya un video de la compu abierto, que es la forma de verlo acá.
+// mientras no haya abierto un video propio (el archivo de la compu o el de Bunny).
 function mostrarAvisoVideoUrl() {
   const el = document.getElementById('avisoVideoUrl');
-  if (el) el.style.display = (videoUrlImportado && !esVideoLocal()) ? 'block' : 'none';
+  if (el) el.style.display = (videoUrlImportado && !videoPropioAbierto()) ? 'block' : 'none';
 }
 
 // El tiempo del video en el botón "Usar tiempo actual", para ver qué se va a tomar.
@@ -1669,15 +1844,30 @@ function esVideoLocal() {
   return !!reproductor && reproductor.tipo === 'local';
 }
 
+// ¿Hay abierto un video que no es Vimeo (el archivo de la compu o el de Bunny)?
+function videoPropioAbierto() {
+  return !!reproductor && reproductor.tipo !== 'vimeo';
+}
+
+// ¿El video de esta ventana NO es el Vimeo del campo? Con el archivo de la compu o el de
+// Bunny abiertos, o con una actividad de Bunny aunque su video no haya cargado (venció):
+// si hay Bunny, es Bunny. Entonces el JSON sale sin vimeoId, "Guardar en Moodle" no toca
+// el campo de Vimeo de la actividad e importar un JSON no carga Vimeo. Con "Cargar
+// video" de Vimeo a mano, sí lo lleva.
+function fuenteSinVimeo() {
+  return reproductor ? reproductor.tipo !== 'vimeo' : !!fuenteBunny;
+}
+
 function buildConfig() {
   saveCurrentForm();
-  // Con un video de la compu, el JSON sale SIN video (vimeoId vacío): el archivo no
-  // tiene ningún id que sirva fuera de esta pestaña. No rompe Moodle: "Guardar en
-  // Moodle" copia el vimeoId al formulario sólo si viene con algo (mod_form.php), y
-  // el video de Bunny se carga en la actividad por su GUID, no desde acá. Importar
-  // este JSON acá tampoco borra la URL de Vimeo ni el video abierto (loadConfig).
+  // Con un video de la compu o el de Bunny, el JSON sale SIN video (vimeoId vacío): el
+  // archivo no tiene ningún id que sirva fuera de esta pestaña, y el enlace de Bunny
+  // va firmado y vence. No rompe Moodle: "Guardar en Moodle" copia el vimeoId al
+  // formulario sólo si viene con algo (mod_form.php), y el video de Bunny se carga en
+  // la actividad por su GUID, no desde acá. Importar este JSON acá tampoco borra la URL
+  // de Vimeo ni el video abierto (loadConfig).
   // Con Vimeo, sólo un ID de verdad (vimeoDe): un relleno en el campo no viaja.
-  const { vimeoId, vimeoHash } = esVideoLocal()
+  const { vimeoId, vimeoHash } = fuenteSinVimeo()
     ? { vimeoId: '', vimeoHash: null }
     : vimeoDe(document.getElementById('vimeoInput').value);
   return {
@@ -1774,17 +1964,19 @@ function loadConfig(config) {
   if (vimeoStr && config.vimeoHash) vimeoStr = `https://vimeo.com/${config.vimeoId}/${config.vimeoHash}`;
   if (vimeoStr && vimeoDe(vimeoStr).vimeoId) {
     document.getElementById('vimeoInput').value = vimeoStr;
-    // Con un video de la compu abierto, importar no lo cambia: se está marcando sobre
-    // ése. Para pasar a Vimeo está "Cargar video".
-    if (!esVideoLocal()) loadVideo();
+    // Con un video de la compu o el de Bunny abiertos (o una actividad de Bunny),
+    // importar no lo cambia: se está marcando sobre ése. Para pasar a Vimeo está
+    // "Cargar video".
+    if (!fuenteSinVimeo()) loadVideo();
   }
 
   // El videoUrl (el HLS de Bunny que pone la skill interacciones-video, o "PENDIENTE")
   // se acepta pero NO es la fuente del video: sin firma no se reproduce, y el video de
   // la actividad lo pone Moodle. Sólo se guarda para volver a exportarlo (exportJSON).
-  // Una URL blob: no sirve fuera de la pestaña que la creó: se descarta.
+  // Una URL blob: no sirve fuera de la pestaña que la creó, y una firmada (con token)
+  // vence y abre el video a quien la tenga: las dos se descartan.
   const vu = typeof config.videoUrl === 'string' ? config.videoUrl.trim() : '';
-  videoUrlImportado = (vu && !/^blob:/i.test(vu)) ? vu : null;
+  videoUrlImportado = (vu && !/^blob:/i.test(vu) && !/bcdn_token=|[?&]token=/i.test(vu)) ? vu : null;
   mostrarAvisoVideoUrl();
 
   passthroughConfig = {};
@@ -1823,12 +2015,12 @@ function loadConfig(config) {
 window.generateConfig = function() { return buildConfig(); };
 
 // Sólo para la vista previa, nunca para exportar: con un video de la compu se le
-// pasa al reproductor la URL blob: del archivo. La ventana de la vista previa se
-// abre con window.open('') + document.write, así que es del mismo origen y puede
-// leerla; afuera de esta pestaña esa URL no existe.
+// pasa al reproductor la URL blob: del archivo, y con el de Bunny, el enlace firmado.
+// La ventana de la vista previa se abre con window.open('') + document.write, así que
+// es del mismo origen y puede leer la blob:; afuera de esta pestaña esa URL no existe.
 window.generatePreviewConfig = function() {
   const config = buildConfig();
-  if (esVideoLocal()) config.videoUrl = reproductor.url;
+  if (videoPropioAbierto()) config.videoUrl = reproductor.url;
   return config;
 };
 
@@ -1838,6 +2030,10 @@ window.generatePreviewConfig = function() {
 function downloadSCORM() {
   if (esVideoLocal()) {
     alert('El paquete SCORM necesita un video de Vimeo: el de tu computadora sólo sirve para marcar los tiempos y no se sube a ningún lado.');
+    return;
+  }
+  if (fuenteSinVimeo()) {
+    alert('El paquete SCORM necesita un video de Vimeo: el de Bunny va con un enlace firmado que vence, así que no puede ir adentro del paquete.');
     return;
   }
   if (window.downloadScormReal) {
@@ -1859,8 +2055,9 @@ function preview() {
   if (window.previewWithPlayer) { window.previewWithPlayer(); return; }
   const config = buildConfig();
   // Vista previa simple (configurador sin compilar): con un video de la compu va un
-  // <video> con su URL blob:, que esta ventana (mismo origen) puede leer.
-  const local = esVideoLocal();
+  // <video> con su URL blob:, que esta ventana (mismo origen) puede leer. Con el de
+  // Bunny, el enlace firmado (sin hls.js, sólo donde hay HLS nativo).
+  const local = videoPropioAbierto();
 
   if (!config.vimeoId && !local) {
     alert('Primero cargá un video (de Vimeo o de tu computadora).');
@@ -2013,6 +2210,13 @@ window.addEventListener('message', function(e) {
   isMoodlePopup = true;
   moodleOrigin = e.origin;
   var config = e.data.config;
+  // El video de Bunny de la actividad, si lo tiene (aparte de config: lo que vuelve con
+  // "Guardar en Moodle" es config). Va ANTES de loadConfig: si hay Bunny, es Bunny, y el
+  // Vimeo de la actividad queda en el campo sin cargarse. Un archivo de la compu ya
+  // abierto no se saca (queda "Video de la actividad (Bunny)" para volver).
+  fuenteBunny = fuenteBunnyDeMoodle(e.data.bunny, Date.now());
+  if (fuenteBunny && !esVideoLocal()) cargarVideoBunny();
+  else mostrarFuente();
   if (config) {
     // Todo por loadConfig (sanea ids, preserva título/URL si no vienen).
     loadConfig({
