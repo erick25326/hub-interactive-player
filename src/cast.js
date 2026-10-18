@@ -41,7 +41,8 @@ const ESTADO_CADA_MS = 5000;    // la TV avisa sólo cuando cambia de estado: co
 const SALTO_EXTERNO = 1.5;      // diferencia con lo esperado que ya es un salto de otro
 const TOL_SALTO = 1.5;          // un salto propio se da por aterrizado a esta distancia
 const TOL_CARGA = 2;
-const ESTADO_CARGA_MS = 1000;    // mientras la TV carga, cada cuánto se le pregunta dónde está
+const ESTADO_CARGA_MS = 1000;
+const ESPERA_MEDIA_MS = 20000;   // si el LOAD no confirma, cuánto se espera a ver nuestro video en la TV    // mientras la TV carga, cada cuánto se le pregunta dónde está
 const TOL_ANCLA = 0.3;          // la TV frenó más lejos que esto de donde se pidió: se la lleva
 const RTT_INICIAL = 0.25;       // ida y vuelta celular↔TV hasta medirla
 // La TV frena un ida y vuelta después del pedido (el estado que se extrapola ya llegó
@@ -586,14 +587,41 @@ export class CastPlayer {
     if (this._velocidad !== 1) req.playbackRate = this._velocidad;
     let p;
     try { p = this.session.loadMedia(req); } catch (e) { p = Promise.reject(e); }
-    Promise.race([p, new Promise((_, no) => setTimeout(() => no("timeout"), TOPE_CARGA_MS))]).then(() => {
-      if (this._destruido) return;
-      const m = this.session.getMediaSession && this.session.getMediaSession();
-      if (!m) return this._terminarTransmision("error");
-      this._enganchar(m);
-      this._onListo();
-      this._actualizar(true);
-    }, () => { if (!this._destruido) this._terminarTransmision("error"); });
+    // 🔴 La PRIMERA vez la TV tiene que abrir su aplicación, y en una TV real (prueba de
+    // Erick, oct-2026) el pedido de carga volvía con error o sin media aunque la TV
+    // terminaba cargando y reproduciendo NUESTRO video: la compu se daba por vencida
+    // ("la TV no pudo reproducir"), seguía en el celular y la TV corría sola, desfasada.
+    // La segunda vez andaba porque la aplicación ya estaba abierta. Ahora, si no hay
+    // confirmación, se espera a ver nuestro video en la TV antes de rendirse.
+    const carga = this._carga;
+    Promise.race([p, new Promise((_, no) => setTimeout(() => no("timeout"), TOPE_CARGA_MS))]).then(
+      () => { if (!this._engancharNuestra()) this._esperarNuestra(carga); },
+      () => this._esperarNuestra(carga));
+  }
+
+  // ¿La TV tiene NUESTRO video? Si sí, se engancha y sigue la carga normal (devuelve true).
+  _engancharNuestra() {
+    if (this._destruido) return true;
+    const m = this.session.getMediaSession && this.session.getMediaSession();
+    const id = m && m.media && (m.media.contentId || m.media.contentUrl);
+    if (!m || !mismoVideo(id, this.src)) return false;
+    if (this._media !== m) { this._enganchar(m); this._onListo(); }
+    this._actualizar(true);
+    return true;
+  }
+
+  // Sin confirmación del LOAD: mirar cada medio segundo si la TV ya tiene nuestro video.
+  // Con un LOAD nuevo de por medio (otra carga), ésta deja de esperar.
+  _esperarNuestra(carga) {
+    if (this._destruido) return;
+    const desde = ahora();
+    const mirar = () => {
+      if (this._destruido || this._carga !== carga) return;
+      if (this._engancharNuestra()) return;
+      if (ahora() - desde > ESPERA_MEDIA_MS) { this._terminarTransmision("error"); return; }
+      setTimeout(mirar, 500);
+    };
+    mirar();
   }
 
   _enganchar(m) {
@@ -614,7 +642,9 @@ export class CastPlayer {
   _nuevaMedia(m) {
     if (!m || this._destruido || m === this._media) return;
     const id = m.media && (m.media.contentId || m.media.contentUrl);
-    if (this._carga) return;   // la nuestra: la engancha el loadMedia al resolver
+    // Durante la carga: si es nuestro video, engancharlo ya (el LOAD puede no confirmar
+    // nunca en la primera conexión; ver _cargar). Si es otro, esperar a nuestra carga.
+    if (this._carga) { if (mismoVideo(id, this.src)) this._engancharNuestra(); return; }
     if (mismoVideo(id, this.src)) { this._enganchar(m); this._anotarFirmaDe(m); this._actualizar(true); }
     else this._terminarTransmision("reemplazado");
   }

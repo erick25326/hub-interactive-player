@@ -9,6 +9,7 @@
 //   hayTV=0      CastState NO_DEVICES_AVAILABLE (el botón está igual; requestSession falla)
 //   reanudar=70  al llamar setOptions, aparece una sesión REANUDADA con este video en 70 s, reproduciendo
 //   ajeno=1      …pero con OTRO video cargado
+//   cargaTarde=1 el LOAD vuelve con error pero la TV carga igual a los 2,5 s
 //   nombre=…     friendlyName (se entrega escapado como HTML, como el SDK real)
 // Control remoto de la TV (window.__tv.remoto): adelantar(s), irA(t), play(), pause(),
 // parar() (CANCELLED), cortarSesion() (Google Home "dejar de transmitir"), otroVideo().
@@ -125,7 +126,11 @@
       T.log.push({ ms: ms(), ev: 'CMD LOAD', t: req.currentTime, autoplay: req.autoplay, contentId: req.media.contentId, contentType: req.media.contentType, hls: req.media.hlsSegmentFormat, hlsv: req.media.hlsVideoSegmentFormat, titulo: req.media.metadata && req.media.metadata.title, poster: !!(req.media.metadata && req.media.metadata.images && req.media.metadata.images[0]), rate: req.playbackRate });
       return new Promise((ok, mal) => {
         if (q.get('cargaFalla')) { demora(() => mal('load_media_failed'), LAT * 2 + 300); return; }
-        demora(() => {
+        // cargaTarde=1: como la PRIMERA conexión con una TV real (prueba de Erick, oct-2026):
+        // el pedido vuelve con error enseguida, pero la TV abre la app y carga igual.
+        const tarde = q.get('cargaTarde') ? 2500 : 0;
+        if (tarde) demora(() => mal('session_error'), LAT * 2 + 100);
+        setTimeout(() => demora(() => {
           // La media anterior (si había) queda interrumpida.
           if (R.media && R.estado !== 'IDLE') { R.idleReason = 'INTERRUPTED'; }
           R.msid++; R.media = { ...req.media, duration: Number.isFinite(dur) ? dur : 260 }; R.duracion = R.media.duration; R.idleReason = null; R.rate = req.playbackRate || 1;
@@ -135,7 +140,7 @@
             const s = { t: R.tiempo(), estado: R.estado, rate: R.rate, idleReason: null, msid: R.msid, media: R.media };
             demora(() => { this._nuevaMedia(s); ok(null); });
           }, 600);
-        });
+        }), tarde);
       });
     }
     _nuevaMedia(s) {
