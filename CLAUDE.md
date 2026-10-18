@@ -352,8 +352,46 @@ TVs reales están en el README.
   y ~365 recortaba el de salir de pantalla completa.
 - AirPlay en iPhone: si se cierra el selector sin elegir, vuelve la calidad fijada.
 - Pendiente de producto: las etiquetas se dibujan sobre el cartel de la TV.
-- El receptor simulado (`cast-simulado.js`, `airplay-simulado.js`) está en
-  tests/navegador/simulados/ y lo usan las pruebas de tests/navegador/escenarios/tv.mjs.
+- El receptor simulado (`tv-simulada.js` + los emisores `cast-simulado.js` y
+  `puente-app-simulado.js`, y `airplay-simulado.js`) está en tests/navegador/simulados/ y
+  lo usan las pruebas de tests/navegador/escenarios/tv.mjs y tv-app.mjs.
+
+## Modo app (ivcast, 1.4.0) — trampas
+Adentro de hub-app (WebView de React Native) no hay Cast Web SDK: la app transmite con
+el Cast NATIVO y le habla al reproductor por el protocolo `ivcast` v1. El diseño y el
+contrato completo (mensajes, reglas a-m, secuencias) están FUERA del repo, en
+`castear-hub-app-v2.md` §3 y en el pedido a hub-app §5; si difieren, manda el diseño.
+**El shim es el simulado con la TV reemplazada por mensajes**: `src/castNativo.js` imita
+la misma superficie del Web SDK que `cast-simulado.js`, y `CastPlayer` no cambia.
+- `src/puenteApp.js`: `ReactNativeWebView` en la página (Android: en todos los marcos) o
+  en `window.top` del mismo origen (iOS). La prueba de que hay app es el `hola-ok` en 3 s,
+  no el objeto. `__ivcastRecibir` se registra en `window.top` (ahí inyecta la app).
+  Comandos con id `<instancia>-<n>` y tope; respuestas de otra instancia, descartadas.
+- 🔴 **En modo app NUNCA se inserta el script de gstatic** (cargarCast). Si el saludo
+  falla, se olvida la carga: el próximo toque vuelve a saludar. El motivo (`sin-respuesta`,
+  `version`, `sin-cast`) elige el texto del aviso (`infoApp()`).
+- 🔴 **Un `media` idéntico al anterior se descarta SIN llamar a los oyentes**:
+  `CastPlayer._actualizar` le pone la hora de llegada a cada estado y uno repetido atrasa
+  el estimador del freno. `__ivCastDiag.puenteRepetidos` los cuenta.
+- 🔴 **msid nuevo = otro objeto Media**; el anterior queda IDLE/INTERRUPTED SIN avisar a
+  sus oyentes (CastPlayer decide con MEDIA_SESSION si es su video o se lo cambiaron). Uno
+  más viejo que el actual se ignora. La renovación de la firma es un `cargar` más.
+- El msid del `latido` sale del Media que tiene oyentes (sólo CastPlayer agrega): así no
+  hubo que tocar CastPlayer. Sin oyentes (cargando, otra lección, sin CastPlayer), `null`.
+- `requestSession` se cumple cuando la app MUESTRA el selector; la conexión llega por
+  `sesion`. `detalle:'red_local'` se rechaza como `'cancel'` (la app ya avisó).
+- La sesión del `hola-ok` se crea ANTES de que `cargarCast` resuelva: observarCast la
+  informa como SESSION_RESUMED y `conectarCast` la adopta si es este video.
+- 🔴 **"Actualizá la app" sólo con la casilla `appcastpublicada` prendida**
+  (`MOODLE_CONTEXT.appCastPublicada`; pura en `ivplayer_app_cast_publicada`), salvo
+  `error{version}`. El reproductor decide por `capacidades`, nunca por la versión de la app.
+- 🔴 **iPhone: AirPlay sólo si la app declara `'airplay'`.** `airplayPosible()` da true en
+  cualquier WKWebView: un iPhone con Chromecast y sin Apple TV no llegaba nunca a Chromecast.
+  Sin TV de AirPlay: directo a Chromecast; con las dos: el selector (`menu==='destinoTV'`).
+- Pruebas: `marco.html?app=fake&webview=1` (la app y la TV arriba, como view.php; el
+  reproductor en el iframe sin Cast Web SDK ni Presentation API y con UA MoodleMobile).
+  `app=mudo` (nadie contesta), `cast=0`, `holaLento`, `latPuente`, `duplicados=1`,
+  `plataforma=ios` (+`airplayApp=0`), `appCastPublicada=1`. Ver puente-app-simulado.js.
 
 ## Brand
 - Colors: #0162F5 (primary), #14CCF7 (secondary), #84F4BE (accent), #062E60 (dark)

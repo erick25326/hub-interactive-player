@@ -55,9 +55,9 @@ el job queda verde con una advertencia arriba del log.
 
 | Capa | Dónde | Qué protege |
 |---|---|---|
-| Unitarias | `tests/unit/` | El candado (`src/candado.js`: `debeFrenar`, la guardia, `tiempoAGuardar`) con casos fijos y un simulador de ticks; el parser de subtítulos (`src/subtitulos.js`); la firma de Bunny contra los vectores oficiales (espejo en Node), incluida la regla de "¿esta actividad usa Bunny?" que comparten `player.php` y `firma.php`; la renovación de la firma (`src/firma.js`: leer y reescribir las URLs del master, variantes, `.ts` y miniatura, el reloj con la hora del celular corrida, el Renovador contra un `firma.php` falso); el adaptador de Chromecast (`CastPlayer`) contra una TV falsa que avisa un salto en un solo estado. Además, una huella del código de las funciones de `lib.php` que sólo prueba PHP: si cambian, avisa que hay que correr la prueba PHP. |
+| Unitarias | `tests/unit/` | El candado (`src/candado.js`: `debeFrenar`, la guardia, `tiempoAGuardar`) con casos fijos y un simulador de ticks; el parser de subtítulos (`src/subtitulos.js`); la firma de Bunny contra los vectores oficiales (espejo en Node), incluida la regla de "¿esta actividad usa Bunny?" que comparten `player.php` y `firma.php`; la renovación de la firma (`src/firma.js`: leer y reescribir las URLs del master, variantes, `.ts` y miniatura, el reloj con la hora del celular corrida, el Renovador contra un `firma.php` falso); el adaptador de Chromecast (`CastPlayer`) contra una TV falsa que avisa un salto en un solo estado; el puente con hub-app (`src/puenteApp.js`: sobres, respuestas de otra instancia, topes, el saludo sin respuesta, latido y adios) y el SDK imitado (`src/castNativo.js`: un Media por msid, estados repetidos descartados, rechazos de `requestSession`, `CastPlayer` a través del shim). Además, una huella del código de las funciones de `lib.php` que sólo prueba PHP: si cambian, avisa que hay que correr la prueba PHP. |
 | PHP | `tests/php/correr.php` | La sintaxis de cada `.php` del plugin (`php -l`: `player.php` y `firma.php` necesitan Moodle y ninguna otra prueba los ejecuta) y las funciones puras de `mod/ivplayer/lib.php` leídas del archivo real: firma HS256 de Bunny, la regla de qué actividad reproduce Bunny (`ivplayer_bunny_video`, la de `player.php` y `firma.php`, y que la clave no salga) y normalización de subtítulos (BOM, UTF-16, Windows-1252, bytes rotos). El `php -l` corre también en el workflow que publica el ZIP. |
-| Navegador | `tests/navegador/` | El bundle compilado en Chrome, con clics y toques reales por CDP: el candado con hls.js y con HLS nativo (saltos de afuera, también con una nota abierta; restauración; +10 y −10; play de afuera), el cambio de calidad antes de una pregunta (y, con el nativo, un salto del cambio de fuente que aterriza corrido), los subtítulos, la TV con Chromecast y AirPlay simulados, la fila de controles a 320 y 360 px en pantalla completa simulada, y la firma de Bunny que vence a los pocos segundos (el servidor de pruebas la valida como el CDN, con 403): sin cortes ni saltos y con el candado intacto, el 403 que se arregla solo (también con la red que tarda en volver), el pedido que espera una renovación en camino, un salto y un play durante esa espera (y, con el nativo, un −10 durante el rescate y la calidad elegida justo al vencer), una calidad rota que no es el vencimiento (con hls.js pasa a otra, sin cartel), el cartel si no se puede renovar y la TV que recarga con la firma nueva. |
+| Navegador | `tests/navegador/` | El bundle compilado en Chrome, con clics y toques reales por CDP: el candado con hls.js y con HLS nativo (saltos de afuera, también con una nota abierta; restauración; +10 y −10; play de afuera), el cambio de calidad antes de una pregunta (y, con el nativo, un salto del cambio de fuente que aterriza corrido), los subtítulos, la TV con Chromecast y AirPlay simulados (también como adentro de hub-app, por el puente: salir y volver, el saludo sin respuesta, sin Chromecast, iPhone con AirPlay o sin, y el WebView de la app de hoy), la fila de controles a 320 y 360 px en pantalla completa simulada, y la firma de Bunny que vence a los pocos segundos (el servidor de pruebas la valida como el CDN, con 403): sin cortes ni saltos y con el candado intacto, el 403 que se arregla solo (también con la red que tarda en volver), el pedido que espera una renovación en camino, un salto y un play durante esa espera (y, con el nativo, un −10 durante el rescate y la calidad elegida justo al vencer), una calidad rota que no es el vencimiento (con hls.js pasa a otra, sin cartel), el cartel si no se puede renovar y la TV que recarga con la firma nueva. |
 
 🔴 El simulador de las unitarias (`tests/unit/apoyo/simulador.mjs`) usa las
 decisiones REALES de `candado.js`, pero el efecto de disparo del componente (el orden
@@ -81,6 +81,9 @@ perfil temporal. Al terminar mata sólo el proceso que lanzó.
 - Si una falla, la captura queda en `tests/navegador/.salida/` (en CI, como artefacto).
 - Los receptores de la TV son **simulados** (`tests/navegador/simulados/`): prueban
   todo nuestro código, no una TV de verdad (ver "Pendiente: probar con TVs reales").
+  Hay UNA TV (`tv-simulada.js`) y dos emisores: el Cast de Chrome (`cast-simulado.js`) y
+  hub-app con su puente (`puente-app-simulado.js`, en `marco.html` con `app=fake`). El
+  recorrido de la TV y la renovación de la firma corren con los dos.
 - El HLS nativo de Chrome no es el de Safari: sirve para probar el camino del iPhone
   (cambio de fuente, reintentos del salto), pero tiene sus propias mañas (ver el
   CLAUDE.md). Que nativePlayer RETENGA los eventos durante el cambio de fuente no se
@@ -310,9 +313,37 @@ Sólo con video propio (`videoUrl`, Bunny). Con Vimeo no aparece nada.
 | Safari en iPhone, iPad y Mac | — | sí (con el motor HLS nativo, que es el de siempre ahí) |
 | Chrome en iPhone | no (Google no lo soporta) | a verificar |
 | Firefox | no | no |
-| App de Moodle (WebView) | se espera que no | a verificar |
+| App de Hub Education con Chromecast (1.4.0 + la app nueva) | sí, con el Cast de la app | iPhone: sólo si la app lo declara |
+| App de Hub Education de hoy / app oficial de Moodle (WebView) | no: "abrí la lección en Chrome" | a verificar |
 
 Probado sólo con receptores **simulados** (ver "Pendiente" al final de la sección).
+
+### Adentro de la app de Hub Education (1.4.0)
+
+En el WebView de la app no hay Cast Web SDK. La app nueva transmite con el Chromecast
+NATIVO y le habla al reproductor por un puente de mensajes (protocolo `ivcast` v1; el
+diseño y el contrato completo están en `castear-hub-app-v2.md` y en el pedido a hub-app,
+fuera de este repo). Del lado del reproductor:
+
+- `src/puenteApp.js`: si hay un `ReactNativeWebView` (en la página o en `window.top`, del
+  mismo origen) saluda a la app (`hola` → `hola-ok` con sus `capacidades`, hasta 3 s).
+  Lo que prueba que hay una app que habla el protocolo es la respuesta, no el objeto.
+- `src/castNativo.js`: con `'cast'` en las capacidades, arma un `window.cast.framework` /
+  `window.chrome.cast` imitado sobre el puente. `CastPlayer`, el freno de las preguntas,
+  la medición del ida y vuelta y la renovación de la firma son los mismos de Chrome.
+- En modo app no se baja nunca el SDK de gstatic. Sin respuesta al saludo, no se instala
+  nada y el reproductor sigue igual (el toque dice "No se pudo preparar la transmisión.
+  Probá de nuevo." y vuelve a saludar). Sin `'cast'` (teléfono sin Google Play Services):
+  "Este teléfono no puede transmitir a Chromecast."
+- En iPhone, AirPlay sólo si la app declara `'airplay'`; sin TV de AirPlay a la vista va
+  directo a Chromecast, y con las dos aparece un selector propio.
+- La app de hoy (sin puente) sigue como en 1.3.3. El "actualizá la app" se prende con la
+  casilla del plugin **La app con Chromecast ya está publicada** (apagada por defecto):
+  prenderla recién cuando la versión con Cast esté en Play para todos.
+
+Lo hace cumplir la app (pausar la TV al salir de la lección, con el celular bloqueado o
+en otra app; validar de dónde vienen los mensajes; la lista de hosts de video): el
+reproductor no decide nada por la versión de la app, sólo por sus `capacidades`.
 
 ### Cómo funciona
 
