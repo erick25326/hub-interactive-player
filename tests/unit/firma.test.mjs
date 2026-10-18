@@ -8,9 +8,10 @@
 // cambiando de fuente) lo prueba el nivel navegador (escenarios/firma.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import * as B from './apoyo/bunny-espejo.mjs';
 import {
-  leerFirma, reescribir, sinFirma, margenes, crearReloj, interpretarRespuesta, Renovador,
+  leerFirma, reescribir, sinFirma, margenes, crearReloj, interpretarRespuesta, Renovador, recargarParaReintentar,
   RENOVAR_ANTES_MS, URGENTE_MS, ANTES_DEL_PEDIDO_MS, ESPERA_TRAS_FALLO_MS, INSISTIR_MS,
 } from '../../src/firma.js';
 
@@ -213,6 +214,77 @@ function entorno({ ahoraServidor = E1 - 6 * 3600, pared0 = 1e12, respuestas = []
 }
 const respuestaOk = (expires, ahora) => ({ cuerpo: { ok: true, playlist: B.firmar(HOST, GUID, CLAVE, expires).playlist, poster: B.firmar(HOST, GUID, CLAVE, expires).poster, expires, ahora } });
 const tanda = () => new Promise((r) => setImmediate(r));
+
+// "Reintentar" en el cartel de error. Con la sesión cerrada recarga la página de ARRIBA
+// (view.php): recargar sólo el iframe mostraba el ingreso de Moodle adentro del video,
+// donde hub-app no hace su ingreso automático. Lo que se ve en Chrome (la página de
+// arriba recargada de verdad, o sólo el iframe) lo prueba escenarios/reintentar.mjs.
+describe('qué recarga "Reintentar"', () => {
+  // Un iframe de mentira: `arriba` = 'propia' (no está en un iframe), 'misma' (la de
+  // arriba es del mismo origen, como view.php), 'ajena' (de otro origen: leer su document
+  // tira SecurityError, como en el navegador) o 'rota' (del mismo origen, pero recargarla
+  // tira).
+  const ventana = (arriba) => {
+    const recargas = [];
+    const marco = { location: { reload: () => recargas.push('marco') } };
+    if (arriba === 'propia') marco.top = marco;
+    else if (arriba === 'misma') marco.top = { document: {}, location: { reload: () => recargas.push('arriba') } };
+    else if (arriba === 'ajena') marco.top = { get document() { throw new DOMException('Blocked a frame', 'SecurityError'); }, location: { reload: () => recargas.push('ajena') } };
+    else if (arriba === 'rota') marco.top = { document: {}, location: { reload: () => { throw new Error('no se puede'); } } };
+    return { marco, recargas };
+  };
+  const sesion = { fatal: true, tipo: 'acceso', code: 403, renovacion: 'sesion' };
+
+  test('sesión cerrada, adentro de la lección (arriba del mismo origen): la página de arriba', () => {
+    const { marco, recargas } = ventana('misma');
+    assert.equal(recargarParaReintentar(sesion, marco), 'arriba');
+    assert.deepEqual(recargas, ['arriba'], 'tiene que recargar SÓLO la de arriba (eso recarga el iframe también)');
+  });
+
+  test('sesión cerrada con la de arriba de OTRO origen (una demo, un SCORM): el iframe, como siempre', () => {
+    const { marco, recargas } = ventana('ajena');
+    assert.equal(recargarParaReintentar(sesion, marco), 'marco');
+    assert.deepEqual(recargas, ['marco']);
+  });
+
+  test('sesión cerrada sin iframe (el reproductor suelto): la propia página', () => {
+    const { marco, recargas } = ventana('propia');
+    assert.equal(recargarParaReintentar(sesion, marco), 'marco');
+    assert.deepEqual(recargas, ['marco']);
+  });
+
+  test('sesión cerrada y la de arriba no se deja recargar: el iframe igual (el botón nunca queda muerto)', () => {
+    const { marco, recargas } = ventana('rota');
+    assert.equal(recargarParaReintentar(sesion, marco), 'marco');
+    assert.deepEqual(recargas, ['marco']);
+  });
+
+  test('cualquier otro motivo: el iframe, aunque la de arriba sea del mismo origen', () => {
+    for (const e of [
+      { fatal: true, tipo: 'acceso', code: 403, renovacion: 'red' },
+      { fatal: true, tipo: 'acceso', code: 403, renovacion: 'otro' },
+      { fatal: true, tipo: 'acceso', code: 403 },                           // sin firma que renovar
+      { fatal: true, tipo: 'red', code: null },
+      { fatal: true, tipo: 'medio', code: null },
+      { fatal: true, tipo: 'otro', code: 404 },
+      { fatal: true, tipo: 'red', renovacion: 'sesion' },                    // 'sesion' sólo cuenta con acceso
+      null,
+    ]) {
+      const { marco, recargas } = ventana('misma');
+      assert.equal(recargarParaReintentar(e, marco), 'marco', JSON.stringify(e));
+      assert.deepEqual(recargas, ['marco'], JSON.stringify(e));
+    }
+  });
+
+  test('el botón Reintentar del cartel usa esta función (no un location.reload suelto)', () => {
+    const jsx = fs.readFileSync(new URL('../../src/InteractiveVideoPlayer.jsx', import.meta.url), 'utf8');
+    assert.match(jsx, /import \{[^}]*\brecargarParaReintentar\b[^}]*\} from "\.\/firma\.js"/);
+    const cartel = jsx.slice(jsx.indexOf('{videoError&&<div className="iv-error"'), jsx.indexOf('</div>}', jsx.indexOf('{videoError&&<div className="iv-error"')));
+    assert.ok(cartel.length > 0, 'no encontré el cartel de error');
+    assert.match(cartel, /onClick=\{\(\)=>recargarParaReintentar\(videoError\)\}>Reintentar</);
+    assert.doesNotMatch(cartel, /location\.reload/);
+  });
+});
 
 describe('Renovador', () => {
   test('sin firmaUrl (página de prueba, configurador, SCORM) o con una URL sin firma: inactivo, no hace nada', () => {

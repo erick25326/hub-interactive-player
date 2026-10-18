@@ -34,10 +34,12 @@ export class Pagina {
     }
   }
   // Lo mismo en el documento de ARRIBA (en /marco.html, la página que contiene el iframe).
+  // Mientras esa página se recarga, CDP rechaza la evaluación (el contexto se destruyó):
+  // cuenta como "todavía no".
   async esperarArriba(expr, tope = 5000) {
     const fin = Date.now() + tope;
     for (;;) {
-      const v = await this.cdp.ev(`(() => { try { return (${expr}); } catch (e) { return null; } })()`);
+      const v = await this.cdp.ev(`(() => { try { return (${expr}); } catch (e) { return null; } })()`).catch(() => null);
       if (v || Date.now() > fin) return v || null;
       await dormir(50);
     }

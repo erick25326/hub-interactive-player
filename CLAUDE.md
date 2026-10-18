@@ -204,6 +204,14 @@ textos del cartel, en el README ("Qué pasa cuando vence el token").
 - 🔴 **Una sola regla de "¿usa Bunny?"**: `ivplayer_bunny_video` (pura, la prueban
   correr.php y el espejo) y su envoltorio `ivplayer_bunny_de_actividad`, que usan
   `player.php` y `firma.php`. No volver a escribir las condiciones en uno de los dos.
+- 🔴 **"Reintentar" con motivo `sesion` recarga `window.top`, no el iframe**
+  (`recargarParaReintentar` en firma.js; plan Bunny 0.3). Recargar sólo el iframe ponía
+  el ingreso de Moodle adentro del video: hub-app detecta el login sólo en la navegación
+  principal (no hace su ingreso automático) y Google no se deja mostrar en un iframe.
+  Si `top` es de otro origen (demo, SCORM: leer su `document` tira) o el motivo es otro,
+  el iframe como siempre. Pruebas: firma.test.mjs (la decisión) y
+  `escenarios/reintentar.mjs` (marco.html del mismo origen; otro puerto con
+  `crearMarcoAjeno`, que se maneja por CDP en un mundo aislado del iframe).
 - 🔴 **El reloj NO compara `Date.now()` con el expires**: se mide desde la hora del
   servidor al firmar (`firmaAhora` en MOODLE_CONTEXT, `ahora` en la respuesta) más lo
   que pasó en el equipo, con el MAYOR de los dos relojes (monotónico y de pared): el

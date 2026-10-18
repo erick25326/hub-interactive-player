@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, useId, Fragment } from "react";
 import Player from "@vimeo/player";
 import NativePlayer from "./nativePlayer.js";
-import { Renovador } from "./firma.js";
+import { Renovador, recargarParaReintentar } from "./firma.js";
 import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, mismoVideo, CastPlayer, castPosible, infoApp, pareceApp } from "./cast.js";
 import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
 // El candado de preguntas y el parser de subtítulos son puros y viven aparte para
@@ -330,7 +330,8 @@ function SubtitleDisplay({ cues, currentTime, visible, sobreControles }) {
 // Qué dice el cartel de error del video propio. Si el acceso venció y no se pudo
 // renovar la firma de Bunny (ver firma.js), dice por qué y qué hacer: el botón
 // Reintentar recarga la lección, y en Moodle eso firma un acceso nuevo (o pide
-// ingresar de nuevo, si se cerró la sesión).
+// ingresar de nuevo, si se cerró la sesión: ahí recarga la página entera, no el
+// iframe; ver recargarParaReintentar en firma.js).
 function textoDelError(e) {
   if (e.code === 404) return "El video no está disponible.";
   if (e.tipo === "acceso") {
@@ -2023,8 +2024,9 @@ function Reproductor() {
         {videoError&&<div className="iv-error" role="alert">
           <strong>No se pudo cargar el video</strong>
           <span>{textoDelError(videoError)} Tu avance está guardado.</span>
-          {/* Recargar pide la página de nuevo, y en Moodle eso firma un acceso nuevo. */}
-          <button className="iv-btn-primary" onClick={()=>window.location.reload()}>Reintentar</button>
+          {/* Recargar pide la página de nuevo, y en Moodle eso firma un acceso nuevo. Con la
+              sesión cerrada, la de ARRIBA (view.php): ver recargarParaReintentar. */}
+          <button className="iv-btn-primary" onClick={()=>recargarParaReintentar(videoError)}>Reintentar</button>
         </div>}
 
         {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA} sobreControles={showCtrl||!playing||scrubPct!=null}/>}

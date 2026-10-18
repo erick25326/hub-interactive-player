@@ -41,7 +41,11 @@
 // que duran las firmas que da /firma; por defecto, lo mismo que la de la página) ·
 // video=ninguno (PLAYER_CONFIG sin video: vimeoId vacío y sin videoUrl) · video=texto (un
 // vimeoId que no es un ID, como el de config.example.js) · config=ninguna (sin
-// PLAYER_CONFIG: la config por defecto del bundle).
+// PLAYER_CONFIG: la config por defecto del bundle) · renovar=permiso (el /firma contesta
+// 403 "sin permiso", como firma.php con la actividad oculta: no es la sesión).
+// crearMarcoAjeno(): OTRO servidor (otro puerto, o sea otro origen) con una página que
+// incrusta el reproductor de éste, como una demo o un SCORM: ahí window.top no se puede
+// tocar desde el iframe.
 // 🔴 renovada: las pruebas de lo que pasa AL vencer la primera firma. Con firmas de 6 s
 // también después, el HLS nativo cambia de fuente cada ~3 s reproduciendo y cada cambio
 // cuesta un salto (2-4 s con el 1080p de Mux, 8 MB por segmento): no avanza y la prueba
@@ -113,6 +117,9 @@ export function crearServidor({ html, video }) {
   if ((html.match(/<\/head>/gi) || []).length !== 1) throw new Error('el bundle no tiene exactamente un </head>');
   const cache = new Map();
   const pedidosHls = [];
+  // Cuántas veces se pidió cada página: así se ve QUÉ recargó un "Reintentar" (la de
+  // arriba trae la del reproductor con ella; sólo el iframe, nada más que ésa).
+  const cargas = { reproductor: 0, marco: 0 };
   // Firmas emitidas (token → expires) y lo que pasó con ellas, para que las pruebas vean
   // si el video siguió con la firma nueva o se topó con una vencida.
   //   pedidos: cada pedido a /firma · servidos: cada pedido de video firmado que se sirvió
@@ -191,7 +198,7 @@ export function crearServidor({ html, video }) {
       config.videoUrl = f0.playlist;
       firma.inicial.set(pag, f0);
       if (q.get('rota') === 'alta') firma.rotas.add(pag);
-      const modo = ['falla', 'falla-hasta-403', 'red-tras-403', 'lenta'].includes(q.get('renovar')) ? q.get('renovar') : 'ok';
+      const modo = ['falla', 'falla-hasta-403', 'red-tras-403', 'lenta', 'permiso'].includes(q.get('renovar')) ? q.get('renovar') : 'ok';
       const f = new URLSearchParams({ ttl: String(Number(q.get('renovada')) > 0 ? Number(q.get('renovada')) : ttl), modo, pag });
       if (Number(q.get('demora')) > 0) f.set('demora', q.get('demora'));
       contexto = { cmid: CMID_PRUEBA, sesskey: SESSKEY_PRUEBA, firmaUrl: `${origen}/firma?${f}`, firmaAhora: segundos() };
@@ -307,6 +314,7 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
           responder(200, { ok: true, playlist: f.playlist, poster: f.poster, expires: f.expires, ahora: segundos() });
         }, Math.max(0, (inicial.expires + (Number(u.searchParams.get('demora')) || 2)) * 1000 - Date.now()));
       }
+      if (modo === 'permiso') return responder(403, { ok: false, motivo: 'permiso' });
       if (modo === 'falla' || b.get('cmid') !== String(CMID_PRUEBA) || b.get('sesskey') !== SESSKEY_PRUEBA) return responder(401, { ok: false, motivo: 'sesion' });
       const f = emitirFirma(Number(u.searchParams.get('ttl')) || 60, origen, u.searchParams.get('pag'));
       responder(200, { ok: true, playlist: f.playlist, poster: f.poster, expires: f.expires, ahora: segundos() });
@@ -318,8 +326,8 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
       const u = new URL(req.url, 'http://x');
       const origen = `http://${req.headers.host}`;
       const pagina = (cuerpo) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(cuerpo); };
-      if (u.pathname === '/player.html') return pagina(paginaReproductor(u.searchParams, origen));
-      if (u.pathname === '/marco.html') return pagina(paginaMarco(new URLSearchParams(u.searchParams)));
+      if (u.pathname === '/player.html') { cargas.reproductor++; return pagina(paginaReproductor(u.searchParams, origen)); }
+      if (u.pathname === '/marco.html') { cargas.marco++; return pagina(paginaMarco(new URLSearchParams(u.searchParams))); }
       if (u.pathname === '/vacio.html') return pagina('<!doctype html><title>vacío</title>');
       // Se lee en cada pedido: así prueba el configurador como está en el disco.
       if (u.pathname === '/configurador.html') return pagina(armarConfigurador({
@@ -342,9 +350,35 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
     srv.listen(0, '127.0.0.1', () => {
       const base = `http://127.0.0.1:${srv.address().port}`;
       ok({
-        base, pedidosHls, firma,
+        base, pedidosHls, firma, cargas,
         cerrar: () => new Promise((r) => { srv.closeAllConnections?.(); srv.close(() => r()); }),
       });
     });
+  });
+}
+
+// Una página de OTRO origen (otro puerto) que incrusta el reproductor del servidor de
+// pruebas, como una demo de la web o un SCORM. Desde el iframe, window.top no se puede
+// leer (SecurityError): "Reintentar" tiene que recargar el iframe, como siempre.
+// /marco-ajeno.html?<query del reproductor>
+export function crearMarcoAjeno({ baseReproductor }) {
+  const cargas = { marco: 0 };
+  const srv = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    if (u.pathname !== '/marco-ajeno.html') { res.writeHead(404); return res.end(); }
+    cargas.marco++;
+    const src = `${baseReproductor}/player.html?${u.searchParams.toString().replace(/"/g, '&quot;')}`;
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Página de otro origen</title>
+<style>html,body{margin:0;background:#222}iframe{border:0;width:100vw;aspect-ratio:16/9;display:block}</style></head>
+<body><iframe src="${src}" title="Reproductor" allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe></body></html>`);
+  });
+  return new Promise((ok, mal) => {
+    srv.once('error', mal);
+    srv.listen(0, '127.0.0.1', () => ok({
+      base: `http://127.0.0.1:${srv.address().port}`,
+      cargas,
+      cerrar: () => new Promise((r) => { srv.closeAllConnections?.(); srv.close(() => r()); }),
+    }));
   });
 }

@@ -187,6 +187,31 @@ export function interpretarRespuesta(estado, json) {
   return { ok: false, motivo: 'otro' };
 }
 
+// Qué recarga el botón "Reintentar" del cartel de error del video propio. Devuelve
+// 'arriba' o 'marco' (para las pruebas) después de pedir la recarga.
+// 🔴 Con la sesión del campus cerrada (acceso que no se pudo renovar por 'sesion'), la
+// página de ARRIBA, la de la lección (view.php). Recargar sólo el iframe mostraba el
+// ingreso de Moodle adentro del cuadro del video: ahí la app (hub-app) no hace su ingreso
+// automático, porque lo detecta en la navegación principal, y el ingreso con Google no
+// se deja mostrar en un iframe. Con Vimeo no pasaba: no pedía sesión para seguir.
+// window.top es del mismo origen en el campus (view.php y player.php son de Moodle). Si
+// no se puede tocar (otro origen: una demo, un SCORM), el iframe, como siempre. Con
+// cualquier otro motivo, también el iframe: en Moodle eso firma un acceso nuevo.
+export function recargarParaReintentar(error, ventana = globalThis.window) {
+  if (error && error.tipo === 'acceso' && error.renovacion === 'sesion') {
+    try {
+      const arriba = ventana.top;
+      if (arriba && arriba !== ventana) {
+        void arriba.document;   // de otro origen tira SecurityError: queda el iframe
+        arriba.location.reload();
+        return 'arriba';
+      }
+    } catch (e) {}
+  }
+  ventana.location.reload();
+  return 'marco';
+}
+
 // --- El que habla con Moodle -----------------------------------------------------
 //
 // new Renovador({ url, poster, firmaUrl, cmid, sesskey, ahoraServidor })
