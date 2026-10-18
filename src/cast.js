@@ -25,8 +25,17 @@
 // por eso el freno se programa con un setTimeout de un disparo hacia la próxima
 // pregunta desde los avisos de la TV (no desde el latido), y el componente pide
 // Screen Wake Lock mientras se transmite.
+//
+// Modo app (hub-app, 1.4.0): adentro del WebView de la app no hay Cast Web SDK. Si hay
+// puente (puenteApp.js), castPosible/cuandoHayaTV/cargarCast saludan a la app y, si
+// contesta con 'cast', instalan un SDK imitado (castNativo.js) en vez de bajar el de
+// gstatic. Desde ahí todo lo de abajo (contexto, observarCast, CastPlayer) es lo mismo.
 
 import { leerFirma } from "./firma.js";
+import { puenteDisponible, conectarApp, pareceApp } from "./puenteApp.js";
+import { instalarCastNativo } from "./castNativo.js";
+
+export { pareceApp };
 
 const SDK_URL = "https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1";
 const MEDIA_NS = "urn:x-cast:com.google.cast.media";
@@ -77,6 +86,10 @@ function sdk() { return window.cast && window.cast.framework && window.chrome &&
 // ("Casting is not supported on the iOS Chrome browser"), y contexto seguro.
 export function castPosible() {
   try {
+    // Adentro de hub-app el Chromecast lo pone la app (también en iPhone, donde no hay
+    // emisor web): va antes de todos los cortes del navegador. Si la app después no
+    // contesta o no tiene Cast, lo dice cargarCast (infoApp().motivo).
+    if (puenteDisponible()) { anotar("posible", "sí (app)"); return true; }
     if (!window.isSecureContext) { anotar("posible", "no (sin https)"); return false; }
     if (!window.chrome || !navigator.presentation) { anotar("posible", "no (navegador sin Cast)"); return false; }
     const ua = navigator.userAgent || "";
@@ -108,6 +121,9 @@ export function cuandoHayaTV(appId, fn) {
   const listo = () => { if (!vivo) return; vivo = false; if (disp) disp.onchange = null; fn(); };
   const soltar = () => { vivo = false; if (disp) disp.onchange = null; };
   if (sdk()) { queueMicrotask(listo); return soltar; }
+  // Modo app: el saludo es la consulta (la app dice si hay TV en `disponibilidad`). Ni el
+  // atajo de Android ni la Presentation API, que en el WebView no existen.
+  if (puenteDisponible()) { cargarCast().then((ok) => { if (ok) listo(); }); return soltar; }
   if (!castPosible()) return soltar;
   // 🔴 En Android NO se pregunta: getAvailability() con "cast:<id>" pelado puede
   // contestar false para siempre aunque la TV esté (el SDK pregunta con otra URL, con
@@ -139,11 +155,39 @@ export function cuandoHayaTV(appId, fn) {
 // lee de window al ejecutarse.
 // Si el SDK ya está en la página (otra parte lo cargó, o el arnés que lo simula) se
 // usa ése.
+// Modo app: con puente, en vez del script se saluda a la app y, si contesta con 'cast',
+// se instala el SDK imitado (castNativo.js). 🔴 NUNCA se inserta el <script> de gstatic:
+// en el WebView no anda y sería un pedido a Google por cada lección. Si no queda listo,
+// se olvida la carga (el próximo toque vuelve a saludar) y queda el motivo para el texto
+// del aviso (infoApp): 'sin-respuesta' (nadie contestó en 3 s), 'version' (no hay una
+// versión del protocolo en común) o 'sin-cast' (la app contestó sin Chromecast).
 let cargaSdk = null;
+let app = { motivo: null, capacidades: null };
+export function infoApp() {
+  return { puente: puenteDisponible(), pareceApp: pareceApp(), motivo: app.motivo, capacidades: app.capacidades };
+}
 export function cargarCast() {
   if (cargaSdk) return cargaSdk;
-  cargaSdk = new Promise((resolve) => {
+  const esta = cargaSdk = new Promise((resolve) => {
     if (sdk()) return resolve(true);
+    if (puenteDisponible()) {
+      anotar("modo", "app");
+      anotar("sdk", "app: saludando");
+      conectarApp().then(({ hola, motivo }) => {
+        const caps = hola ? hola.capacidades : null;
+        let ok = false;
+        if (hola && caps.includes("cast")) {
+          try { instalarCastNativo(hola); } catch (e) {}
+          ok = !!sdk();
+        }
+        app = { motivo: ok ? null : hola ? "sin-cast" : (motivo || "sin-respuesta"), capacidades: caps };
+        anotar("sdk", ok ? "app: listo" : "app: " + app.motivo);
+        if (!ok && cargaSdk === esta) cargaSdk = null;
+        resolve(ok);
+      });
+      return;
+    }
+    anotar("modo", "web");
     if (!castPosible()) return resolve(false);
     let hecho = false;
     anotar("sdk", "cargando");
@@ -166,7 +210,7 @@ export function cargarCast() {
       (document.head || document.documentElement).appendChild(s);
     } catch (e) { fin(false); }
   });
-  return cargaSdk;
+  return esta;
 }
 
 // Opciones del contexto, una sola vez por página (setOptions tiene que ir antes que
