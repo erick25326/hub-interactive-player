@@ -41,6 +41,7 @@ const ESTADO_CADA_MS = 5000;    // la TV avisa sólo cuando cambia de estado: co
 const SALTO_EXTERNO = 1.5;      // diferencia con lo esperado que ya es un salto de otro
 const TOL_SALTO = 1.5;          // un salto propio se da por aterrizado a esta distancia
 const TOL_CARGA = 2;
+const ESTADO_CARGA_MS = 1000;    // mientras la TV carga, cada cuánto se le pregunta dónde está
 const TOL_ANCLA = 0.3;          // la TV frenó más lejos que esto de donde se pidió: se la lleva
 const RTT_INICIAL = 0.25;       // ida y vuelta celular↔TV hasta medirla
 // La TV frena un ida y vuelta después del pedido (el estado que se extrapola ya llegó
@@ -681,7 +682,9 @@ export class CastPlayer {
     else return fin();
     comando(fn).then(() => {
       fin();
-      if (tipo === "pause" || tipo === "estado") this._medirRtt(ahora() - h0);
+      // Las consultas durante la carga no miden: la TV está ocupada cargando y la ida y
+      // vuelta saldría inflada (el freno se adelantaría).
+      if ((tipo === "pause" || tipo === "estado") && !extra.sinRtt) this._medirRtt(ahora() - h0);
       if (extra.alResponder && !this._destruido) extra.alResponder();
     }, () => {
       fin();
@@ -798,7 +801,14 @@ export class CastPlayer {
     // 1) Carga en curso: hasta que la TV esté en su segundo, se sigue informando ése.
     if (this._carga) {
       const k = this._carga;
-      const enSuSegundo = Math.abs(c - k.t) <= TOL_CARGA && (estado === "PLAYING" || estado === "PAUSED");
+      // 🔴 Reproduciendo, la TV pudo avanzar desde que arrancó en k.t antes de que llegara
+      // su aviso: si está entre k.t y lo que cabe en el tiempo transcurrido, es nuestra
+      // carga y se la sigue. Antes se comparaba sólo con k.t (±2 s): un aviso que llegaba
+      // tarde se tomaba como "arrancó en otro lado", se la mandaba de vuelta al segundo de
+      // partida y la compu y la TV quedaban desfasadas (prueba de Erick, oct-2026).
+      const transcurrido = Math.max(0, (ya - k.h) / 1000) * (this._velocidad || 1);
+      const enSuSegundo = (estado === "PLAYING" || estado === "PAUSED") &&
+        c >= k.t - TOL_CARGA && c <= k.t + (estado === "PLAYING" ? transcurrido : 0) + TOL_CARGA;
       if (!enSuSegundo) {
         // La TV arrancó en otro lado (ignoró currentTime): llevarla.
         if (ya - k.h > TOPE_CARGA_MS || (estado === "PLAYING" || estado === "PAUSED")) {
@@ -945,6 +955,13 @@ export class CastPlayer {
     if (this._media && !this._carga && ahora() - this._ultimoPedidoEstado > ESTADO_CADA_MS) {
       this._ultimoPedidoEstado = ahora();
       this._enviar("estado");
+    }
+    // 🔴 Durante la carga también, y más seguido. Con una TV real (Erick, oct-2026) el
+    // aviso de "ya reproduzco" puede no llegar: la TV arrancaba y la compu quedaba
+    // congelada en el segundo de partida, sin preguntar, hasta el tope de 20 s.
+    if (this._media && this._carga && ahora() - this._ultimoPedidoEstado > ESTADO_CARGA_MS) {
+      this._ultimoPedidoEstado = ahora();
+      this._enviar("estado", { sinRtt: true });
     }
     // Una firma nueva esperando un momento (o a que le falte poco a la de la TV).
     this._quizasRecargar();
