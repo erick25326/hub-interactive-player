@@ -291,8 +291,15 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
       return;
     }
     if (m.tipo === "sesion") {
-      const est = m.estado;
+      let est = m.estado;
       if (!SessionState[est]) return;
+      // 🔴 Un SESSION_STARTED de la sesión que esta página YA tiene (la del hola-ok, o una
+      // que ya arrancó) no es una conexión nueva: el Web SDK nunca lo emite dos veces, y el
+      // JSX lo lee como "el alumno eligió una TV" y CARGA este video, pisando el que la TV
+      // pasaba (otra lección). Pasa con la "foto" que la app manda al volver a primer plano
+      // (sesion + media, diseño v2 §3.7). Va como SESSION_RESUMED: conectarCast la adopta
+      // sólo si la TV tiene este video.
+      if (est === SessionState.SESSION_STARTED && sesion && m.sesion && texto(m.sesion.id) === sesion._id) est = SessionState.SESSION_RESUMED;
       let s = null;
       if (est === SessionState.SESSION_STARTED || est === SessionState.SESSION_RESUMED) {
         s = obtenerSesion(m.sesion);

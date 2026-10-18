@@ -192,6 +192,23 @@ test('sesión: SESSION_STATE_CHANGED con el mismo objeto por id, nombre en texto
   ]);
 });
 
+test('un SESSION_STARTED de la sesión que la página ya tiene llega como SESSION_RESUMED (si no, el JSX cargaría su video encima del de la TV)', () => {
+  // La sesión del hola-ok (la TV con otra lección) y, al volver a primer plano, la "foto"
+  // de la app con el mismo id.
+  const { puente, fw, ctx } = armar({ estado: 'CONNECTED', sesion: { id: 'vieja', nombre: 'TV', silencio: false, volumen: 0.4, media: { msid: 5, contentId: SRC, contentUrl: SRC, duracion: 78, estado: 'PLAYING', motivo: null, t: 70, rate: 1 } } });
+  const s = ctx.getCurrentSession();
+  const ev = [];
+  ctx.addEventListener(fw.CastContextEventType.SESSION_STATE_CHANGED, (e) => ev.push([e.sessionState, e.session]));
+  puente.evento({ tipo: 'sesion', estado: 'SESSION_STARTED', sesion: { id: 'vieja', nombre: 'TV', silencio: false, volumen: 0.4, media: { msid: 5, contentId: SRC, contentUrl: SRC, duracion: 78, estado: 'PAUSED', motivo: null, t: 71, rate: 1 } } });
+  assert.deepEqual(ev, [['SESSION_RESUMED', s]], 'misma sesión: no es una conexión nueva');
+  assert.equal(s.getMediaSession().playerState, 'PAUSED', 'la media de la foto se aplica igual');
+  // Una sesión con OTRO id sí es nueva.
+  puente.evento({ tipo: 'sesion', estado: 'SESSION_STARTED', sesion: { id: 'nueva', nombre: 'TV 2' } });
+  assert.equal(ev.length, 2);
+  assert.equal(ev[1][0], 'SESSION_STARTED');
+  assert.notEqual(ev[1][1], s);
+});
+
 test('disponibilidad: CAST_STATE_CHANGED sólo cuando cambia, y getCastState desde la caché', () => {
   const { puente, fw, ctx } = armar({ estado: 'NO_DEVICES_AVAILABLE' });
   const ev = [];

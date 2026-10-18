@@ -105,6 +105,82 @@ export function registrar(entorno) {
       await p.debe(conectado, 12000, 'no conectó después del saludo lento');
       assert.ok(!/No se pudo|Tocá de nuevo/.test((await p.estado()).aviso || ''));
     });
+
+    paso(entorno, 'la app contesta el saludo con error{version}: "actualizá la app", nada instalado, y el toque vuelve a saludar', async () => {
+      await p.abrir({ pagina: 'marco.html', query: { app: 'fake', webview: '1', motor: 'hls', version: '0' } });
+      await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'el botón tiene que estar igual');
+      assert.ok(await p.esperarArriba(`window.__puente.holas === 1`, 8000), 'la app no recibió el saludo');
+      await dormir(300);
+      assert.equal(await p.a('W.__ivCastDiag && W.__ivCastDiag.sdk'), 'app: version');
+      await p.clic('.iv-tv-btn');
+      await p.debe(`A.estado().aviso === 'Para transmitir a la TV, actualizá la app de Hub Education.'`, 8000, 'no pidió actualizar la app');
+      assert.deepEqual(await sinNada(), { cast: false, chromeCast: false, gstatic: false });
+      assert.equal(await holas(), 2, 'el fallo no queda guardado: el toque vuelve a saludar');
+      assert.equal((await log()).filter((x) => x.ev === 'requestSession').length, 0, 'no se pidió el selector');
+    });
+
+    // Secuencia "Ajena" del contrato: la lección B abre con la TV pasando OTRO video (el de
+    // la lección A). B no lo adopta y late con msid null (con eso la app pausa A a los 8 s
+    // si alguien le da play con el control remoto). Además, la "foto" que la app manda al
+    // volver a primer plano (sesion + media, diseño v2 §3.7) no puede pisar la TV: un
+    // SESSION_STARTED de la sesión que la página ya conoce NO es una conexión nueva.
+    paso(entorno, 'la TV ya pasa OTRO video (secuencia "Ajena"): no se adopta, late con msid null, la foto de la sesión al volver no carga nada, y el toque carga ésta sin selector', async () => {
+      await p.abrir({ pagina: 'marco.html', query: { app: 'fake', webview: '1', motor: 'hls', lat: '120', reanudar: '70', ajeno: '1' } });
+      await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
+      assert.ok(await p.esperarArriba(`window.__puente.holas === 1`, 8000), 'la app no recibió el saludo');
+      assert.ok(await p.esperarArriba(`window.__puente.latidos.length >= 2`, 8000), 'con la sesión abierta el reproductor tiene que latir');
+      assert.equal((await p.estado()).capa, null, 'no tenía que adoptar la TV con otro video');
+      const latidos = await p.ev('window.__puente.latidos');
+      assert.ok(latidos.every((l) => l.msid === null), `sin adoptar, el latido va con msid null: ${JSON.stringify(latidos)}`);
+      const cargas = async () => (await log()).filter((x) => x.ev === 'CMD LOAD').length;
+      assert.equal(await cargas(), 0);
+      // La foto al volver a primer plano, con la media que está en la TV.
+      await p.ev(`(() => {
+        const W = document.querySelector('iframe').contentWindow;
+        const m = W.cast.framework.CastContext.getInstance().getCurrentSession().getMediaSession();
+        const R = window.__tv.receptor;
+        const media = { msid: m.mediaSessionId, contentId: R.media.contentId, contentUrl: R.media.contentUrl, duracion: 260, estado: R.estado, motivo: null, t: +R.tiempo().toFixed(3), rate: 1 };
+        const sesion = { id: 'nat-previa', nombre: window.__tv.nombre, silencio: false, volumen: 0.4, media };
+        window.__ivcastRecibir(JSON.stringify({ ivcast: 1, tipo: 'sesion', estado: 'SESSION_STARTED', sesion }));
+        window.__ivcastRecibir(JSON.stringify({ ivcast: 1, tipo: 'volumen', silencio: false, volumen: 0.4 }));
+        return true;
+      })()`);
+      await dormir(1500);
+      assert.equal(await cargas(), 0, 'la foto de una sesión que la página ya conocía cargó este video en la TV (le pisó el de la otra lección)');
+      assert.equal((await p.estado()).capa, null, 'la foto no tenía que conectar nada');
+      // El toque: ésta se carga en la sesión abierta, sin selector.
+      await p.clic('.iv-tv-btn');
+      await p.debe(conectado, 10000, 'el toque no cargó esta lección en la TV');
+      const l = await log();
+      assert.equal(l.filter((x) => x.ev === 'requestSession').length, 0, 'con la sesión abierta no hay selector');
+      assert.equal(l.filter((x) => x.ev === 'CMD LOAD').length, 1);
+      assert.ok(await p.esperarArriba(`(window.__puente.latidos.slice(-1)[0] || {}).msid != null`, 5000), 'transmitiendo, el latido tiene que llevar el msid de su media');
+      await comprobarModoApp(p);
+    });
+
+    // Las dos trampas de la primera conexión con una TV real (1.3.2 y 1.3.3), por el puente:
+    // la app sigue mandando los `media` aunque el `cargar` vuelva con error (contrato §5).
+    for (const [param, titulo] of [
+      ['idlePrimero', 'primera conexión por el puente: un primer `media` en IDLE (como el Chromecast real) no corta la transmisión'],
+      ['cargaTarde', 'primera conexión por el puente: el `cargar` vuelve con load_media_failed pero la TV carga igual, y el reproductor se engancha'],
+    ]) paso(entorno, titulo, async () => {
+      await p.abrir({ pagina: 'marco.html', query: { app: 'fake', webview: '1', motor: 'hls', lat: '120', [param]: '1' } });
+      await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
+      await p.reproducir();
+      await p.debe(`A.comp() > 1`, 10000, 'no arrancó a reproducir');
+      await p.clic('.iv-tv-btn');
+      await p.debe(conectado, 15000, 'el celular no siguió a la TV');
+      await dormir(1500);
+      const e = await p.estado();
+      assert.equal(e.pausado, true, 'el video del celular tiene que quedar en pausa');
+      assert.ok(!/Se dejó de transmitir|no pudo|No se pudo/.test(e.aviso || ''), `aviso falso: ${e.aviso}`);
+      assert.ok(cerca(e.comp, e.tv.t, 0.8), `el celular tiene que seguir a la TV: ${JSON.stringify({ comp: e.comp, tv: e.tv })}`);
+      if (param === 'cargaTarde') {
+        const recibidos = await p.ev(`window.__puente.inyectados.filter((m) => m.tipo === 'error').length`);
+        assert.ok(recibidos >= 1, 'la app tenía que contestar el cargar con error');
+      }
+      await comprobarModoApp(p);
+    });
   });
 
   describe('transmitir a la TV · hub-app simulada en iPhone (AirPlay según las capacidades)', () => {
