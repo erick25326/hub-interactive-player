@@ -7,6 +7,10 @@ require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 
 $id = required_param('id', PARAM_INT); // Course module ID.
+// Red de seguridad (src/respaldo.js): el reproductor recarga con origen=vimeo cuando el CDN
+// de Bunny falla. Se respeta sólo con el ajuste del sitio prendido y la actividad con ID de
+// Vimeo (ivplayer_respaldo_forzar, más abajo); si no, se ignora.
+$origen = optional_param('origen', '', PARAM_ALPHA);
 
 $cm = get_coursemodule_from_id('ivplayer', $id, 0, false, MUST_EXIST);
 $course = $DB->get_record('course', ['id' => $cm->course], '*', MUST_EXIST);
@@ -29,8 +33,14 @@ $playerhtml = ivplayer_reproductor_html() ?? '<p>Player not found.</p>';
 // Las tres condiciones viven en ivplayer_bunny_de_actividad(), la MISMA que usa
 // firma.php para volver a firmar con la lección abierta: no repetirlas acá.
 // 🔴 La clave se usa SÓLO adentro, para firmar. Al navegador sale la firma, nunca la clave.
+// 🔴 Con ?origen=vimeo (la red de seguridad) y la actividad con red, esta carga va por
+// Vimeo aunque tenga Bunny: no se firma nada. La regla es la misma que usa respaldo.php
+// para registrar el salto (ivplayer_respaldo_vimeo), y como esta carga es de Vimeo no
+// puede volver a saltar: el tope es una vez por carga de la página de la lección.
 $ahora = time();
-$bunny = ivplayer_bunny_de_actividad($ivplayer, $playerhtml, $ahora);
+$ajusterespaldo = get_config('mod_ivplayer', 'respaldovimeo');
+$forzarvimeo = ivplayer_respaldo_forzar($ajusterespaldo, $ivplayer->vimeoid, $origen);
+$bunny = $forzarvimeo ? null : ivplayer_bunny_de_actividad($ivplayer, $playerhtml, $ahora);
 $video = null;
 if ($bunny !== null) {
     $video = [
@@ -150,6 +160,12 @@ if ($bunny !== null && $bunny['firmada']) {
     // reloj (que en un celular puede estar corrido horas) con el vencimiento.
     $contexto['firmaUrl'] = (new moodle_url('/mod/ivplayer/firma.php'))->out(false);
     $contexto['firmaAhora'] = $ahora;
+}
+if ($bunny !== null && ivplayer_respaldo_vimeo($ajusterespaldo, $ivplayer->vimeoid)) {
+    // Red de seguridad para esta carga de Bunny: a dónde avisar antes de recargar con
+    // origen=vimeo (respaldo.php registra la causa y confirma que hay sesión). Sin esto,
+    // el reproductor nunca salta (ajuste apagado, actividad sin Vimeo, o carga de Vimeo).
+    $contexto['respaldoUrl'] = (new moodle_url('/mod/ivplayer/respaldo.php'))->out(false);
 }
 $moodlecontext = json_encode($contexto, $jsonflags);
 

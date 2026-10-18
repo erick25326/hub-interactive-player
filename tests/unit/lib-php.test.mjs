@@ -131,3 +131,85 @@ test('el enlace de Bunny del configurador: sólo para quien edita, en el bloque 
   assert.match(form, /var mensaje = \{ type: "ivplayer-load-config", config: config \};/);
   assert.match(form, /w\.postMessage\(mensaje, CONFIGURATOR_ORIGIN\);/);
 });
+
+// La red de seguridad (plan Bunny 0.4): Vimeo si el CDN de Bunny falla. Lo que hacen las
+// funciones puras y el registro lo prueba correr.php (PHP de verdad, en CI); el
+// reproductor, tests/unit/respaldo.test.mjs y el nivel navegador (escenarios/respaldo.mjs).
+// Acá, sin PHP: que no cambien sin pasar por correr.php y que las puntas sigan enchufadas.
+// Si se suelta una, la red salta por la sesión, no salta nunca, o player.php ignora el
+// pedido y el alumno entra en un bucle de recargas con Bunny.
+test('la red de seguridad: player.php, respaldo.php, el ajuste apagado y el evento, enchufados', async () => {
+  const fs = await import('node:fs');
+  const leer = (rel) => fs.readFileSync(new URL('../../mod/ivplayer/' + rel, import.meta.url), 'utf8').split('\r\n').join('\n');
+  const lib = leerLib();
+  const huellas = {
+    ivplayer_respaldo_vimeo: '5d9175d30c381769',
+    ivplayer_respaldo_forzar: '26a77b798830dc40',
+    ivplayer_respaldo_datos: '7f907762218595a6',
+    ivplayer_respaldo_registrar: '99b8ec1221a05941',
+  };
+  for (const [nombre, esperada] of Object.entries(huellas)) {
+    const f = funcionPhp(lib, nombre);
+    assert.ok(f, `${nombre} ya no está en lib.php`);
+    assert.equal(huella(f), esperada,
+      `${nombre} cambió en lib.php: corré npm run test:php (o el workflow "Pruebas") y, si da bien, poné la huella nueva (${huella(f)})`);
+  }
+
+  // player.php: lee origen, decide ANTES de firmar (con origen=vimeo no firma nada) y
+  // ofrece la red sólo en una carga de Bunny, adentro de MOODLE_CONTEXT.
+  const player = leer('player.php');
+  assert.match(player, /\$origen = optional_param\('origen', '', PARAM_ALPHA\);/);
+  assert.match(player, /\$ajusterespaldo = get_config\('mod_ivplayer', 'respaldovimeo'\);/);
+  assert.match(player, /\$forzarvimeo = ivplayer_respaldo_forzar\(\$ajusterespaldo, \$ivplayer->vimeoid, \$origen\);/);
+  assert.match(player, /\$bunny = \$forzarvimeo \? null : ivplayer_bunny_de_actividad\(\$ivplayer, \$playerhtml, \$ahora\);/);
+  assert.equal((player.match(/ivplayer_bunny_de_actividad\(\$ivplayer/g) || []).length, 1, 'player.php firma en un solo lugar');
+  assert.match(player, /if \(\$bunny !== null && ivplayer_respaldo_vimeo\(\$ajusterespaldo, \$ivplayer->vimeoid\)\) \{\s*(\/\/[^\n]*\n\s*)*\$contexto\['respaldoUrl'\] = \(new moodle_url\('\/mod\/ivplayer\/respaldo\.php'\)\)->out\(false\);/,
+    'respaldoUrl sólo con Bunny en esta carga y la actividad con red');
+  const iUrl = player.indexOf("$contexto['respaldoUrl']"), iJson = player.indexOf('$moodlecontext = json_encode($contexto');
+  assert.ok(iUrl > player.indexOf('$contexto = [') && iUrl < iJson, 'respaldoUrl va en MOODLE_CONTEXT, no en PLAYER_CONFIG');
+  assert.doesNotMatch(player, /respaldo_vimeo_usado|ivplayer_respaldo_registrar/, 'player.php no registra saltos: se recarga solo (giro en iOS, Reintentar) y contaría de más');
+
+  // respaldo.php: POST, siempre JSON, sesión y permisos ANTES de mirar la causa, la causa
+  // validada, la misma regla que player.php y recién ahí el registro.
+  const r = leer('respaldo.php');
+  assert.match(r, /^define\('AJAX_SCRIPT', true\);$/m);
+  assert.doesNotMatch(r, /define\('NO_SESSION_UPDATE'/, 'cuenta como actividad: así Moodle cierra en el pedido una sesión vencida y contesta sesion');
+  assert.match(r, /\(\$_SERVER\['REQUEST_METHOD'\] \?\? ''\) !== 'POST'/);
+  const orden = ['require_login($course, false, $cm, false, true);', "require_capability('mod/ivplayer:view', $context);", 'require_sesskey();',
+    '$datos = ivplayer_respaldo_datos(', 'ivplayer_bunny_de_actividad($ivplayer', "ivplayer_respaldo_vimeo(get_config('mod_ivplayer', 'respaldovimeo'), $ivplayer->vimeoid)",
+    'ivplayer_respaldo_registrar($ivplayer, $course, $cm, $context, $datos)', "ivplayer_respaldo_responder(200, ['ok' => true"];
+  let antes = -1;
+  for (const pieza of orden) {
+    const i = r.indexOf(pieza);
+    assert.ok(i > antes, `respaldo.php: "${pieza}" tiene que estar, y después de lo anterior`);
+    antes = i;
+  }
+  assert.match(r, /if \(!isloggedin\(\) \|\| isguestuser\(\)\) \{\s*ivplayer_respaldo_responder\(401, \['ok' => false, 'motivo' => 'sesion'\]\);/, 'sin sesión: 401 sesion (el reproductor no salta)');
+  assert.match(r, /if \(\$datos === null\) \{\s*ivplayer_respaldo_responder\(400,/);
+  assert.match(r, /ivplayer_respaldo_responder\(409, \['ok' => false, 'motivo' => 'apagado'\]\);/);
+  for (const otro of ['player.php', 'view.php', 'firma.php', 'progress.php', 'complete.php', 'answer.php', 'mod_form.php']) {
+    assert.doesNotMatch(leer(otro), /respaldo_vimeo_usado|ivplayer_respaldo_registrar\(/, `${otro} no tiene que registrar saltos`);
+  }
+
+  // El ajuste: una casilla APAGADA por defecto, con sus textos en los dos idiomas.
+  const ajustes = leer('settings.php');
+  assert.match(ajustes, /new admin_setting_configcheckbox\('mod_ivplayer\/respaldovimeo',[\s\S]*?get_string\('respaldovimeo_desc', 'ivplayer'\),\s*0\)\);/,
+    'la red tiene que ser una casilla apagada por defecto (0)');
+  for (const idioma of ['es', 'en']) {
+    const lang = leer(`lang/${idioma}/ivplayer.php`);
+    for (const clave of ['respaldovimeo', 'respaldovimeo_desc', 'eventrespaldovimeo']) {
+      assert.ok(lang.includes(`$string['${clave}'] = '`), `falta el texto ${clave} en lang/${idioma}`);
+    }
+  }
+
+  // El evento: de core, en el contexto del módulo, con la causa obligatoria.
+  const clase = leer('classes/event/respaldo_vimeo_usado.php');
+  assert.match(clase, /^namespace mod_ivplayer\\event;$/m);
+  assert.match(clase, /class respaldo_vimeo_usado extends \\core\\event\\base \{/);
+  assert.match(clase, /\$this->data\['objecttable'\] = 'ivplayer';/);
+  assert.match(clase, /get_string\('eventrespaldovimeo', 'mod_ivplayer'\)/);
+  assert.match(lib, /class_exists\(\\mod_ivplayer\\event\\respaldo_vimeo_usado::class\)/,'antes del upgrade la clase no está: el registro pregunta antes');
+  // La clase nueva entra al mapa de clases con el upgrade: la versión tiene que haber subido.
+  const version = Number((leer('version.php').match(/\$plugin->version = (\d+);/) || [])[1]);
+  assert.ok(version >= 2026101902, `la versión del plugin tiene que subir con la clase nueva del evento: ${version}`);
+});

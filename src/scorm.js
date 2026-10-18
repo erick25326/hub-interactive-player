@@ -330,6 +330,38 @@ export function moodleSaveProgress(progress, useBeacon = false) {
 }
 
 /**
+ * Guarda el avance YA y espera la respuesta del servidor. La usa la red de seguridad
+ * (src/respaldo.js) antes de recargar la lección con Vimeo: la carga nueva retoma del
+ * savedProgress que arma player.php, así que el avance tiene que estar guardado ANTES.
+ * Devuelve true si el servidor lo aceptó. Si no, queda en la cola como cualquier otro
+ * guardado (lo reintenta esta página o la próxima carga). No-op fuera de Moodle.
+ * @param {{completed: string[], currentTime: number}} progress
+ * @returns {Promise<boolean>}
+ */
+export async function moodleGuardarAvanceYa(progress) {
+  const ctx = typeof window !== 'undefined' ? window.MOODLE_CONTEXT : null;
+  if (!ctx || !ctx.progressUrl) return false;
+  const clave = String(ctx.cmid);
+  const envio = { url: ctx.progressUrl, campos: { cmid: ctx.cmid, data: JSON.stringify(progress) }, guardadoEn: Date.now() };
+  // A la cola primero: es el avance más nuevo de esta lección y reemplaza a uno anterior
+  // que esperaba su reintento (que si no podía llegar DESPUÉS y pisarlo).
+  cola.progreso[clave] = envio;
+  persistir();
+  try {
+    const aceptado = await postear(envio);
+    // Como en vaciarCola: se saca de la cola sólo si mientras viajaba no entró otro.
+    const actual = cola.progreso[clave];
+    if (aceptado && actual && actual.guardadoEn === envio.guardadoEn) {
+      delete cola.progreso[clave];
+      persistir();
+    }
+    return aceptado;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Report a quiz answer to Moodle for grading (plugin mode).
  * Correctness is verified server-side. No-op outside Moodle.
  */

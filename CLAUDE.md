@@ -16,6 +16,8 @@ A standalone interactive video player that replaces H5P for Hub Education's Mood
   real del campus y viaja en player.html, el configurador y cada SCORM (repo público).
   Sin video, `SinVideo` muestra "No hay video para mostrar" (no corre ningún efecto del
   reproductor). Para probar con un video, `window.PLAYER_CONFIG`; nunca acá.
+- `src/respaldo.js` — la red de seguridad (Vimeo si el CDN de Bunny falla): cuándo salta
+  (puro) y el aviso a `respaldo.php`. Ver "Red de seguridad".
 - `src/styles.css` — All styles with `.iv-` prefix namespace
 - `src/main.jsx` — React entry point
 - `vite.config.js` — Build config with singlefile plugin
@@ -486,6 +488,50 @@ la misma superficie del Web SDK que `cast-simulado.js`, y `CastPlayer` no cambia
   reproductor en el iframe sin Cast Web SDK ni Presentation API y con UA MoodleMobile).
   `app=mudo` (nadie contesta), `cast=0`, `holaLento`, `latPuente`, `duplicados=1`,
   `plataforma=ios` (+`airplayApp=0`), `appCastPublicada=1`. Ver puente-app-simulado.js.
+
+## Red de seguridad: Vimeo si Bunny falla (1.4.0, plan Bunny 0.4) — trampas
+Con el ajuste del sitio `respaldovimeo` prendido (APAGADO por defecto) y la actividad con
+ID de Vimeo, una falla del CDN de Bunny recarga la lección con Vimeo y retoma del avance.
+Uso, cómo probarla y cómo contar los saltos: README ("Red de seguridad").
+- 🔴 **NO cambia de motor en caliente**: guarda el avance, avisa a `respaldo.php` y recarga
+  el iframe con `player.php?…&origen=vimeo`. El componente no sabe cambiar de motor (el
+  efecto que crea el reproductor sale si ya hay uno) y el motor propio está atado a la
+  firma, a la TV y al candado.
+- 🔴 **Sólo fallas del CDN** (`causaDelRespaldo`, `src/respaldo.js`): 404, 5xx, red, medio,
+  otro, DESPUÉS de los reintentos del reproductor. **Nunca** 401/403/410 (la firma: la
+  renueva firma.js), nunca con renovación 'sesion' u 'otro', nunca transmitiendo (`tvRef`
+  o `playerRef.current.esTV`). La misma lista del lado del servidor
+  (`ivplayer_respaldo_datos`): un reproductor viejo o tocado tampoco salta por la firma.
+- 🔴 **respaldo.php confirma ANTES de recargar**: con la sesión cerrada contesta 401 y el
+  reproductor NO salta (cartel de la sesión: Reintentar recarga `window.top`). Saltar sin
+  sesión era ver Vimeo sin guardar nada, y player.php sin sesión pone el login de Moodle
+  adentro del iframe. Sin conexión con el campus tampoco salta (la señal del alumno; la
+  recarga mostraría el error del navegador en el iframe). Sin `NO_SESSION_UPDATE` a
+  propósito: así Moodle cierra en ese pedido una sesión vencida.
+- 🔴 **El avance se guarda sólo con `avanceListo`** (se prende en el mismo render que lo
+  restaurado). Un 404 del playlist llega ANTES de `ready`, con el tiempo en 0 y sin
+  respondidas: guardar eso pisaba el avance del servidor (progress.php reemplaza la fila).
+  Sin guardar, la carga con Vimeo retoma del `savedProgress` que ya estaba. Lo vigila
+  `escenarios/respaldo.mjs` (verificado con la mutación).
+- 🔴 **Una sola regla para player.php y respaldo.php** (`ivplayer_respaldo_vimeo`): ajuste
+  '1' + ID de Vimeo. player.php la usa para respetar `origen=vimeo`
+  (`ivplayer_respaldo_forzar`) y para ofrecer `respaldoUrl` en MOODLE_CONTEXT sólo en una
+  carga de Bunny. Sin `respaldoUrl` el reproductor nunca salta. La carga forzada es de
+  Vimeo, así que no puede volver a saltar: el tope es una vez por carga de view.php
+  (además `yaEsRespaldo` mira la URL y `respaldoIntentadoRef` la página).
+- 🔴 **El salto se registra en respaldo.php, nunca en player.php** (el iframe se recarga
+  solo y contaría de más). Evento `\mod_ivplayer\event\respaldo_vimeo_usado`, nivel "otro",
+  con `other` = causa/codigo/detalle. Clase nueva → subió `$plugin->version` (2026101902) y
+  `ivplayer_respaldo_registrar` pregunta `class_exists` (antes del upgrade no rompe: salta
+  sin registrar).
+- Un 5xx en los segmentos tarda ~2 min 20 s en saltar (6 reintentos de hls.js por
+  segmento × 4 rondas de nativePlayer): es lo que tardaba el cartel. Acortarlo es tocar
+  los reintentos de todas las lecciones: decisión aparte.
+- 🔴 Apagar el ajuste el día que los videos de Vimeo pasan a privados (si no, salta a un
+  video que no se ve). Y en `scripts/build-demo.mjs`/SCORM no hay `respaldoUrl`: nunca salta.
+- La prueba de navegador sirve el "Vimeo de mentira" (el mismo HLS sin firma) en la recarga:
+  prueba la recarga y el retomar, no el SDK de Vimeo. El progress.php y el respaldo.php de
+  mentira están en `apoyo/servidor.mjs` (`srv.respaldo`).
 
 ## Evento de vista (plan Bunny 0.3, oct-2026) — trampas
 `view.php` → `ivplayer_view()` (`lib.php`): dispara `\mod_ivplayer\event\course_module_viewed`

@@ -2,8 +2,10 @@ import { useState, useRef, useEffect, useCallback, useMemo, useId, Fragment } fr
 import Player from "@vimeo/player";
 import NativePlayer from "./nativePlayer.js";
 import { Renovador, recargarParaReintentar } from "./firma.js";
+// La red de seguridad (Vimeo si el CDN de Bunny falla): la decisión es pura y vive aparte.
+import { decidirRespaldo, datosDelError, pedirRespaldo, urlDeRespaldo, yaEsRespaldo, GUARDAR_AVANCE_MS } from "./respaldo.js";
 import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, mismoVideo, CastPlayer, castPosible, infoApp, pareceApp } from "./cast.js";
-import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
+import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGuardarAvanceYa, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
 // El candado de preguntas y el parser de subtítulos son puros y viven aparte para
 // poder probarlos sin navegador (tests/unit). Acá sólo se llaman.
 import { debeFrenar, tiempoAGuardar, esTickPropio, pendienteARetomar } from "./candado.js";
@@ -446,6 +448,15 @@ function Reproductor() {
   // Vimeo lo mostraba su propio iframe; con el <video> propio, si no lo dibujamos
   // nosotros, el alumno ve un spinner eterno.
   const [videoError, setVideoError] = useState(null);
+  // Red de seguridad (src/respaldo.js; ver respaldoRef más abajo): mientras se guarda el
+  // avance y se le avisa a Moodle antes de recargar con Vimeo, la ruedita de carga en vez
+  // del cartel. Se intenta una sola vez por carga.
+  const [respaldando, setRespaldando] = useState(false);
+  const respaldoIntentadoRef = useRef(false);
+  const respaldoRef = useRef(()=>false);
+  // Ya se restauró el avance guardado (ver el efecto de "Load progress"): antes, el estado
+  // todavía está en 0 y sin respondidas, y guardarlo pisaría el del alumno.
+  const [avanceListo, setAvanceListo] = useState(false);
   // Transmisión a la TV (sólo con video propio). `tv`: null o { tipo: 'cast' |
   // 'airplay', estado: 'conectando' | 'conectado', nombre } (AirPlay no da nombre).
   // `tvDisp`: si hay una TV a la vista, para mostrar el botón sólo entonces.
@@ -626,6 +637,9 @@ function Reproductor() {
       playIntentRef.current=null;
       setBuffering(false);
       setPlaying(false);
+      // Red de seguridad: una falla del CDN de Bunny recarga la lección con Vimeo, sin
+      // cartel (respaldoRef dice si se hace cargo).
+      if(respaldoRef.current(e)) return;
       setVideoError(e);
     });
     p.on("ended", ()=>{ if(activo()) alTerminarRef.current(); });
@@ -1031,6 +1045,8 @@ function Reproductor() {
         }
       }
     }catch(e){}
+    // En el mismo render que lo restaurado (React junta los dos cambios de estado).
+    setAvanceListo(true);
   },[ready]);
 
   // Save progress to localStorage + Moodle + SCORM (throttled)
@@ -1054,6 +1070,39 @@ function Reproductor() {
     window.addEventListener("pagehide",onUnload);
     return()=>window.removeEventListener("pagehide",onUnload);
   },[ready,completed,currentTime,videoError,activeIA]);
+
+  // Red de seguridad (plan Bunny 0.4; la decisión, en src/respaldo.js). La llama el
+  // manejador de 'error' del motor activo con un error fatal y devuelve true si se hace
+  // cargo (sin cartel): guarda el avance, le avisa a respaldo.php (registra el salto con
+  // su causa y confirma que hay sesión y que el sitio lo permite) y recarga ESTA carga
+  // con ?origen=vimeo, que retoma del avance guardado. Si respaldo.php no confirma, el
+  // cartel de siempre; con la sesión cerrada, el de la sesión ("Reintentar" recarga la
+  // página entera).
+  // 🔴 El avance se guarda sólo con lo restaurado ya en el estado (avanceListo): un 404
+  // del playlist llega ANTES de ready, con el tiempo en 0 y sin respondidas, y guardar
+  // eso pisaba el avance del alumno en el servidor. Sin guardar, la carga con Vimeo
+  // retoma del que ya estaba.
+  respaldoRef.current=(e)=>{
+    const ctx=window.MOODLE_CONTEXT||null;
+    const causa=decidirRespaldo({
+      error:e, respaldoUrl:ctx&&ctx.respaldoUrl,
+      transmitiendo:!!tvRef.current||!!(playerRef.current&&playerRef.current.esTV),
+      intentado:respaldoIntentadoRef.current, enRespaldo:yaEsRespaldo(window.location.href),
+    });
+    if(!causa) return false;
+    respaldoIntentadoRef.current=true;
+    setRespaldando(true);
+    const avance=avanceListo?{completed:[...completed],currentTime:tiempoAGuardar(currentTimeRef.current,activeIA,finRef.current,interactions,completed)}:null;
+    // Con tope: si el guardado tarda, queda en la cola (la carga siguiente lo manda).
+    const guardado=avance?Promise.race([moodleGuardarAvanceYa(avance).catch(()=>false),new Promise(r=>setTimeout(()=>r(false),GUARDAR_AVANCE_MS))]):Promise.resolve(true);
+    const aviso=pedirRespaldo({url:ctx.respaldoUrl,cmid:ctx.cmid,sesskey:ctx.sesskey,...datosDelError(e,causa)});
+    Promise.all([guardado,aviso]).then(([,r])=>{
+      if(r.ok){ window.location.replace(urlDeRespaldo(window.location.href)); return; }
+      setRespaldando(false);
+      setVideoError(r.motivo==='sesion'?{fatal:true,tipo:'acceso',code:null,renovacion:'sesion',message:e.message}:e);
+    });
+    return true;
+  };
 
   // Report completion when the video ends with every interaction done
   // (covers videos with zero interactions and progress restored from a
@@ -2007,13 +2056,14 @@ function Reproductor() {
           <span className="iv-tv-capa-titulo">{tv.estado==='conectando'?'Conectando con la TV…':`Reproduciendo en ${tv.nombre||'la TV'}`}</span>
           {tv.estado!=='conectando'&&<span className="iv-tv-capa-sub">Las preguntas aparecen en esta pantalla.</span>}
         </div>}
-        {ready&&!activeIA&&<div className="iv-click-layer" onClick={handleClickLayer} onTouchStart={resetCtrl} onTouchEnd={handleTouchEnd}/>}
+        {ready&&!activeIA&&!respaldando&&<div className="iv-click-layer" onClick={handleClickLayer} onTouchStart={resetCtrl} onTouchEnd={handleTouchEnd}/>}
         {skipFeedback&&<div className={`iv-skip-feedback ${skipFeedback}`} aria-hidden="true">{skipFeedback==='left'?'⟲ 10s':'10s ⟳'}</div>}
-        {ready&&buffering&&!activeIA&&!videoError&&<div className="iv-buffering"><div className="iv-spinner"/></div>}
-        {!ready&&!videoError&&<div className="iv-loading"><div className="iv-spinner"/><span>Cargando video...</span></div>}
+        {ready&&buffering&&!activeIA&&!videoError&&!respaldando&&<div className="iv-buffering"><div className="iv-spinner"/></div>}
+        {/* También mientras la red de seguridad pasa a Vimeo: para el alumno, es el video que carga. */}
+        {(!ready||respaldando)&&!videoError&&<div className="iv-loading"><div className="iv-spinner"/><span>Cargando video...</span></div>}
         {/* Transmitiendo, sin el botón grande: taparía el cartel de la TV, y la fila de
             controles ya queda visible con el video en pausa. */}
-        {ready&&!playing&&!activeIA&&!videoError&&!tv&&<button className="iv-big-play" onClick={togglePlay} aria-label="Reproducir video"><PlayIcon/></button>}
+        {ready&&!playing&&!activeIA&&!videoError&&!tv&&!respaldando&&<button className="iv-big-play" onClick={togglePlay} aria-label="Reproducir video"><PlayIcon/></button>}
         {/* Avisos para el lector de pantalla (una interacción que aparece sin poder
             llevarle el foco). Existe siempre: una región que aparece junto con su
             texto muchas veces no se anuncia. */}

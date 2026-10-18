@@ -824,6 +824,119 @@ function ivplayer_app_cast_publicada($guardado): bool {
     return !is_array($guardado) && !is_object($guardado) && (string) $guardado === '1';
 }
 
+/* ─── Red de seguridad: Vimeo si el CDN de Bunny falla (plan Bunny 0.4) ── */
+//
+// Si el video de Bunny no se puede reproducir por una falla del CDN (red, 5xx, 404 o un
+// error fatal del medio, después de los reintentos), el reproductor (src/respaldo.js) le
+// avisa a respaldo.php, que registra el salto con su causa, y recarga player.php con
+// ?origen=vimeo. player.php fuerza Vimeo en esa carga sólo con el ajuste del sitio
+// respaldovimeo prendido y la actividad con ID de Vimeo; si no, lo ignora. El ajuste
+// viene APAGADO. No cambia de motor en caliente: recarga, y retoma del avance guardado.
+// Uso, cómo contar los saltos y trampas: README ("Red de seguridad") y CLAUDE.md.
+
+/**
+ * ¿Esta actividad tiene red de seguridad? El ajuste del sitio prendido y un ID de Vimeo
+ * cargado en la actividad.
+ *
+ * La usan player.php (para ofrecerla en una carga de Bunny y para respetar ?origen=vimeo)
+ * y respaldo.php (para no registrar un salto que player.php después ignoraría). Pura a
+ * propósito: tests/php/correr.php la prueba sin Moodle.
+ *
+ * @param mixed $ajuste get_config('mod_ivplayer', 'respaldovimeo'): false sin guardar
+ *        (recién instalado), '0' o '1'. Sólo '1' prende.
+ * @param mixed $vimeoid El ID de Vimeo de la actividad (columna vimeoid). La condición es
+ *        la de la rama de Vimeo de player.php: algo cargado.
+ * @return bool
+ */
+function ivplayer_respaldo_vimeo($ajuste, $vimeoid): bool {
+    if (is_array($ajuste) || is_object($ajuste) || (string) $ajuste !== '1') {
+        return false;
+    }
+    return is_scalar($vimeoid) && trim((string) $vimeoid) !== '';
+}
+
+/**
+ * ¿player.php fuerza Vimeo en esta carga? Sólo si la pidió el reproductor (?origen=vimeo)
+ * y la actividad tiene red de seguridad (ivplayer_respaldo_vimeo). Si no, el parámetro se
+ * ignora y la lección sale como siempre (con Bunny, si lo tiene).
+ *
+ * Pura a propósito (tests/php/correr.php).
+ *
+ * @param mixed $ajuste get_config('mod_ivplayer', 'respaldovimeo').
+ * @param mixed $vimeoid El ID de Vimeo de la actividad.
+ * @param mixed $origen optional_param('origen', '', PARAM_ALPHA).
+ * @return bool
+ */
+function ivplayer_respaldo_forzar($ajuste, $vimeoid, $origen): bool {
+    return $origen === 'vimeo' && ivplayer_respaldo_vimeo($ajuste, $vimeoid);
+}
+
+/**
+ * Lo que manda el reproductor para registrar el salto, validado: la causa, el código
+ * HTTP y el detalle, o null si la causa no es una por la que se salta.
+ *
+ * 🔴 Es la lista de causaDelRespaldo() (src/respaldo.js), del lado del servidor: aunque un
+ * reproductor viejo o tocado lo pidiera, por la firma (401/403/410) no se salta ni se
+ * registra. Con una causa HTTP el código es el de la causa: no se guardan dos datos que
+ * se contradigan.
+ *
+ * Pura a propósito (tests/php/correr.php).
+ *
+ * @param mixed $causa 'red', 'medio', 'otro', 'http-404' o 'http-5NN'.
+ * @param mixed $codigo Código HTTP (0 si no hubo).
+ * @param mixed $detalle El nombre del error (hls.js: manifestLoadError, fragLoadError…).
+ * @return array{causa: string, codigo: int, detalle: string}|null
+ */
+function ivplayer_respaldo_datos($causa, $codigo, $detalle): ?array {
+    if (!is_string($causa) || !preg_match('/^(red|medio|otro|http-404|http-5\d\d)$/D', $causa)) {
+        return null;
+    }
+    $codigo = is_numeric($codigo) ? (int) $codigo : 0;
+    if (in_array($codigo, [401, 403, 410], true)) {
+        return null;
+    }
+    if ($codigo < 0 || $codigo > 599) {
+        $codigo = 0;
+    }
+    if (strpos($causa, 'http-') === 0) {
+        $codigo = (int) substr($causa, 5);
+    }
+    $detalle = is_scalar($detalle) ? preg_replace('/[^A-Za-z0-9_.:-]/', '', (string) $detalle) : '';
+    return ['causa' => $causa, 'codigo' => $codigo, 'detalle' => substr($detalle, 0, 64)];
+}
+
+/**
+ * Registra en el log del campus que esta carga de la lección pasa a Vimeo (la red de
+ * seguridad), con su causa. Lo llama respaldo.php, una vez por salto.
+ *
+ * 🔴 La clase del evento es nueva y Moodle la ve recién después del upgrade, como la del
+ * evento de vista (ver ivplayer_view): sin el class_exists, respaldo.php tiraría "clase no
+ * encontrada" en ese rato y el alumno se quedaría sin el respaldo. Sin la clase, no
+ * registra y devuelve false (el salto sigue).
+ *
+ * @param stdClass $ivplayer Registro de la tabla ivplayer.
+ * @param stdClass $course Registro del curso.
+ * @param stdClass|cm_info $cm Módulo del curso.
+ * @param context_module $context Contexto del módulo.
+ * @param array $datos Lo de ivplayer_respaldo_datos(): causa, codigo, detalle.
+ * @return bool Si quedó registrado.
+ */
+function ivplayer_respaldo_registrar($ivplayer, $course, $cm, $context, array $datos): bool {
+    if (!class_exists(\mod_ivplayer\event\respaldo_vimeo_usado::class)) {
+        return false;
+    }
+    $event = \mod_ivplayer\event\respaldo_vimeo_usado::create([
+        'objectid' => $ivplayer->id,
+        'context' => $context,
+        'other' => $datos,
+    ]);
+    $event->add_record_snapshot('course_modules', $cm);
+    $event->add_record_snapshot('course', $course);
+    $event->add_record_snapshot('ivplayer', $ivplayer);
+    $event->trigger();
+    return true;
+}
+
 /* ─── Subtítulos de la lección ──────────────────────────────── */
 
 /** Tope del archivo de subtítulos que se inyecta en el reproductor (1 MB). */

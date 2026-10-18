@@ -83,6 +83,16 @@ if ($ADMIN->fulltree) {
     });
     $settings->add($ttl);
 
+    // Red de seguridad (plan Bunny 0.4): si el CDN de Bunny falla, la lección se recarga
+    // con el Vimeo de la actividad (player.php ?origen=vimeo; ver respaldo.php y
+    // src/respaldo.js). APAGADA por defecto: se instala apagada y se prende recién
+    // probada en test-academy. Apagarla es la vuelta atrás. Hay que apagarla también el
+    // día en que los videos de Vimeo pasan a privados: si no, salta a un video que no se ve.
+    $settings->add(new admin_setting_configcheckbox('mod_ivplayer/respaldovimeo',
+        get_string('respaldovimeo', 'ivplayer'),
+        get_string('respaldovimeo_desc', 'ivplayer'),
+        0));
+
     // Transmitir a la TV desde la app de Hub Education (reproductor 1.4.0, protocolo
     // ivcast). Apagada por defecto: el reproductor sale antes que la app, y mientras la
     // versión con Chromecast no esté en Play nadie tiene que leer "actualizá la app". Va

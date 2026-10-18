@@ -57,6 +57,15 @@ The key is not included when exporting site admin presets: the plugin adds it to
 $string['bunnytokenttl'] = 'Token lifetime';
 $string['bunnytokenttl_desc'] = 'The minimum time the signed URL lasts from when the student opens the lesson. The expiry is rounded up to the next full hour (so reloads within the same hour reuse what the browser already downloaded), so in practice it lasts between this value and one hour more. While the lesson is open, the player asks for a new URL a few minutes before it expires and keeps going without interruption, as long as the student\'s site session is still open. If it can\'t (the session was closed, no connection), when it expires the video stops and the student has to press "Reintentar" (Retry), which reloads the lesson and resumes from the saved progress. Recommended: 6 hours. It must be between 1 hour and 7 days.';
 
+// Safety net: Vimeo if the Bunny CDN fails (Bunny plan 0.4).
+$string['respaldovimeo'] = 'Safety net: Vimeo if Bunny fails';
+$string['respaldovimeo_desc'] = 'If a lesson\'s Bunny video can\'t be played because of a video server failure (no connection to the CDN, a 5xx error, a 404 or a video error, after the retries), the lesson is reloaded with the activity\'s Vimeo video and resumes from the saved progress. Only for activities that have a Vimeo ID.
+
+It never kicks in because the site session was closed, because of missing permissions or because the signature expired (the player renews that by itself), nor while casting to the TV. Every switch is logged with its cause ("Safety net: lesson switched to Vimeo").
+
+Turn it on only after testing it on the test site, and turn it off the day the Vimeo videos become private: otherwise it switches to a video nobody can see.';
+$string['eventrespaldovimeo'] = 'Safety net: lesson switched to Vimeo';
+
 // Casting to the TV from the Hub Education app (1.4.0).
 $string['appheading'] = 'Cast to the TV from the app';
 $string['appheading_desc'] = 'Inside the Hub Education app, the player casts to the TV through the app\'s Chromecast support. App versions without it keep working as today: the player asks the student to open the lesson in Chrome.';

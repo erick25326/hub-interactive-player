@@ -57,6 +57,15 @@ La clave no sale en la exportación de presets del sitio: el plugin la agrega a 
 $string['bunnytokenttl'] = 'Duración del token';
 $string['bunnytokenttl_desc'] = 'Cuánto dura, como mínimo, la URL firmada desde que el alumno abre la lección. El vencimiento se lleva a la hora en punto siguiente (así las recargas de la misma hora aprovechan lo que el navegador ya bajó), de modo que en la práctica dura entre este valor y una hora más. Con la lección abierta, el reproductor pide una URL nueva unos minutos antes de que venza y sigue sin cortes, mientras la sesión del campus siga abierta. Si no puede (se cerró la sesión, sin conexión), al vencer el video se corta y el alumno tiene que tocar "Reintentar", que recarga la lección y la retoma desde su avance guardado. Recomendado: 6 horas. Tiene que estar entre 1 hora y 7 días.';
 
+// Red de seguridad: Vimeo si el CDN de Bunny falla (plan Bunny 0.4).
+$string['respaldovimeo'] = 'Red de seguridad: Vimeo si Bunny falla';
+$string['respaldovimeo_desc'] = 'Si el video de Bunny de una lección no se puede reproducir por una falla del servidor de video (sin conexión con el CDN, error 5xx, 404 o un error del video, después de los reintentos), la lección se vuelve a cargar con el video de Vimeo de la actividad y retoma desde el avance guardado. Sólo en las actividades que tienen un ID de Vimeo cargado.
+
+No salta nunca por la sesión del campus cerrada, por falta de permiso ni por la firma vencida (eso el reproductor lo renueva solo), ni mientras se transmite a la TV. Cada salto queda en los registros del campus con su causa ("Red de seguridad: la lección pasó a Vimeo").
+
+Prendela recién después de probarla en el sitio de prueba, y apagala el día en que los videos de Vimeo pasen a privados: si no, salta a un video que no se ve.';
+$string['eventrespaldovimeo'] = 'Red de seguridad: la lección pasó a Vimeo';
+
 // Transmitir a la TV desde la app de Hub Education (1.4.0).
 $string['appheading'] = 'Transmitir a la TV desde la app';
 $string['appheading_desc'] = 'Adentro de la app de Hub Education el reproductor transmite a la TV con el Chromecast de la app. Las versiones de la app que no lo tienen siguen como hoy: el reproductor le pide al alumno que abra la lección en Chrome.';

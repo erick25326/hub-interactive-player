@@ -43,6 +43,19 @@
 // vimeoId que no es un ID, como el de config.example.js) · config=ninguna (sin
 // PLAYER_CONFIG: la config por defecto del bundle) · renovar=permiso (el /firma contesta
 // 403 "sin permiso", como firma.php con la actividad oculta: no es la sesión).
+// respaldo=1 (la red de seguridad prendida, como player.php con el ajuste respaldovimeo y
+// la actividad con ID de Vimeo: MOODLE_CONTEXT trae respaldoUrl, progressUrl y el
+// savedProgress del progress.php de mentira) · respaldoModo=sesion|sinvimeo (el /respaldo
+// de esa página contesta "se cerró la sesión" o "no lo deja": la actividad sin Vimeo) ·
+// falla=playlist-404 (el playlist firmado da 404) · falla=red (el playlist apunta a un
+// puerto donde no escucha nadie: el CDN caído). Con respaldo=1 y origen=vimeo (la recarga
+// de la red de seguridad) sirve el "Vimeo de mentira": el mismo video SIN firma (lo que se
+// prueba es la recarga y el retomar, no el SDK de Vimeo), window.__ivpOrigen = 'vimeo' y
+// sin respaldoUrl, como player.php en la carga forzada.
+//   /progreso       el progress.php de mentira: guarda el avance (srv.respaldo.avance).
+//   /respaldo       el respaldo.php de mentira: anota cada pedido (srv.respaldo.pedidos).
+// srv.respaldo.fallaSegmentos = 503 | 404 | null: desde ese momento, los .ts FIRMADOS dan
+// ese error (el Vimeo de mentira no se toca).
 // crearMarcoAjeno(): OTRO servidor (otro puerto, o sea otro origen) con una página que
 // incrusta el reproductor de éste, como una demo o un SCORM: ahí window.top no se puede
 // tocar desde el iframe.
@@ -112,7 +125,19 @@ export const SESSKEY_PRUEBA = 'sk-prueba';
 
 const TIPOS = { '.m3u8': 'application/vnd.apple.mpegurl', '.ts': 'video/mp2t', '.m4s': 'video/iso.segment', '.mp4': 'video/mp4', '.aac': 'audio/aac', '.vtt': 'text/vtt' };
 
-export function crearServidor({ html, video }) {
+// La causa que acepta respaldo.php (ivplayer_respaldo_datos en lib.php).
+const CAUSA_RESPALDO = /^(red|medio|otro|http-404|http-5\d\d)$/;
+
+// Un puerto de 127.0.0.1 donde no escucha nadie (se abre y se cierra uno): el CDN caído.
+function puertoCerrado() {
+  return new Promise((ok, mal) => {
+    const s = http.createServer();
+    s.once('error', mal);
+    s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => ok(port)); });
+  });
+}
+
+export async function crearServidor({ html, video }) {
   // `video`: { tipo: 'local', dir } o { tipo: 'remoto', url }.
   if ((html.match(/<\/head>/gi) || []).length !== 1) throw new Error('el bundle no tiene exactamente un </head>');
   const cache = new Map();
@@ -125,7 +150,12 @@ export function crearServidor({ html, video }) {
   //   pedidos: cada pedido a /firma · servidos: cada pedido de video firmado que se sirvió
   //   · rechazos: cada 403 (con el motivo).
   //   paginaDe: token → página que lo pidió · rotas: páginas con rota=alta.
-  const firma = { emitidas: new Map(), pedidos: [], servidos: [], rechazos: [], n: 0, paginas: 0, inicial: new Map(), lentas: new Set(), paginaDe: new Map(), rotas: new Set() };
+  const firma = { emitidas: new Map(), pedidos: [], servidos: [], rechazos: [], n: 0, paginas: 0, inicial: new Map(), lentas: new Set(), paginaDe: new Map(), rotas: new Set(), fallas: new Map() };
+  // La red de seguridad (respaldo=1): lo que recibieron el progress.php y el respaldo.php
+  // de mentira, el avance guardado, cuántas cargas fueron del "Vimeo de mentira" y la falla
+  // de los segmentos firmados que una prueba prende a mitad de camino.
+  const respaldo = { pedidos: [], progresos: [], avance: null, cargasVimeo: 0, fallaSegmentos: null };
+  const cdnCaido = `http://127.0.0.1:${await puertoCerrado()}`;
   const segundos = () => Date.now() / 1000;
   function emitirFirma(ttl, origen, pag) {
     const token = `HS256-prueba${++firma.n}`;
@@ -178,6 +208,8 @@ export function crearServidor({ html, video }) {
   }
 
   function paginaReproductor(q, origen) {
+    // La recarga de la red de seguridad: el "Vimeo de mentira" (ver arriba).
+    const vimeoDeMentira = q.get('respaldo') === '1' && q.get('origen') === 'vimeo';
     const config = {
       title: 'Prueba del reproductor',
       // URL absoluta: el HLS nativo arma las URL de las variantes con new URL(…, master).
@@ -189,7 +221,7 @@ export function crearServidor({ html, video }) {
     if (q.get('video') === 'ninguno') { delete config.videoUrl; config.vimeoId = ''; }
     if (q.get('video') === 'texto') { delete config.videoUrl; config.vimeoId = 'ID_DEL_VIDEO'; config.vimeoHash = 'HASH_DEL_VIDEO'; }
     let contexto = null;
-    const ttl = Number(q.get('firma'));
+    const ttl = vimeoDeMentira ? 0 : Number(q.get('firma'));
     if (ttl > 0) {
       // Lo que hace player.php con la clave de Bunny cargada: la URL firmada y, en
       // MOODLE_CONTEXT, a dónde pedir otra y la hora del servidor al firmar.
@@ -202,6 +234,27 @@ export function crearServidor({ html, video }) {
       const f = new URLSearchParams({ ttl: String(Number(q.get('renovada')) > 0 ? Number(q.get('renovada')) : ttl), modo, pag });
       if (Number(q.get('demora')) > 0) f.set('demora', q.get('demora'));
       contexto = { cmid: CMID_PRUEBA, sesskey: SESSKEY_PRUEBA, firmaUrl: `${origen}/firma?${f}`, firmaAhora: segundos() };
+      if (q.get('falla') === 'playlist-404') firma.fallas.set(pag, q.get('falla'));
+      // El CDN caído: la misma URL firmada, en un puerto donde no escucha nadie.
+      if (q.get('falla') === 'red') config.videoUrl = f0.playlist.replace(origen, cdnCaido);
+    }
+    if (q.get('respaldo') === '1') {
+      // Lo que agrega player.php con la red prendida (respaldoUrl sólo en la carga de
+      // Bunny) y lo de siempre de Moodle para el avance (progressUrl, savedProgress).
+      if (vimeoDeMentira) {
+        respaldo.cargasVimeo++;
+        config.title = 'Prueba del reproductor (Vimeo de mentira)';
+      } else {
+        let avance = null;
+        try { avance = q.get('progreso') ? JSON.parse(q.get('progreso')) : null; } catch {}
+        respaldo.avance = avance;
+      }
+      const modo = ['sesion', 'sinvimeo'].includes(q.get('respaldoModo')) ? q.get('respaldoModo') : 'ok';
+      contexto = {
+        ...(contexto || {}), cmid: CMID_PRUEBA, sesskey: SESSKEY_PRUEBA,
+        progressUrl: `${origen}/progreso`, savedProgress: respaldo.avance,
+        ...(vimeoDeMentira ? {} : { respaldoUrl: `${origen}/respaldo?modo=${modo}` }),
+      };
     }
     // La casilla "La app con Chromecast ya está publicada" (player.php la pone siempre).
     if (q.get('appCastPublicada') === '1') contexto = { ...(contexto || {}), appCastPublicada: true };
@@ -212,7 +265,8 @@ export function crearServidor({ html, video }) {
     if (q.get('airplay') === '1') antes += `<script>${AIRPLAY}</script>\n`;
     // Sin pantalla completa nativa (como el iPhone): fuerza la simulada de la madre.
     if (q.get('nofs') === '1') antes += '<script>delete Element.prototype.requestFullscreen; delete Element.prototype.webkitRequestFullscreen;</script>\n';
-    if (q.get('progreso')) antes += `<script>try { localStorage.setItem(${json(CLAVE_AVANCE)}, ${json(q.get('progreso'))}); } catch (e) {}</script>\n`;
+    if (q.get('progreso') && !vimeoDeMentira) antes += `<script>try { localStorage.setItem(${json(CLAVE_AVANCE)}, ${json(q.get('progreso'))}); } catch (e) {}</script>\n`;
+    if (vimeoDeMentira) antes += `<script>window.__ivpOrigen = 'vimeo';</script>\n`;
     // 🔴 Con función y no con texto de reemplazo: en un texto, "$'" (que aparece en el
     // ayudante: $('.iv-…')) significa "lo que sigue al hallazgo" y rompía la página.
     const conHead = html.replace(/<head>/i, () => `<head>\n${antes}`);
@@ -283,8 +337,18 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
       res.writeHead(403, { 'content-type': 'text/plain', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
       return res.end('403');
     }
+    // Las fallas del CDN para la red de seguridad (con la firma en regla: no es la firma).
+    const archivo = decodeURIComponent(resto.slice(DIR_FIRMADO.length));
+    const falla = firma.fallas.get(firma.paginaDe.get(token));
+    const estadoFalla = (falla === 'playlist-404' && archivo === 'playlist.m3u8') ? 404
+      : (respaldo.fallaSegmentos && /\.ts$/i.test(archivo)) ? respaldo.fallaSegmentos : 0;
+    if (estadoFalla) {
+      firma.rechazos.push({ ms: Date.now(), token, motivo: `falla ${estadoFalla}`, resto });
+      res.writeHead(estadoFalla, { 'content-type': 'text/plain', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
+      return res.end(String(estadoFalla));
+    }
     firma.servidos.push({ ms: Date.now(), token, expires, resto });
-    return servirHls(decodeURIComponent(resto.slice(DIR_FIRMADO.length)), res);
+    return servirHls(archivo, res);
   }
 
   // firma.php de mentira. Los modos (ver renovar= arriba) imitan lo que puede pasar en el
@@ -321,6 +385,37 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
     });
   }
 
+  // progress.php de mentira. scorm.js manda FormData (multipart): lo lee undici.
+  async function responderProgreso(req, res) {
+    const trozos = [];
+    for await (const t of req) trozos.push(t);
+    let campos = {};
+    try { campos = Object.fromEntries(await new Response(Buffer.concat(trozos), { headers: { 'content-type': req.headers['content-type'] || '' } }).formData()); } catch {}
+    let data = null;
+    try { data = JSON.parse(campos.data); } catch {}
+    respaldo.progresos.push({ ms: Date.now(), cmid: campos.cmid, sesskey: campos.sesskey, data });
+    if (data) respaldo.avance = data;
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ success: !!data }));
+  }
+
+  // respaldo.php de mentira: las mismas respuestas (ver mod/ivplayer/respaldo.php).
+  function responderRespaldo(req, u, res) {
+    const responder = (estado, cuerpo) => { res.writeHead(estado, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(cuerpo)); };
+    let cuerpo = '';
+    req.on('data', (d) => { cuerpo += d; });
+    req.on('end', () => {
+      const b = new URLSearchParams(cuerpo);
+      const modo = u.searchParams.get('modo');
+      respaldo.pedidos.push({ ms: Date.now(), metodo: req.method, modo, cmid: b.get('cmid'), sesskey: b.get('sesskey'), causa: b.get('causa'), codigo: Number(b.get('codigo')), detalle: b.get('detalle') });
+      if (req.method !== 'POST') return responder(405, { ok: false, motivo: 'metodo' });
+      if (modo === 'sesion' || b.get('cmid') !== String(CMID_PRUEBA) || b.get('sesskey') !== SESSKEY_PRUEBA) return responder(401, { ok: false, motivo: 'sesion' });
+      if (!CAUSA_RESPALDO.test(b.get('causa') || '')) return responder(400, { ok: false, motivo: 'causa' });
+      if (modo === 'sinvimeo') return responder(409, { ok: false, motivo: 'apagado' });
+      responder(200, { ok: true, registrado: true });
+    });
+  }
+
   const srv = http.createServer(async (req, res) => {
     try {
       const u = new URL(req.url, 'http://x');
@@ -336,6 +431,8 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
         configurator: fs.readFileSync(path.join(RAIZ, 'configurator', 'index.html'), 'utf8'),
       }));
       if (u.pathname === '/firma') return responderFirma(req, u, origen, res);
+      if (u.pathname === '/progreso') return await responderProgreso(req, res);
+      if (u.pathname === '/respaldo') return responderRespaldo(req, u, res);
       if (u.pathname.startsWith('/bcdn_token=')) return await servirFirmado(u.pathname, res);
       const pre = `/hls/${GUID_PRUEBA}/`;
       if (u.pathname.startsWith(pre)) return await servirHls(decodeURIComponent(u.pathname.slice(pre.length)), res);
@@ -350,7 +447,7 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
     srv.listen(0, '127.0.0.1', () => {
       const base = `http://127.0.0.1:${srv.address().port}`;
       ok({
-        base, pedidosHls, firma, cargas,
+        base, pedidosHls, firma, cargas, respaldo,
         cerrar: () => new Promise((r) => { srv.closeAllConnections?.(); srv.close(() => r()); }),
       });
     });

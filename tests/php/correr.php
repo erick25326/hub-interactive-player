@@ -72,6 +72,9 @@ $funciones = [
     'ivplayer_app_cast_publicada',
     'ivplayer_bunny_configurador',
     'ivplayer_configurador_fuente_html',
+    'ivplayer_respaldo_vimeo',
+    'ivplayer_respaldo_forzar',
+    'ivplayer_respaldo_datos',
 ];
 
 $rutalib = dirname(__DIR__, 2) . '/mod/ivplayer/lib.php';
@@ -521,6 +524,164 @@ if (!preg_match('/^function ivplayer_view\(.*?^\}/ms', $src, $mview)) {
     chequear('el "visto" de la finalización es de este módulo y este curso', $reg[1] ?? null, ['visto', $cmprueba, $curso]);
 }
 seccion('evento de vista: ivplayer_view() (sin la clase y con ella)');
+
+// ─── Red de seguridad: Vimeo si el CDN de Bunny falla (plan Bunny 0.4) ───────
+// player.php respeta ?origen=vimeo (y ofrece la red, respaldoUrl, en una carga de Bunny)
+// sólo con el ajuste respaldovimeo prendido y la actividad con ID de Vimeo; respaldo.php
+// usa la misma regla para no registrar un salto que la lección después ignora. get_config
+// da false con el ajuste sin guardar (recién instalado): apagada.
+chequear('red: sin el ajuste guardado (false), apagada', ivplayer_respaldo_vimeo(false, '111111111'), false);
+chequear('red: ajuste apagado ("0"), apagada', ivplayer_respaldo_vimeo('0', '111111111'), false);
+chequear('red: ajuste prendido y con ID de Vimeo, prendida', ivplayer_respaldo_vimeo('1', '111111111'), true);
+chequear('red: ajuste prendido con el ID como número', ivplayer_respaldo_vimeo('1', 111111111), true);
+chequear('red: ajuste prendido sin ID de Vimeo (vacío), apagada', ivplayer_respaldo_vimeo('1', ''), false);
+chequear('red: ajuste prendido sin ID de Vimeo (espacios), apagada', ivplayer_respaldo_vimeo('1', "  \t"), false);
+chequear('red: ajuste prendido sin ID de Vimeo (NULL de la base), apagada', ivplayer_respaldo_vimeo('1', null), false);
+chequear('red: un arreglo como ID no cuenta', ivplayer_respaldo_vimeo('1', ['111111111']), false);
+chequear('red: cualquier otro valor del ajuste, apagada',
+    [ivplayer_respaldo_vimeo('si', '1'), ivplayer_respaldo_vimeo(1.5, '1'), ivplayer_respaldo_vimeo(['1'], '1'), ivplayer_respaldo_vimeo(null, '1')],
+    [false, false, false, false]);
+chequear('player.php fuerza Vimeo: origen=vimeo + ajuste + ID', ivplayer_respaldo_forzar('1', '111111111', 'vimeo'), true);
+chequear('player.php ignora origen=vimeo con el ajuste apagado', ivplayer_respaldo_forzar('0', '111111111', 'vimeo'), false);
+chequear('player.php ignora origen=vimeo sin el ajuste guardado', ivplayer_respaldo_forzar(false, '111111111', 'vimeo'), false);
+chequear('player.php ignora origen=vimeo en una actividad sin ID de Vimeo', ivplayer_respaldo_forzar('1', '', 'vimeo'), false);
+chequear('player.php sin origen (la carga de siempre): no fuerza', ivplayer_respaldo_forzar('1', '111111111', ''), false);
+chequear('player.php con otro origen: no fuerza',
+    [ivplayer_respaldo_forzar('1', '111111111', 'bunny'), ivplayer_respaldo_forzar('1', '111111111', 'Vimeo'), ivplayer_respaldo_forzar('1', '111111111', null)],
+    [false, false, false]);
+seccion('red de seguridad: la regla de player.php (ajuste + ID de Vimeo + origen=vimeo)');
+
+// respaldo.php sólo registra (y el reproductor sólo salta con su ok) las fallas del CDN.
+chequear('causa: 404', ivplayer_respaldo_datos('http-404', 404, 'manifestLoadError'), ['causa' => 'http-404', 'codigo' => 404, 'detalle' => 'manifestLoadError']);
+chequear('causa: 503 (el código sale de la causa)', ivplayer_respaldo_datos('http-503', '503', 'fragLoadError'), ['causa' => 'http-503', 'codigo' => 503, 'detalle' => 'fragLoadError']);
+chequear('causa: un código que contradice la causa HTTP se corrige', ivplayer_respaldo_datos('http-502', 0, ''), ['causa' => 'http-502', 'codigo' => 502, 'detalle' => '']);
+chequear('causa: red sin código', ivplayer_respaldo_datos('red', 0, 'manifestLoadError'), ['causa' => 'red', 'codigo' => 0, 'detalle' => 'manifestLoadError']);
+chequear('causa: medio y otro', [ivplayer_respaldo_datos('medio', '', '')['causa'] ?? null, ivplayer_respaldo_datos('otro', null, null)['causa'] ?? null], ['medio', 'otro']);
+foreach (['http-401', 'http-403', 'http-410', 'http-400', 'http-200', 'http-5000', 'sesion', 'permiso', 'acceso', '', 'RED', ' red', "red\n", 'http-404x'] as $mala) {
+    chequear('causa rechazada: ' . json_encode($mala), ivplayer_respaldo_datos($mala, 0, ''), null);
+}
+chequear('causa rechazada: no es texto', [ivplayer_respaldo_datos(null, 0, ''), ivplayer_respaldo_datos(['red'], 0, ''), ivplayer_respaldo_datos(404, 404, '')], [null, null, null]);
+chequear('nunca por la firma, aunque venga con otra causa: 401/403/410',
+    [ivplayer_respaldo_datos('red', 403, ''), ivplayer_respaldo_datos('medio', '401', ''), ivplayer_respaldo_datos('otro', 410, '')], [null, null, null]);
+chequear('código fuera de rango o raro: 0',
+    [ivplayer_respaldo_datos('red', 9999, '')['codigo'], ivplayer_respaldo_datos('red', -5, '')['codigo'], ivplayer_respaldo_datos('red', 'x', '')['codigo']], [0, 0, 0]);
+$dmal = ivplayer_respaldo_datos('medio', 0, "PIPELINE_ERROR_DECODE: <script>alert('x')</script>\n" . str_repeat('a', 200));
+chequear('detalle: sólo letras, números y _.:- (va al log)', preg_match('/^[A-Za-z0-9_.:-]*$/D', $dmal['detalle']), 1);
+chequear('detalle: corto (64)', strlen($dmal['detalle']) <= 64, true);
+chequear('detalle: lo útil queda', strpos($dmal['detalle'], 'PIPELINE_ERROR_DECODE:') === 0, true);
+chequear('detalle: si no es texto, vacío', ivplayer_respaldo_datos('red', 0, ['x'])['detalle'], '');
+seccion('red de seguridad: las causas que acepta respaldo.php (sólo fallas del CDN)');
+
+// El registro del salto (ivplayer_respaldo_registrar, que llama respaldo.php): sin Moodle
+// no hay log, se prueba el CABLEADO con lo mínimo de \core\event\base, como el evento de
+// vista. Que llegue al log lo confirma el campus (README, "Red de seguridad").
+if (!defined('CONTEXT_MODULE')) {
+    define('CONTEXT_MODULE', 70);
+}
+eval('namespace core\event;
+abstract class base {
+    const LEVEL_TEACHING = 1;
+    const LEVEL_PARTICIPATING = 2;
+    const LEVEL_OTHER = 0;
+    public static $registro = [];
+    protected $data = [];
+    public $snapshots = [];
+    private $disparado = false;
+    abstract protected function init();
+    final public static function create(?array $data = null) {
+        $evento = new static();
+        $evento->init();
+        $contexto = $data["context"] ?? null;
+        $evento->data["objectid"] = $data["objectid"] ?? null;
+        $evento->data["other"] = $data["other"] ?? null;
+        $evento->data["contextlevel"] = is_object($contexto) ? ($contexto->contextlevel ?? null) : null;
+        $evento->data["contextinstanceid"] = is_object($contexto) ? ($contexto->instanceid ?? null) : null;
+        $evento->data["userid"] = 3;
+        $evento->data["contexto"] = $contexto;
+        $evento->validate_data();
+        return $evento;
+    }
+    protected function validate_data() {
+        // Lo de core para un evento con objectid: objecttable puesto en init().
+        if (!empty($this->data["objectid"]) && empty($this->data["objecttable"])) { throw new \coding_exception("falta objecttable (va en init)"); }
+    }
+    // Como core: sin __isset, empty($this->other["causa"]) daría "vacío" aunque esté.
+    public function __get($nombre) { return $this->data[$nombre] ?? null; }
+    public function __isset($nombre) { return isset($this->data[$nombre]); }
+    public function add_record_snapshot($tabla, $registro) {
+        if ($this->disparado) { throw new \coding_exception("snapshot después de trigger()"); }
+        $this->snapshots[$tabla] = $registro;
+    }
+    public function trigger() {
+        if ($this->disparado) { throw new \coding_exception("trigger() dos veces"); }
+        $this->disparado = true;
+        self::$registro[] = [get_class($this), $this->data, $this->snapshots];
+    }
+}');
+$mreg = [];
+if (!preg_match('/^function ivplayer_respaldo_registrar\(.*?^\}/ms', $src, $mreg)) {
+    chequear('ivplayer_respaldo_registrar está en lib.php', false, true);
+} else {
+    eval($mreg[0]);
+    $curso = (object) ['id' => 5];
+    $cmprueba = (object) ['id' => 393, 'course' => 5, 'instance' => 42, 'modname' => 'ivplayer'];
+    $ivprueba = (object) ['id' => 42, 'course' => 5, 'name' => 'Lección de prueba', 'vimeoid' => '111111111'];
+    $contexto = (object) ['id' => 900, 'contextlevel' => 70, 'instanceid' => 393];
+    $datosr = ivplayer_respaldo_datos('http-404', 404, 'manifestLoadError');
+
+    // Antes del upgrade la clase no está (acá todavía no se cargó): no rompe ni registra.
+    \core\event\base::$registro = [];
+    $error = null;
+    $r = null;
+    try {
+        $r = ivplayer_respaldo_registrar($ivprueba, $curso, $cmprueba, $contexto, $datosr);
+    } catch (Throwable $e) {
+        $error = get_class($e) . ': ' . $e->getMessage();
+    }
+    chequear('registro sin la clase (antes del upgrade): no rompe y dice que no registró', [$error, $r, \core\event\base::$registro], [null, false, []]);
+
+    require $raizplugin . '/classes/event/respaldo_vimeo_usado.php';
+    chequear('el evento propio es un evento de core', is_subclass_of('mod_ivplayer\event\respaldo_vimeo_usado', 'core\event\base'), true);
+    \core\event\base::$registro = [];
+    $error = null;
+    try {
+        $r = ivplayer_respaldo_registrar($ivprueba, $curso, $cmprueba, $contexto, $datosr);
+    } catch (Throwable $e) {
+        $error = get_class($e) . ': ' . $e->getMessage();
+    }
+    $reg = \core\event\base::$registro;
+    chequear('registro con la clase: no rompe, registró, una fila', [$error, $r, count($reg)], [null, true, 1]);
+    $ev = $reg[0] ?? [null, [], []];
+    chequear('el evento es mod_ivplayer\event\respaldo_vimeo_usado', $ev[0], 'mod_ivplayer\event\respaldo_vimeo_usado');
+    chequear('objecttable ivplayer y objectid = la instancia (no el cmid)', [$ev[1]['objecttable'] ?? null, $ev[1]['objectid'] ?? null], ['ivplayer', 42]);
+    chequear('lectura y nivel "otro" (no cuenta como participación)', [$ev[1]['crud'] ?? null, $ev[1]['edulevel'] ?? null], ['r', 0]);
+    chequear('la causa, el código y el detalle van en other (es lo que se cuenta)', $ev[1]['other'] ?? null, ['causa' => 'http-404', 'codigo' => 404, 'detalle' => 'manifestLoadError']);
+    chequear('en el contexto del módulo', ($ev[1]['contexto'] ?? null) === $contexto, true);
+    chequear('con las fotos del módulo, el curso y la instancia',
+        [($ev[2]['course_modules'] ?? null) === $cmprueba, ($ev[2]['course'] ?? null) === $curso, ($ev[2]['ivplayer'] ?? null) === $ivprueba], [true, true, true]);
+    $error = null;
+    try {
+        \mod_ivplayer\event\respaldo_vimeo_usado::create(['objectid' => 42, 'context' => $contexto, 'other' => []]);
+    } catch (Throwable $e) {
+        $error = get_class($e);
+    }
+    chequear('sin la causa no se puede crear (validate_data)', $error, 'coding_exception');
+    $error = null;
+    try {
+        \mod_ivplayer\event\respaldo_vimeo_usado::create(['objectid' => 42, 'context' => (object) ['contextlevel' => 50, 'instanceid' => 5], 'other' => $datosr]);
+    } catch (Throwable $e) {
+        $error = get_class($e);
+    }
+    chequear('fuera del contexto de un módulo no se puede crear', $error, 'coding_exception');
+    chequear('al restaurar: objectid por el mapeo de la instancia, other sin ids',
+        [\mod_ivplayer\event\respaldo_vimeo_usado::get_objectid_mapping(), \mod_ivplayer\event\respaldo_vimeo_usado::get_other_mapping()],
+        [['db' => 'ivplayer', 'restore' => 'ivplayer'], false]);
+    $desc = \mod_ivplayer\event\respaldo_vimeo_usado::create(['objectid' => 42, 'context' => $contexto, 'other' => $datosr])->get_description();
+    chequear('la descripción nombra la causa, el código, el detalle y el módulo',
+        [strpos($desc, "'http-404'") !== false, strpos($desc, 'HTTP code 404') !== false, strpos($desc, "'manifestLoadError'") !== false, strpos($desc, "'393'") !== false],
+        [true, true, true, true]);
+}
+seccion('red de seguridad: registro del salto (ivplayer_respaldo_registrar, sin la clase y con ella)');
 
 echo PHP_EOL . "$ok ok, $mal mal" . PHP_EOL;
 exit($mal ? 1 : 0);
