@@ -191,6 +191,8 @@ se muestra nunca). Ver "Subtítulos en la TV".
 
 ## Glosario interactivo y avisos de las interacciones (1.4.0)
 
+> **Glosario en vivo (19-oct-2026, manda sobre lo que sigue).** Mientras el video está en la TV, la compu o el celular muestran la lista de los términos ya nombrados, la más nueva arriba ("NUEVO"); sale del tiempo, así que al volver para atrás se achica y al volver a ver se rellena. Tocar un término lo despliega (definición, imagen si la etiqueta trae `data.image`, "Ver en el video · M:SS") y **pausa la TV**; plegarlo la retoma, salvo que en el medio la haya pausado el alumno o la haya frenado una pregunta. La cuenta regresiva pasó a **5 s** (tic alto, tres bajos, alto). Preguntas, notas y puntos para tocar no cambian. Sin transmitir, todo como antes. Pendiente: probar con la TV real y sumar la imagen de la etiqueta al configurador.
+
 🔴 **Sólo transmitiendo a la TV (Erick, 19-oct-2026).** Los avisos (tic-tac, cuenta, plop, vibración, sus ajustes) y el glosario existen sólo mientras el video está en la TV: la persona mira la tele y el aviso le dice que vuelva a mirar la compu o el celular. **Sin transmitir, el reproductor es el de antes de la 1.4.0**: etiquetas en pantalla, sin sonidos ni glosario. Lo decide `enTV` en `InteractiveVideoPlayer.jsx`. Erick lo pidió así porque en la compu le cambiaba una experiencia que ya andaba bien. Lo que sigue describe el comportamiento transmitiendo; el pausado del panel que tapa el video quedó sin uso (transmitiendo no pausa).
 
 
