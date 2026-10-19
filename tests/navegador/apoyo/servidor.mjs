@@ -63,6 +63,20 @@
 // de la red de seguridad) sirve el "Vimeo de mentira": el mismo video SIN firma (lo que se
 // prueba es la recarga y el retomar, no el SDK de Vimeo), window.__ivpOrigen = 'vimeo' y
 // sin respaldoUrl, como player.php en la carga forzada.
+// Tarjeta de fin (1.4.0): loop=1 (PLAYER_CONFIG.loop, "Repetir video") · ias=final (las
+// tres de siempre más un V/F en el segundo entero que sigue al fin del video, tfFin: como
+// el configurador, que guarda segundos enteros; frena con el último tick) · completar=1
+// (MOODLE_CONTEXT con completeUrl y progressUrl, como player.php: el reproductor manda
+// complete.php al terminar con todo respondido) · lnav=siguiente|ultima|marcar (en
+// /marco.html: la barra de navegación del tema del campus debajo del iframe, como la
+// inyecta theme_hubeducation en view.php: la próxima lección, la última lección —"Volver
+// al curso"— o "Marcar completada y continuar" con togglecompletion.php).
+//   /completar      el complete.php de mentira: anota cada pedido (srv.fin.completados).
+//   /mod/ivplayer/view.php, /course/view.php
+//                   las páginas a las que lleva la barra: una página mínima que anota la
+//                   llegada (srv.fin.navegacion).
+//   /course/togglecompletion.php
+//                   anota el pedido y redirige a `backto` (del mismo sitio), como core.
 //   /progreso       el progress.php de mentira: guarda el avance (srv.respaldo.avance).
 //   /respaldo       el respaldo.php de mentira: anota cada pedido (srv.respaldo.pedidos).
 // srv.respaldo.fallaSegmentos = 503 | 404 | null: desde ese momento, los .ts FIRMADOS dan
@@ -125,6 +139,27 @@ export const VTT_PRUEBA = [
   '00:00:12.000 --> 00:00:22.000', 'Tercer subtítulo de prueba', '',
 ].join('\n');
 export const CUES_PRUEBA = [[1, 5, 'Primer subtítulo de prueba'], [6, 10.5, 'Este cruza la nota de los 8 segundos'], [12, 22, 'Tercer subtítulo de prueba']];
+// La pregunta del final (?ias=final): el tiempo lo pone el servidor, el segundo entero que
+// sigue a la duración del video de prueba.
+export const INTERACCION_FINAL = { id: 'tfFin', type: 'true-false', data: { statement: 'Afirmación del final del video', correct: true, explanation: 'Explicación.' } };
+// La barra de navegación del tema del campus (?lnav= en /marco.html), con el mismo
+// marcado que arma theme_hubeducation (hook_callbacks::course_activity_nav_html). Nombres
+// sintéticos.
+export const LECCION_SIGUIENTE = { ruta: '/mod/ivplayer/view.php?id=8', nombre: 'Lección 2: Partes del dron' };
+export const CURSO = '/course/view.php?id=2';
+function barraDelTema(modo, origen) {
+  const anterior = '<a class="hub-lnav-btn prev" href="/mod/ivplayer/view.php?id=6"><span class="hub-lnav-dir mono"><span aria-hidden="true">&larr;</span> Anterior</span><span class="hub-lnav-name">Lección 0: Antes de volar</span></a>';
+  let siguiente;
+  if (modo === 'ultima') {
+    siguiente = `<a class="hub-lnav-btn next end" href="${CURSO}"><span class="hub-lnav-dir mono">Terminaste el curso <span aria-hidden="true">&rarr;</span></span><span class="hub-lnav-name">Volver al curso</span></a>`;
+  } else if (modo === 'marcar') {
+    const href = `/course/togglecompletion.php?${new URLSearchParams({ id: String(CMID_PRUEBA), completionstate: '1', sesskey: SESSKEY_PRUEBA, backto: origen + LECCION_SIGUIENTE.ruta })}`.replace(/&/g, '&amp;');
+    siguiente = `<a class="hub-lnav-btn next" href="${href}"><span class="hub-lnav-dir mono"><span aria-hidden="true">&#10003;</span> Marcar completada y continuar</span><span class="hub-lnav-name">${LECCION_SIGUIENTE.nombre}</span></a>`;
+  } else {
+    siguiente = `<a class="hub-lnav-btn next" href="${LECCION_SIGUIENTE.ruta}"><span class="hub-lnav-dir mono">Siguiente lección <span aria-hidden="true">&rarr;</span></span><span class="hub-lnav-name">${LECCION_SIGUIENTE.nombre}</span></a>`;
+  }
+  return `<nav class="hub-lnav" aria-label="Navegación entre lecciones">${anterior}${siguiente}</nav>`;
+}
 
 const leerAqui = (...p) => fs.readFileSync(path.join(AQUI, ...p), 'utf8');
 const AYUDANTE = leerAqui('ayudante-pagina.js');
@@ -196,6 +231,9 @@ export async function crearServidor({ html, video }) {
   // Los enlaces de subtítulos para la TV que emitió este servidor (s → e) y cada pedido
   // que le llegó a /subtitulos (con lo que se contestó).
   const subs = { emitidas: new Map(), pedidos: [], n: 0 };
+  // La tarjeta de fin: lo que recibió el complete.php de mentira y a dónde se navegó desde
+  // la barra del tema (incluido el paso por togglecompletion.php).
+  const fin = { completados: [], navegacion: [] };
   function emitirSubs(expires, origen) {
     const s = `sub-prueba-${++subs.n}`;
     subs.emitidas.set(s, expires);
@@ -268,6 +306,9 @@ export async function crearServidor({ html, video }) {
     // pone player.php con el ajuste de la actividad; sin él, el de por defecto).
     if (q.get('ias') === 'glosario') config.interactions = INTERACCIONES_GLOSARIO;
     if (q.get('ias') === 'juntas') config.interactions = INTERACCIONES_JUNTAS;
+    // Tarjeta de fin: una pregunta del final y "Repetir video".
+    if (q.get('ias') === 'final') config.interactions = [...INTERACCIONES, { ...INTERACCION_FINAL, time: Math.ceil(video.duracion || 78) }];
+    if (q.get('loop') === '1') config.loop = true;
     if (['glosario', 'pantalla'].includes(q.get('etiquetas'))) config.etiquetas = q.get('etiquetas');
     if (q.get('video') === 'ninguno') { delete config.videoUrl; config.vimeoId = ''; }
     if (q.get('video') === 'texto') { delete config.videoUrl; config.vimeoId = 'ID_DEL_VIDEO'; config.vimeoHash = 'HASH_DEL_VIDEO'; }
@@ -316,6 +357,8 @@ export async function crearServidor({ html, video }) {
     }
     // La casilla "La app con Chromecast ya está publicada" (player.php la pone siempre).
     if (q.get('appCastPublicada') === '1') contexto = { ...(contexto || {}), appCastPublicada: true };
+    // Lo de Moodle para la finalización y el avance (player.php siempre los pone).
+    if (q.get('completar') === '1') contexto = { ...(contexto || {}), cmid: CMID_PRUEBA, sesskey: SESSKEY_PRUEBA, completeUrl: `${origen}/completar`, progressUrl: `${origen}/progreso` };
     let antes = `<script>${AYUDANTE}</script>\n`;
     if (q.get('webview') === '1') antes += `<script>${scriptWebview(q)}</script>\n`;
     if (['fake', 'mudo'].includes(q.get('app')) && q.get('plataforma') !== 'ios') antes += `<script>${PUENTE_IFRAME}</script>\n`;
@@ -334,9 +377,11 @@ export async function crearServidor({ html, video }) {
       .replace(/<\/head>/i, () => `<script>\nwindow.PLAYER_CONFIG = ${json(config)};${contexto ? `\nwindow.MOODLE_CONTEXT = ${json(contexto)};` : ''}\n</script>\n</head>`);
   }
 
-  function paginaMarco(q) {
+  function paginaMarco(q, origen) {
     const ancho = /^\d+px$/.test(q.get('ancho') || '') ? q.get('ancho') : '100vw';
     q.delete('ancho');
+    // La barra del tema, debajo del video como en view.php (la lee la tarjeta de fin).
+    const lnav = ['siguiente', 'ultima', 'marcar'].includes(q.get('lnav')) ? barraDelTema(q.get('lnav'), origen) : '';
     // hub-app simulada (y su TV) en la página de arriba: es la que tiene la sesión de Cast,
     // y sobrevive a que el iframe del reproductor se recargue (salir y volver).
     const app = ['fake', 'mudo'].includes(q.get('app')) ? `<script>${TV}</script>\n<script>${PUENTE}</script>\n` : '';
@@ -344,6 +389,7 @@ export async function crearServidor({ html, video }) {
 <style>html,body{margin:0;background:#222}iframe{border:0;width:${ancho};aspect-ratio:16/9;display:block}
 iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;z-index:9}</style></head>
 <body><iframe src="/player.html?${q.toString().replace(/"/g, '&quot;')}" title="Reproductor" allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe>
+${lnav}
 <script>
   // Lo que hace view.php con el pedido de pantalla completa simulada del reproductor.
   const f = document.querySelector('iframe');
@@ -471,6 +517,18 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
     res.end(JSON.stringify({ success: !!data }));
   }
 
+  // complete.php de mentira (scorm.js manda FormData: cmid + sesskey). Contesta como el de
+  // verdad, { success: true }: si no, la cola lo reintentaría.
+  async function responderCompletar(req, res) {
+    const trozos = [];
+    for await (const t of req) trozos.push(t);
+    let campos = {};
+    try { campos = Object.fromEntries(await new Response(Buffer.concat(trozos), { headers: { 'content-type': req.headers['content-type'] || '' } }).formData()); } catch {}
+    fin.completados.push({ ms: Date.now(), metodo: req.method, cmid: campos.cmid, sesskey: campos.sesskey });
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ success: true }));
+  }
+
   // respaldo.php de mentira: las mismas respuestas (ver mod/ivplayer/respaldo.php).
   function responderRespaldo(req, u, res) {
     const responder = (estado, cuerpo) => { res.writeHead(estado, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(cuerpo)); };
@@ -494,7 +552,21 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
       const origen = `http://${req.headers.host}`;
       const pagina = (cuerpo) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(cuerpo); };
       if (u.pathname === '/player.html') { cargas.reproductor++; return pagina(paginaReproductor(u.searchParams, origen)); }
-      if (u.pathname === '/marco.html') { cargas.marco++; return pagina(paginaMarco(new URLSearchParams(u.searchParams))); }
+      if (u.pathname === '/marco.html') { cargas.marco++; return pagina(paginaMarco(new URLSearchParams(u.searchParams), origen)); }
+      // La tarjeta de fin: complete.php y a dónde lleva la barra del tema.
+      if (u.pathname === '/completar') return await responderCompletar(req, res);
+      if (u.pathname === '/mod/ivplayer/view.php' || u.pathname === '/course/view.php') {
+        fin.navegacion.push({ ms: Date.now(), ruta: u.pathname + u.search });
+        return pagina(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Destino</title></head><body><p id="destino">${u.pathname}</p></body></html>`);
+      }
+      if (u.pathname === '/course/togglecompletion.php') {
+        fin.navegacion.push({ ms: Date.now(), ruta: u.pathname + u.search, id: u.searchParams.get('id'), completionstate: u.searchParams.get('completionstate'), sesskey: u.searchParams.get('sesskey') });
+        let backto = null;
+        try { const b = new URL(u.searchParams.get('backto') || '', origen); if (b.origin === origen) backto = b.pathname + b.search; } catch {}
+        if (!backto) { res.writeHead(400); return res.end(); }
+        res.writeHead(303, { location: backto, 'cache-control': 'no-store' });
+        return res.end();
+      }
       if (u.pathname === '/vacio.html') return pagina('<!doctype html><title>vacío</title>');
       // Se lee en cada pedido: así prueba el configurador como está en el disco.
       if (u.pathname === '/configurador.html') return pagina(armarConfigurador({
@@ -520,7 +592,7 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
     srv.listen(0, '127.0.0.1', () => {
       const base = `http://127.0.0.1:${srv.address().port}`;
       ok({
-        base, pedidosHls, firma, cargas, respaldo, subs,
+        base, pedidosHls, firma, cargas, respaldo, subs, fin,
         cerrar: () => new Promise((r) => { srv.closeAllConnections?.(); srv.close(() => r()); }),
       });
     });

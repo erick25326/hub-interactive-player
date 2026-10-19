@@ -45,9 +45,10 @@
     return Number.isFinite(w) ? +(w * d / 100).toFixed(3) : null;
   };
   const interacciones = () => (window.PLAYER_CONFIG && window.PLAYER_CONFIG.interactions) || [];
-  // La tarjeta abierta y a qué interacción del config corresponde (por su texto).
+  // La tarjeta abierta y a qué interacción del config corresponde (por su texto). La
+  // tarjeta de FIN (.iv-fin) no es una interacción: la leen las pruebas de fin.mjs.
   A.tarjeta = () => {
-    const c = $('.iv-card, .iv-hotspot-container');
+    const c = $('.iv-card:not(.iv-fin), .iv-hotspot-container');
     if (!c) return null;
     const tipo = c.classList.contains('iv-note-card') ? 'nota' : c.classList.contains('iv-tf-card') ? 'vf'
       : c.classList.contains('iv-quiz-card') ? 'mc' : 'hotspot';
