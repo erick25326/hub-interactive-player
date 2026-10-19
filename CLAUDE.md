@@ -24,6 +24,9 @@ A standalone interactive video player that replaces H5P for Hub Education's Mood
   preferencias del alumno, el silencio del video) y el glosario de las etiquetas (también
   cuándo el panel pausa y retoma el video), puros; `src/sonidos.js`, los
   sonidos (Web Audio) y la vibración. Ver "Glosario interactivo y avisos".
+- `src/finVideo.js` — la tarjeta de fin del video, lo puro: leer la barra del tema en la
+  página de arriba, qué destino se acepta, "Lección completada" o "Terminaste el video" y
+  los textos. Ver "Tarjeta de fin del video".
 - `src/styles.css` — All styles with `.iv-` prefix namespace
 - `src/main.jsx` — React entry point
 - `vite.config.js` — Build config with singlefile plugin
@@ -433,8 +436,10 @@ TVs reales están en el README.
   reproduciéndolo**: el freno propio (`_prefrenar`) y los saltos propios limpian
   `_playExterno`; si no, el freno de la pregunta siguiente rebobinaba la TV.
 - 🔴 **La pregunta del final**: `alTerminar` marca `evaluarEnFinRef` (como dismiss).
-  La TV manda el último segundo y 'ended' juntos, el 0 del rebobinado llega en una
-  microtarea y React los junta en un render: sin la marca, el efecto sólo veía el 0.
+  La TV manda el último segundo y 'ended' juntos y React los junta en un render: hasta la
+  tarjeta de fin, el 0 del rebobinado caía en ese mismo render y el efecto sólo veía el 0.
+  Ya no se rebobina (ver "Tarjeta de fin del video"), pero la marca sigue: la pasada
+  contra el fin es la que encuentra la pregunta que el FINISHED le ganó al freno.
 - 🔴 **El volumen de la TV no se toca**: el reproductor llama `setVolume` con cada
   play (para el silencio forzado del iframe) y la pondría al 100%. Sólo silencio, y
   el sonido vuelve sólo si lo silenciamos nosotros.
@@ -778,6 +783,53 @@ los sonidos (Web Audio, sin archivos): `src/sonidos.js`.
   `clicBarra(p, seg)` (avisos.mjs) hace un clic real en la barra en ese segundo.
 - Sin animaciones infinitas en lo nuevo (lo mira `glosario.mjs`) y sin ninguna con
   `prefers-reduced-motion`.
+
+## Tarjeta de fin del video (1.4.0, pedido de Erick 19-oct-2026) — trampas
+Al terminar: "Lección completada" (o "Terminaste el video"), "Siguiente: <próxima>",
+"Siguiente lección →" y "Volver a ver"; en la última, "Volver al curso"; sin la barra del
+tema arriba, sólo "Volver a ver". Uso y pendientes: README ("Tarjeta de fin del video").
+Lo puro, `src/finVideo.js`; el resto, "Tarjeta de fin" en el componente.
+- 🔴 **El video ya NO vuelve a 0 al terminar, ni repite con `loop`.** `alTerminar` deja
+  el estado en el fin (`setCurrent(fin)`) y pide la tarjeta (`finPendienteRef` +
+  `senalFin`). El play con el video terminado (`terminoRef`) es `volverAEmpezar` (salto
+  propio a 0 + safePlay), igual que "Volver a ver". Lo que había atado al rebobinado:
+  - el avance guardado sigue siendo 0 terminado (`tiempoDelAvance`, en los tres
+    guardados: el periódico, el de pagehide y el de la red de seguridad);
+  - `senalFin` está en las dependencias del efecto de disparo: sin el 0 del rebobinado,
+    el tiempo puede no cambiar y la pasada contra el fin (`evaluarEnFinRef`) no corría;
+  - `conectarCast` con el video terminado carga la TV en 0 (en pausa), como cuando el
+    celular volvía a 0; `volverALocal` conserva `terminoRef` (seekTo lo pone en false);
+  - 🔴 **nativePlayer retoma la carga de hls.js en el evento 'play'** si quedó detenida
+    desde 'ended' (salvo `_enEspera`, transmitiendo): un play de AFUERA (auriculares,
+    pantalla de bloqueo) con el video terminado saltaba solo al 0 y se quedaba sin datos
+    para siempre (lo agarra "un play de afuera…" de fin.mjs; verificado con la mutación).
+- 🔴 **La tarjeta la abre un efecto DESPUÉS del de disparo**, nunca `alTerminar`: si el
+  fin trae una pregunta pendiente (o la pasada contra el fin encuentra otra del mismo
+  tramo), `mostrar` ya puso `activeIARef` y la tarjeta espera a que la respondan. Si se
+  mueve ese efecto antes del de disparo, la tarjeta tapa la pregunta del final (mutante
+  verificado).
+- La tarjeta tapa todo como una pregunta: controles `inert`, sin capa de toques ni botón
+  grande, cierra el menú y el glosario (y `reanudarAlCerrar` la cuenta como `pregunta`:
+  cerrar el glosario no retoma nada). Escape y la X la cierran; el foco vuelve al botón de
+  reproducir DESPUÉS del render (`devolverFocoFinRef`: antes los controles siguen inert).
+  Se va sola con un play (manejador de 'play'), un salto de la transcripción o de la
+  pantalla de bloqueo, ±10 y Reiniciar (`soltarFinRef`).
+- 🔴 **Sólo enlaces http(s) del mismo origen que la página de arriba** (`destinoDeFin`), y
+  se navega `window.top` en el mismo toque, después de salir de la pantalla completa (la
+  de `top`, la propia o la simulada por mensaje a la madre).
+- "Lección completada" = `registra` (MOODLE_CONTEXT.completeUrl o la API de SCORM) y (ya
+  completada o todo respondido): la misma regla con que sale `complete.php`. No cambia
+  cuándo se completa.
+- Usa `.iv-card` (estilos de las preguntas) más `.iv-fin`: el ayudante de las pruebas
+  (`A.tarjeta`) mira `.iv-card:not(.iv-fin)`. La capa es un contenedor de TAMAÑO (`ivfin`)
+  con el fondo ADENTRO (una consulta no puede tocar a su propio contenedor): a 320 × 180
+  entra entera sin el tope del 90 % de `.iv-card`.
+- Pruebas: `escenarios/fin.mjs` con `marco.html?lnav=siguiente|ultima|marcar` (la barra
+  con el marcado del tema), `completar=1` (complete.php y progress.php de mentira),
+  `loop=1`, `ias=final` (un V/F en el segundo entero que sigue al fin). Mutantes
+  verificados (oct-2026): la tarjeta sin esperar a la pregunta, el bucle de vuelta, sin
+  salir de la pantalla completa, el avance en el fin, sin el foco y sin retomar la carga
+  de hls.js: cada uno lo agarra una prueba.
 
 ## Brand
 - Colors: #0162F5 (primary), #14CCF7 (secondary), #84F4BE (accent), #062E60 (dark)
