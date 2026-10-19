@@ -3,7 +3,9 @@
 // pantalla completa SIMULADA (la del iPhone: la madre agranda el iframe), con el
 // celular parado (aparece el botón de girar). 🔴 El botón de SALIR de pantalla
 // completa no se puede recortar nunca: si no, el alumno no tiene cómo salir. Ya pasó
-// dos veces (320 px; y entre 341 y ~365 px con el botón de girar, oct-2026).
+// dos veces (320 px; y entre 341 y ~365 px con el botón de girar, oct-2026), y una
+// tercera con el botón del glosario (1.4.0: 10 px afuera a 360). La nota de los 8
+// respondida pone el glosario (las notas vistas quedan en él), así que su botón está.
 // Se entra con un TOQUE real (pantalla táctil emulada), como en el celular.
 import { describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +15,7 @@ import { dormir } from '../apoyo/chrome.mjs';
 export function registrar(entorno) {
   const p = entorno.pagina;
   describe('celular angosto · pantalla completa simulada', () => {
-    for (const ancho of [320, 360]) {
+    for (const ancho of [320, 340, 360, 372, 400]) {
       paso(entorno, `a ${ancho} px el botón de salir de pantalla completa queda entero y se puede tocar`, async (t) => {
         await p.vista({ ancho, alto: 740, movil: true, escala: 2, tactil: true });
         try {
@@ -58,6 +60,7 @@ export function registrar(entorno) {
           assert.ok(m.boton[0] >= m.contenedor[0] - 0.5 && m.boton[1] <= m.contenedor[1] + 0.5, `el botón de salir se sale del reproductor: ${JSON.stringify(m)}`);
           assert.ok(m.sobra >= 0, `la fila desborda ${-m.sobra} px: ${JSON.stringify(m)}`);
           assert.ok(m.tocable, `en el centro del botón de salir hay otra cosa: ${JSON.stringify(m)}`);
+          assert.ok(m.visibles.some((v) => /^Glosario/.test(v)), `el botón del glosario tiene que estar en la fila: ${JSON.stringify(m)}`);
           // Y sale de verdad.
           await p.toque('.iv-fs-btn');
           await p.debe(`A.estado().botonFS === 'Pantalla completa'`, 5000, 'el botón de salir no sacó de la pantalla completa');
@@ -66,5 +69,35 @@ export function registrar(entorno) {
         }
       });
     }
+
+    // Sin pantalla completa no hay botón de girar, pero sí el de la TV en la fila (a más
+    // de 340 px) junto con el del glosario: el otro caso cargado entre 341 y 400 px.
+    paso(entorno, 'sin pantalla completa, con la TV y el glosario en la fila, de 341 a 400 px no desborda', async (t) => {
+      try {
+        for (const ancho of [341, 360, 375, 400]) {
+          await p.vista({ ancho, alto: 740, movil: true, escala: 2, tactil: true });
+          await p.abrir({
+            pagina: 'marco.html',
+            query: { motor: 'hls', subs: 'vtt', cast: 'fake', ancho: `${ancho}px` },
+            progreso: { completed: ['n8'], currentTime: 1 },
+          });
+          await p.debe(`!!D.querySelector('.iv-tv-btn') && !!D.querySelector('.iv-glosario-btn')`, 10000, 'no aparecieron los botones de la TV y del glosario');
+          await p.a('D.fonts.ready.then(() => true)');
+          await dormir(300);
+          const m = await p.a(`(() => {
+            const c = D.querySelector('.iv-container').getBoundingClientRect();
+            const fila = D.querySelector('.iv-controls-row');
+            const b = D.querySelector('.iv-fs-btn').getBoundingClientRect();
+            const tv = D.querySelector('.iv-tv-btn').getBoundingClientRect();
+            return { contenedor: [c.left, c.right], boton: [b.left, b.right], tv: tv.width, sobra: fila.clientWidth - fila.scrollWidth };
+          })()`);
+          t.diagnostic(`${ancho} px: ${JSON.stringify(m)}`);
+          assert.ok(m.tv > 0, `a ${ancho} px el de la TV va en la fila: ${JSON.stringify(m)}`);
+          assert.ok(m.sobra >= 0 && m.boton[1] <= m.contenedor[1] + 0.5, `a ${ancho} px la fila desborda: ${JSON.stringify(m)}`);
+        }
+      } finally {
+        await p.vista();
+      }
+    });
   });
 }

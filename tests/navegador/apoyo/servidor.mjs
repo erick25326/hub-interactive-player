@@ -20,7 +20,10 @@
 //                   GitHub Pages (scripts/armar-configurador.mjs), con ESTE reproductor
 //                   compilado adentro para la vista previa.
 // Query de /player.html: motor=hls|nativo|auto · progreso=<json del avance> ·
-// subs=vtt · cast=fake (la TV simulada + el emisor de Chrome; lat, hayTV… los leen los
+// subs=vtt · ias=glosario (INTERACCIONES_GLOSARIO: etiquetas, nota, pregunta, punto
+// para tocar) · etiquetas=glosario|pantalla (el modo de la actividad) · sonido=simulado
+// (Web Audio y vibración de mentira que anotan todo: simulados/sonido-simulado.js) ·
+// cast=fake (la TV simulada + el emisor de Chrome; lat, hayTV… los leen los
 // simulados) · airplay=1 · nofs=1 · webview=1 (como el WebView de hub-app: sin Cast Web
 // SDK, sin Presentation API ni window.chrome, y el UA con "MoodleMobile"; con
 // plataforma=ios, el de un iPhone) · appCastPublicada=1 (MOODLE_CONTEXT con la casilla del
@@ -80,6 +83,21 @@ export const INTERACCIONES = [
   { id: 'tf25', type: 'true-false', time: 25, data: { statement: 'Afirmación de los 25 s', correct: true, explanation: 'Explicación.' } },
   { id: 'tf60', type: 'true-false', time: 60, data: { statement: 'Afirmación de los 60 s', correct: false, explanation: 'Explicación.' } },
 ];
+// Las de los avisos y el glosario (?ias=glosario): etiquetas, una nota, una pregunta,
+// un punto para tocar y un V/F, sin tiempos que se pisen (los tics de una pendiente son
+// a los 3, 2 y 1 s antes: nota7 → 4, 5, 6; mc15 → 12, 13, 14; hs22 → 19, 20, 21;
+// tf40 → 37, 38, 39). Los textos son los de la lección 3.1 de Introducción (no son
+// secretos); el video de esa lección no va.
+export const INTERACCIONES_GLOSARIO = [
+  { id: 'data-link', type: 'label', time: 2, duration: 6, data: { text: 'Data Link', definition: 'Sistema de comunicación inalámbrica que conecta el control remoto con la aeronave. Permite el envío de comandos y la recepción de video y telemetría en tiempo real.', x: 5, y: 15 } },
+  { id: 'nota7', type: 'note', time: 7, data: { title: 'Dato curioso: Wi-Fi en drones DJI', text: 'En algunos DJI, el enlace depende de **cómo se vuela**, no sólo del modelo.' } },
+  { id: 'frecuencia', type: 'label', time: 10, duration: 7, data: { text: 'Frecuencia', definition: 'Cantidad de ciclos por segundo en los que oscila una onda de radio. Se mide en hertz (Hz).', x: 5, y: 30 } },
+  { id: 'mc15', type: 'multiple-choice', time: 15, data: { question: '¿Por qué enlace viajan la telemetría y el video en tiempo real?', options: [{ id: 'a', text: 'Uplink' }, { id: 'b', text: 'Downlink' }, { id: 'c', text: 'Control link' }], correctId: 'b', explanation: 'Por el **downlink**: el enlace que va del dron hacia el control.' } },
+  { id: 'telemetria', type: 'label', time: 18, duration: 8, data: { text: 'Telemetría', definition: 'Conjunto de datos que el dron envía al piloto: altura, distancia, velocidad, nivel de batería, señal GPS, entre otros.', x: 5, y: 15 } },
+  { id: 'hs22', type: 'hotspot', time: 22, duration: 8, data: { spots: [{ id: 's1', x: 30, y: 40, label: 'Antena', info: 'Por acá sale y entra el enlace.' }] } },
+  { id: 'ocusync', type: 'label', time: 32, duration: 8, data: { text: 'Ocusync', definition: 'Tecnología de transmisión inalámbrica de DJI. Gestiona el uplink y el downlink para mantener un enlace estable.', x: 5, y: 15 } },
+  { id: 'tf40', type: 'true-false', time: 40, data: { statement: 'El uplink lleva los comandos del control al dron.', correct: true, explanation: 'Sí: el uplink va del control al dron.' } },
+];
 // Subtítulos sintéticos (los de los cursos son contenido pago y no van en el repo). El
 // segundo cue cruza la nota de los 8 s: con la tarjeta abierta no se tiene que ver.
 export const VTT_PRUEBA = [
@@ -95,6 +113,7 @@ const TV = leerAqui('..', 'simulados', 'tv-simulada.js');
 const CAST = leerAqui('..', 'simulados', 'cast-simulado.js');
 const PUENTE = leerAqui('..', 'simulados', 'puente-app-simulado.js');
 const AIRPLAY = leerAqui('..', 'simulados', 'airplay-simulado.js');
+const SONIDO = leerAqui('..', 'simulados', 'sonido-simulado.js');
 
 // Como JSON_HEX_TAG de player.php: un "</script>" dentro de un texto no corta el bloque.
 const json = (x) => JSON.stringify(x).replace(/</g, '\\u003c');
@@ -218,6 +237,10 @@ export async function crearServidor({ html, video }) {
       interactions: INTERACCIONES,
     };
     if (q.get('subs') === 'vtt') config.subtitlesVtt = VTT_PRUEBA;
+    // Los avisos y el glosario: otras interacciones y el modo de las etiquetas (lo que
+    // pone player.php con el ajuste de la actividad; sin él, el de por defecto).
+    if (q.get('ias') === 'glosario') config.interactions = INTERACCIONES_GLOSARIO;
+    if (['glosario', 'pantalla'].includes(q.get('etiquetas'))) config.etiquetas = q.get('etiquetas');
     if (q.get('video') === 'ninguno') { delete config.videoUrl; config.vimeoId = ''; }
     if (q.get('video') === 'texto') { delete config.videoUrl; config.vimeoId = 'ID_DEL_VIDEO'; config.vimeoHash = 'HASH_DEL_VIDEO'; }
     let contexto = null;
@@ -263,6 +286,7 @@ export async function crearServidor({ html, video }) {
     if (['fake', 'mudo'].includes(q.get('app')) && q.get('plataforma') !== 'ios') antes += `<script>${PUENTE_IFRAME}</script>\n`;
     if (q.get('cast') === 'fake') antes += `<script>${TV}</script>\n<script>${CAST}</script>\n`;
     if (q.get('airplay') === '1') antes += `<script>${AIRPLAY}</script>\n`;
+    if (q.get('sonido') === 'simulado') antes += `<script>${SONIDO}</script>\n`;
     // Sin pantalla completa nativa (como el iPhone): fuerza la simulada de la madre.
     if (q.get('nofs') === '1') antes += '<script>delete Element.prototype.requestFullscreen; delete Element.prototype.webkitRequestFullscreen;</script>\n';
     if (q.get('progreso') && !vimeoDeMentira) antes += `<script>try { localStorage.setItem(${json(CLAVE_AVANCE)}, ${json(q.get('progreso'))}); } catch (e) {}</script>\n`;
