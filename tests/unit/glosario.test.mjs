@@ -94,6 +94,15 @@ describe('terminosNuevos: cuándo se suma cada término', () => {
     assert.deepEqual(sumados, []);
   });
 
+  test('a más de 1×, un paso más largo sigue siendo reproducción (umbral por velocidad)', () => {
+    // 2,6 s de video entre dos renders: a 2× es un tick de 1,3 s de reloj (el latido de
+    // la TV en segundo plano); a 1× es un salto.
+    const a2 = terminosNuevos({ interactions: LECCION, nombrados: new Set(['data-link', 'ondas']), prev: 7, t: 9.6, reproduciendo: true, velocidad: 2 });
+    assert.deepEqual(a2.map((x) => [x.id, x.sonido]), [['frecuencia', true]]);
+    const a1 = terminosNuevos({ interactions: LECCION, nombrados: new Set(['data-link', 'ondas']), prev: 7, t: 9.6, reproduciendo: true, velocidad: 1 });
+    assert.deepEqual(a1.map((x) => [x.id, x.sonido]), [['frecuencia', false]]);
+  });
+
   test('dos términos en el mismo paso (un tick largo) salen en orden de tiempo, los dos con sonido', () => {
     const xs = terminosNuevos({ interactions: LECCION, nombrados: new Set(['data-link']), prev: 3.5, t: 4.2, reproduciendo: true });
     assert.deepEqual(xs.map((x) => [x.id, x.nombre, x.sonido]), [['ondas', 'Ondas de radio', true]]);

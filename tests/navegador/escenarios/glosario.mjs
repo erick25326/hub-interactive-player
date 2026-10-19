@@ -93,6 +93,38 @@ export function registrar(entorno) {
       assert.equal(await p.a(`!!D.querySelector('.iv-glosario')`), false, 'la pregunta cierra el glosario');
     }, { timeout: 90000 });
 
+    paso(entorno, 'con el panel abierto: la fila de controles queda libre y un término nuevo se le anuncia al lector de pantalla', async () => {
+      await p.abrir({ query: Q, progreso: { completed: [], currentTime: 0.5 }, esperarEn: 0.5 });
+      await p.reproducir();
+      // Abrirlo reproduciendo, antes del término de los 2 s (tocar un control lo cierra,
+      // como el menú: por eso no se da play con el panel abierto).
+      await p.clic('.iv-glosario-btn');
+      await p.debe(`!!D.querySelector('.iv-glosario')`, 2000, 'no se abrió el glosario');
+      const t0 = await p.a('A.comp()');
+      assert.ok(t0 < 1.9, `abierto antes de que se nombre Data Link: ${t0}`);
+      // Cada botón de la fila se puede tocar con el panel abierto (antes el lateral bajaba
+      // hasta el borde y tapaba Glosario, Ajustes y Pantalla completa).
+      const tapados = await p.a(`[...D.querySelectorAll('.iv-controls-row button')].filter((b) => b.offsetParent).filter((b) => {
+        const r = b.getBoundingClientRect();
+        const h = D.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !(h && b.contains(h));
+      }).map((b) => b.getAttribute('aria-label'))`);
+      assert.deepEqual(tapados, [], 'botones tapados por el panel');
+      const g = await p.a(`(() => { const a = D.querySelector('.iv-glosario').getBoundingClientRect(), b = D.querySelector('.iv-controls-row').getBoundingClientRect(); return { panelAbajo: a.bottom, filaArriba: b.top }; })()`);
+      assert.ok(g.panelAbajo <= g.filaArriba + 1, `el panel termina arriba de la fila: ${JSON.stringify(g)}`);
+      // El término de los 2 s, con el panel abierto: sin aviso visible, pero anunciado.
+      await p.debe(`/Nuevo en el glosario: Data Link/.test(D.querySelector('.iv-glosario-anuncio')?.textContent || '')`, 6000, 'el término nuevo no se anunció con el panel abierto');
+      assert.equal(await p.a(`D.querySelector('.iv-glosario-anuncio').getAttribute('aria-live')`), 'polite');
+      assert.equal(await p.a(`!!D.querySelector('.iv-glosario-aviso')`), false, 'el aviso visible sigue sin mostrarse con el panel abierto');
+      assert.equal((await terminos(p))[0].recien, true, 'en la lista, arriba y con "recién"');
+      // Pausar con el panel abierto: el botón responde (y el panel se cierra, como al
+      // tocar cualquier cosa afuera).
+      await pausar(p);
+      await p.debe(`A.video().paused`, 3000, 'no se pausó con el panel abierto');
+      await p.debe(`!D.querySelector('.iv-glosario')`, 2000, 'tocar un control no cerró el panel');
+      assert.equal(await p.a(`D.querySelector('.iv-glosario-anuncio').textContent`), '', 'con el panel cerrado, la región queda vacía');
+    });
+
     paso(entorno, 'un salto hacia adelante suma callado lo que quedó atrás; volver para atrás no saca nada', async () => {
       await p.abrir({ query: Q, progreso: { completed: ['nota7'], currentTime: 0.5 }, esperarEn: 0.5 });
       assert.equal(await contador(p), '1', 'la nota vista en otra sesión ya está en el glosario');

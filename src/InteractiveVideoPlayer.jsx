@@ -530,6 +530,8 @@ function Reproductor() {
   const [recienes, setRecienes] = useState({});          // id → hasta cuándo dice "recién"
   const [avisoGlosario, setAvisoGlosario] = useState(null);   // { id, nombre }: "Nuevo en el glosario: …"
   const avisoGlosarioTimer = useRef(null);
+  const [anuncioPanel, setAnuncioPanel] = useState('');   // lo mismo con el panel abierto, sólo para el lector de pantalla
+  const anuncioPanelTimer = useRef(null);
   const [latido, setLatido] = useState(0);               // cambia → el contador late UNA vez
   const [glosarioAbierto, setGlosarioAbiertoEstado] = useState(false);
   const glosarioRef = useRef(false);
@@ -874,9 +876,17 @@ function Reproductor() {
     const prev=prevAvisoRef.current, t=currentTime;
     prevAvisoRef.current=t;
     if(!ready) return;
-    const reproduciendo=playingRef.current;
+    // 🔴 Un salto PEDIDO (barra, ±10 s, teclado, transcripción, restaurar, la vuelta de
+    // la TV) deja seekTargetRef puesto hasta que resuelve: ese paso es un salto aunque
+    // sea corto. El ±10 que frena EXACTO en una pendiente a menos de SEEK_MIN se leía
+    // como reproducción y sonaban el plop suave de una etiqueta del medio y un tic de la
+    // pendiente siguiente, que además cortaba la vibración del freno (oct-2026).
+    const reproduciendo=playingRef.current&&seekTargetRef.current==null;
+    // Frenó en este mismo paso (el efecto de disparo va antes y ya puso la tarjeta,
+    // aunque activeIA de este render siga en null): el plop del freno es el único sonido.
+    const frenando=!!(activeIA||activeIARef.current);
     if(conGlosario){
-      const nuevos=terminosNuevos({interactions,nombrados:nombradosRef.current,prev,t,reproduciendo});
+      const nuevos=terminosNuevos({interactions,nombrados:nombradosRef.current,prev,t,reproduciendo,velocidad:speed});
       if(nuevos.length){
         const sig=new Set(nombradosRef.current);
         nuevos.forEach(n=>sig.add(n.id));
@@ -887,15 +897,23 @@ function Reproductor() {
         // quedaron atrás en un salto se suman callados.
         const oidos=nuevos.filter(n=>n.sonido);
         if(oidos.length){
-          avisarRef.current('suave');
+          // Una etiqueta en el mismo segundo que una pregunta: se suma (con "recién" y
+          // el latido) sin su plop suave encima del plop del freno.
+          if(!frenando) avisarRef.current('suave');
           const hasta=Date.now()+RECIEN_MS;
           setRecienes(r=>{ const x={...r}; oidos.forEach(n=>{ x[n.id]=hasta; }); return x; });
           setLatido(n=>n+1);
+          const n=oidos[oidos.length-1];
           if(!glosarioRef.current&&!activeIARef.current){
-            const n=oidos[oidos.length-1];
             clearTimeout(avisoGlosarioTimer.current);
             setAvisoGlosario({id:n.id,nombre:n.nombre});
             avisoGlosarioTimer.current=setTimeout(()=>setAvisoGlosario(null),AVISO_MS);
+          } else if(glosarioRef.current&&!activeIARef.current){
+            // Con el panel abierto no hay aviso a la vista, pero el lector de pantalla
+            // se tiene que enterar igual (la lista cambia sin mover el foco).
+            clearTimeout(anuncioPanelTimer.current);
+            setAnuncioPanel(`Nuevo en el glosario: ${n.nombre}`);
+            anuncioPanelTimer.current=setTimeout(()=>setAnuncioPanel(''),AVISO_MS);
           }
         }
       }
@@ -904,9 +922,9 @@ function Reproductor() {
     // olvida: se repite la próxima vez que se cruce.
     ticsRef.current=olvidarTics(ticsRef.current,t);
     const c=cuentaRef.current;
-    if(activeIA){ if(c){ setCuenta(null); setAvisoCuenta(''); } return; }
+    if(frenando){ if(c){ setCuenta(null); setAvisoCuenta(''); } return; }
     if(c&&(completed.has(c.id)||triggered.current.has(c.id)||cuentaRegresiva(c.ia,t,finRef.current)==null)){ setCuenta(null); setAvisoCuenta(''); }
-    const tics=ticsEntre({interactions,completed,triggered:triggered.current,prev,t,reproduciendo,tocados:ticsRef.current,fin:finRef.current});
+    const tics=ticsEntre({interactions,completed,triggered:triggered.current,prev,t,reproduciendo,tocados:ticsRef.current,fin:finRef.current,velocidad:speed});
     if(!tics.length) return;
     tics.forEach(x=>ticsRef.current.set(x.clave,x.marca));
     // Dos marcas en el mismo paso (un tick largo) sonarían como una: se toca la última.
@@ -1443,7 +1461,7 @@ function Reproductor() {
     return()=>document.removeEventListener('pointerdown',h,true);
   },[glosarioAbierto]);
   useEffect(()=>{ if(activeIA||videoError){ setGlosarioAbierto(false); setAvisoGlosario(null); } },[activeIA,videoError]);
-  useEffect(()=>()=>clearTimeout(avisoGlosarioTimer.current),[]);
+  useEffect(()=>()=>{ clearTimeout(avisoGlosarioTimer.current); clearTimeout(anuncioPanelTimer.current); },[]);
 
   const togglePlay=()=>{
     const p=playerRef.current;if(!p||!ready)return;
@@ -1781,6 +1799,10 @@ function Reproductor() {
   // 🔴 Todo dentro del toque y SIN await antes: el selector de Chrome
   // (PresentationRequest.start) y el de AirPlay (remote.prompt) exigen el gesto.
   const tocarTV=()=>{
+    // También es un gesto: conectar la TV antes del primer play hace arrancar la TV sola
+    // y, sin esto, los avisos de la primera interacción no sonaban ni vibraban hasta el
+    // primer "Continuar". Sincrónico (no consume el toque que piden los selectores).
+    sonidosRef.current.desbloquear({audio:sonidoOnRef.current});
     const p=playerRef.current;
     if(p&&p.esTV){
       // Dejar de transmitir. El <video> retoma ya, dentro del toque (el play vale
@@ -2312,6 +2334,9 @@ function Reproductor() {
             <GlosarioIcon/><span>Nuevo en el glosario: <strong>{avisoGlosario.nombre}</strong></span>
           </button>}
         </div>}
+        {/* Con el panel abierto el aviso no se muestra (la lista ya tiene el término con
+            "recién"): éste se lo dice al lector de pantalla. Existe siempre, como las otras. */}
+        {conGlosario&&<div className="iv-sr iv-glosario-anuncio" role="status" aria-live="polite">{glosarioAbierto?anuncioPanel:''}</div>}
         {videoError&&<div className="iv-error" role="alert">
           <strong>No se pudo cargar el video</strong>
           <span>{textoDelError(videoError)} Tu avance está guardado.</span>

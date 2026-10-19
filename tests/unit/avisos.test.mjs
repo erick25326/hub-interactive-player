@@ -7,9 +7,10 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  frena, queSeViene, textoCuenta, ticsEntre, olvidarTics, cuentaRegresiva,
+  frena, queSeViene, textoCuenta, ticsEntre, olvidarTics, cuentaRegresiva, umbralPaso,
   leerPreferencia, guardarPreferencia, AVISO_S, VIBRA_TIC, VIBRA_FRENO, OLVIDO_S, CLAVE_SONIDO, CLAVE_VIBRACION,
 } from '../../src/avisos.js';
+import { SEEK_MIN } from '../../src/candado.js';
 import { crearSonidos, vibracionPosible } from '../../src/sonidos.js';
 
 const NOTA = { id: 'n10', type: 'note', time: 10, data: { title: 'Nota', text: 'Texto' } };
@@ -121,6 +122,61 @@ describe('ticsEntre: el tic-tac de los 3 segundos', () => {
     const xs = ticsEntre({ interactions: [tarde], completed: vacio(), triggered: vacio(), prev: 75.5, t: 75.8, reproduciendo: true, fin: 78.72 });
     assert.deepEqual(xs.map((x) => [x.restan, +x.marca.toFixed(2)]), [[3, 75.67]]);
     assert.equal(cuentaRegresiva(tarde, 77.8, 78.72), 1);
+  });
+
+  test('dos que frenan a menos de 3 s: se anuncia sólo la PRÓXIMA, nunca las dos a la vez', () => {
+    const nota7 = { id: 'n7', type: 'note', time: 7, data: {} };
+    const vf9 = { id: 'vf9', type: 'true-false', time: 9, data: {} };
+    const vf12 = { id: 'vf12', type: 'true-false', time: 12, data: {} };
+    const juntas = [nota7, vf9, vf12];
+    const base = { interactions: juntas, completed: vacio(), triggered: vacio(), reproduciendo: true };
+    // En 6 cruzan la marca del 1 de la nota y la del 3 del V/F de los 9: suena la nota.
+    assert.deepEqual(ticsEntre({ ...base, prev: 5.9, t: 6.15 }).map((x) => [x.id, x.restan]), [['n7', 1]]);
+    // Ya frenada la nota (está en triggered), la próxima es la de los 9.
+    assert.deepEqual(ticsEntre({ ...base, triggered: new Set(['n7']), prev: 7.9, t: 8.15 }).map((x) => [x.id, x.restan]), [['vf9', 1]]);
+
+    // Recorrido como el componente: al cruzar una que frena, el efecto de disparo la
+    // muestra (triggered) y en ese paso no suena ningún tic (el plop es el único sonido).
+    const triggered = vacio();
+    let tocados = new Map(), prev = 3;
+    const sonaron = [];
+    for (let t = 3.25; t <= 12.5 + 1e-9; t += 0.25) {
+      tocados = olvidarTics(tocados, t);
+      const frenada = juntas.find((ia) => !triggered.has(ia.id) && prev < ia.time && ia.time <= t);
+      if (frenada) { triggered.add(frenada.id); prev = t; continue; }
+      const xs = ticsEntre({ interactions: juntas, completed: vacio(), triggered, prev, t, reproduciendo: true, tocados });
+      xs.forEach((x) => tocados.set(x.clave, x.marca));
+      assert.ok(new Set(xs.map((x) => x.id)).size <= 1, `en un paso, tics de una sola: ${JSON.stringify(xs)}`);
+      if (xs.length) sonaron.push([xs[xs.length - 1].id, xs[xs.length - 1].restan, +t.toFixed(2)]);
+      prev = t;
+    }
+    // La nota: 3, 2, 1. El V/F de los 9: sólo el 1 (el 3 cayó en el aviso de la nota y
+    // el 2, en el paso en que la nota frenó). El de los 12: 3 (en 9, al frenar el de
+    // los 9, no suena), así que 2 y 1.
+    assert.deepEqual(sonaron, [['n7', 3, 4], ['n7', 2, 5], ['n7', 1, 6], ['vf9', 1, 8], ['vf12', 2, 10], ['vf12', 1, 11]]);
+  });
+
+  test('a igual segundo, la primera de la lista (la que frena el efecto de disparo)', () => {
+    const a = { id: 'a', type: 'note', time: 10, data: {} };
+    const b = { id: 'b', type: 'true-false', time: 10, data: {} };
+    const xs = ticsEntre({ interactions: [a, b], completed: vacio(), triggered: vacio(), prev: 6.9, t: 7.1, reproduciendo: true });
+    assert.deepEqual(xs.map((x) => x.id), ['a']);
+  });
+
+  test('el umbral del salto crece con la velocidad (sólo por encima de 1×)', () => {
+    assert.equal(umbralPaso(), SEEK_MIN);
+    assert.equal(umbralPaso(1), SEEK_MIN);
+    assert.equal(umbralPaso(0.5), SEEK_MIN, 'a 0,5× no se achica: el umbral sigue siendo el del candado');
+    assert.equal(umbralPaso(2), 2 * SEEK_MIN);
+    assert.equal(umbralPaso(1.5), 1.5 * SEEK_MIN);
+    assert.equal(umbralPaso('x'), SEEK_MIN, 'una velocidad rara vale 1×');
+    // A 2×, un tick de 1,2 s de reloj (el latido de la TV en segundo plano) son 2,4 s de
+    // video: es reproducción, no un salto (cruza las marcas de 17 y 18; el componente
+    // toca la última). A 1× el mismo paso sí es un salto.
+    const base = { interactions: [MC], completed: vacio(), triggered: vacio(), prev: 16.5, t: 18.9, reproduciendo: true };
+    assert.deepEqual(ticsEntre({ ...base, velocidad: 2 }).map((x) => x.restan), [3, 2]);
+    assert.deepEqual(ticsEntre({ ...base, velocidad: 1 }), []);
+    assert.deepEqual(ticsEntre({ ...base, prev: 10, t: 18.9, velocidad: 2 }), [], 'un salto de verdad sigue siendo salto');
   });
 
   test('una al principio del video (en 1 o 2 s) no tiene tics que no se pueden cruzar', () => {

@@ -1359,12 +1359,15 @@ html, body { margin: 0; padding: 0; background: #000; }
   container-type: size;
   container-name: ivgl;
 }
-/* Ancho: lateral derecho, de arriba abajo. */
+/* Ancho: lateral derecho, de arriba hasta la fila de controles. 🔴 bottom: 56px, como
+   .iv-ajustes: hasta oct-2026 bajaba hasta el borde y tapaba Glosario, TV, Ajustes y
+   Pantalla completa (también la salida de la pantalla completa). La barra queda
+   visible con el panel abierto (el componente la fuerza). */
 .iv-glosario {
   position: absolute;
   top: 0;
   right: 0;
-  bottom: 0;
+  bottom: 56px;
   width: min(360px, 46%);
   display: flex;
   flex-direction: column;
@@ -1499,8 +1502,10 @@ html, body { margin: 0; padding: 0; background: #000; }
 .iv-glosario-def strong { color: #fff; }
 .iv-glosario-sindef { margin: 0; color: rgba(255, 255, 255, 0.5); }
 .iv-glosario-vacio { margin: 0; padding: 14px; color: rgba(255, 255, 255, 0.7); line-height: 1.5; }
-/* Angosto (celular parado, el iframe chico del campus): hoja de abajo, a lo ancho.
-   Bajo (≤300 px de alto: un 16:9 de celular parado mide ~210): ocupa todo. */
+/* Angosto (celular parado, el iframe chico del campus): hoja de abajo, a lo ancho,
+   apoyada sobre la fila de controles (el bottom de arriba). Bajo (≤300 px de alto: un
+   16:9 de celular parado mide ~210): ocupa todo, controles incluidos. Ahí no entra otra
+   cosa; el video sigue corriendo debajo hasta que se cierra con la X o tocando afuera. */
 @container ivgl (max-width: 560px) {
   .iv-glosario {
     top: auto;
@@ -1515,7 +1520,7 @@ html, body { margin: 0; padding: 0; background: #000; }
   }
 }
 @container ivgl (max-width: 560px) and (max-height: 300px) {
-  .iv-glosario { height: 100%; border-radius: 0; border-top: none; }
+  .iv-glosario { bottom: 0; height: 100%; border-radius: 0; border-top: none; }
   .iv-glosario-cabecera { padding-top: 4px; padding-bottom: 4px; }
   .iv-glosario-termino > button { min-height: 36px; padding: 6px 8px; }
 }

@@ -8,7 +8,8 @@
 // se repita al volver para atrás, que los ajustes del alumno lo apaguen y que siga en
 // el celular transmitiendo a la TV.
 // Interacciones (?ias=glosario): nota7 (tics en 4, 5, 6), mc15 (12, 13, 14), hs22
-// (19, 20, 21), tf40; etiquetas en 2, 10, 18 y 32 (sin tic).
+// (19, 20, 21), tf40; etiquetas en 2, 10, 18 y 32 (sin tic). Con ?ias=juntas: nota7 y
+// tf9 (a menos de 3 s) y una etiqueta en 9, el mismo segundo que el V/F.
 import { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { paso } from '../apoyo/entorno.mjs';
@@ -41,6 +42,18 @@ export async function velocidad(p, texto) {
   await p.clic('.iv-ajustes-opcion', { texto });
 }
 export const pausar = (p) => p.clic('.iv-controls-row button[aria-label="Pausar"]');
+
+// Clic REAL en la barra, en el segundo `seg` del video (la barra frena sola en una
+// pendiente si la cruza). Primero el mouse encima, que muestra los controles.
+export async function clicBarra(p, seg) {
+  const r = await p.a(`(() => { const b = D.querySelector('.iv-progress-container').getBoundingClientRect(); return { x: b.left, y: b.top + b.height / 2, w: b.width, d: A.duracion() }; })()`);
+  assert.ok(r && r.d > 0, `no hay barra con duración: ${JSON.stringify(r)}`);
+  const x = r.x + r.w * (seg / r.d);
+  await p.cdp.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y: r.y });
+  await dormir(60);
+  await p.cdp.cmd('Input.dispatchMouseEvent', { type: 'mousePressed', x, y: r.y, button: 'left', clickCount: 1 });
+  await p.cdp.cmd('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y: r.y, button: 'left', clickCount: 1 });
+}
 
 // Los tres tics de una pendiente: alto-bajo-alto, cada uno al cruzar su marca (entre la
 // marca y un tick después: a 2× el tick es de ~0,5 s de video).
@@ -118,6 +131,60 @@ export function registrar(entorno) {
       assert.equal(de(S, 'plop').length, 1, 'el plop al frenar sí');
       assert.deepEqual(patrones(S), [FRENO]);
     });
+
+    paso(entorno, 'dos que frenan a menos de 3 s: se anuncia sólo la próxima, el freno vibra entero y la etiqueta del mismo segundo no suena encima', async () => {
+      await p.abrir({ query: { ...Q, ias: 'juntas' }, progreso: { completed: [], currentTime: 3 }, esperarEn: 3 });
+      await p.reproducir();
+      await p.debe(`A.tarjeta()?.id === 'nota7'`, 15000, 'no frenó en la nota de los 7');
+      await dormir(300);
+      let S = await sonidos(p);
+      // Sólo la nota: 3, 2, 1 (antes, en 6 la cuenta saltaba a "3 Se viene una pregunta"
+      // y el tic del V/F sonaba junto con el plop de la nota, cortándole la vibración).
+      tresTics(tics(S), [4, 5, 6], 0.45);
+      assert.deepEqual(S.cuentas.map((c) => c.txt).filter(Boolean), ['3 Se viene una nota', '2 Se viene una nota', '1 Se viene una nota'], `la cuenta anuncia sólo la nota: ${JSON.stringify(S.cuentas)}`);
+      assert.equal(de(S, 'plop').length, 1);
+      assert.deepEqual(patrones(S), ['40', '40', '40', FRENO], 'el freno de la nota vibra entero, sin un tic encima');
+      await p.responder();
+      // Al seguir, el V/F de los 9 con el tic que le queda (el 1, en 8) y su cuenta.
+      await p.debe(`A.tarjeta()?.id === 'tf9'`, 10000, 'no frenó en el V/F de los 9');
+      await dormir(300);
+      S = await sonidos(p);
+      const delVF = tics(S).slice(3);
+      assert.deepEqual(delVF.map((o) => o.que), ['tic-alto'], `el V/F, sólo con el tic del 1: ${JSON.stringify(delVF)}`);
+      assert.ok(delVF[0].t >= 7.95 && delVF[0].t <= 8.45, `en 8: ${JSON.stringify(delVF)}`);
+      assert.ok(S.cuentas.some((c) => c.txt === '1 Se viene una pregunta'), `la cuenta del V/F: ${JSON.stringify(S.cuentas.slice(-3))}`);
+      assert.equal(de(S, 'plop').length, 2);
+      assert.deepEqual(patrones(S), ['40', '40', '40', FRENO, '40', FRENO]);
+      // La etiqueta de los 9 se sumó (nota vista + Frecuencia), sin el plop suave encima.
+      assert.equal(de(S, 'suave').length, 0, `sin plop suave encima del freno: ${JSON.stringify(S.osc)}`);
+      assert.equal(await p.a(`D.querySelector('.iv-glosario-marca')?.textContent`), '2', 'la etiqueta del mismo segundo igual quedó en el glosario');
+    }, { timeout: 60000 });
+
+    paso(entorno, 'un salto corto con la barra (menos de 2 s) reproduciendo es callado: ni el término ni el tic que cruza', async () => {
+      await p.abrir({ query: Q, progreso: { completed: ['nota7'], currentTime: 8.4 }, esperarEn: 8.4 });
+      assert.equal(await p.a(`D.querySelector('.iv-glosario-marca')?.textContent`), '2', 'la nota vista y Data Link (quedó atrás al restaurar) ya están');
+      await p.reproducir();
+      await p.debe(`A.comp() > 8.6`, 5000, 'no arrancó');
+      // Cruza la etiqueta de los 10 con un salto de ~1,6 s (antes sonaba como reproducción).
+      let desde = await p.a('A.comp()');
+      await clicBarra(p, desde + 1.6);
+      await p.debe(`D.querySelector('.iv-glosario-marca')?.textContent === '3'`, 5000, 'el salto no sumó Frecuencia');
+      await p.debe(`A.comp() > 10.9`, 6000, 'no siguió reproduciendo después del salto');
+      let S = await sonidos(p);
+      assert.equal(de(S, 'suave').length, 0, `el término que cruzó el salto se suma callado: ${JSON.stringify(S.osc)}`);
+      assert.equal(await p.a(`!!D.querySelector('.iv-glosario-aviso')`), false, 'y sin aviso');
+      // Cruza la marca de los 12 de la pregunta de los 15: ese tic no suena; los de 13 y
+      // 14, reproduciendo, sí.
+      desde = await p.a('A.comp()');
+      assert.ok(desde < 11.6, `todavía antes de la marca de los 12: ${desde}`);
+      await clicBarra(p, Math.min(desde + 1.5, 12.6));
+      await p.debe(`A.tarjeta()?.id === 'mc15'`, 10000, 'no frenó en la pregunta de los 15');
+      await dormir(300);
+      S = await sonidos(p);
+      assert.deepEqual(tics(S).map((o) => o.que), ['tic-bajo', 'tic-alto'], `sólo los tics de 13 y 14: ${JSON.stringify(tics(S))}`);
+      assert.ok(tics(S)[0].t >= 12.95, `el primero, al cruzar 13: ${JSON.stringify(tics(S))}`);
+      assert.deepEqual(patrones(S), ['40', '40', FRENO]);
+    }, { timeout: 60000 });
 
     paso(entorno, 'volver para atrás antes de la pregunta: el aviso se repite al cruzarlo de nuevo', async () => {
       await p.abrir({ query: Q, progreso: { completed: ['nota7'], currentTime: 10.5 }, esperarEn: 10.5 });
@@ -200,5 +267,20 @@ export function registrar(entorno) {
       const e = await p.estado();
       assert.equal(e.tv && e.tv.estado, 'PAUSED', `la TV quedó frenada en la nota: ${JSON.stringify(e.tv)}`);
     }, { timeout: 90000 });
+
+    paso(entorno, 'conectar la TV ANTES del primer play (la TV arranca sola): los avisos de la primera suenan y vibran igual', async () => {
+      await abrirConTV(p, 'web', { query: { ...Q, lat: '120' }, progreso: { completed: ['nota7'], currentTime: 9.5 }, esperarEn: 9.5 });
+      await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
+      // Sin tocar play: el toque del botón de la TV es el único gesto.
+      await p.clic('.iv-tv-btn');
+      await p.debe(`/^Reproduciendo en/.test(A.estado().capa || '') && window.__tv.receptor.estado === 'PLAYING'`, 10000, 'no se conectó o la TV no arrancó sola');
+      await p.debe(`A.tarjeta()?.id === 'mc15'`, 15000, 'no frenó en la pregunta de los 15 transmitiendo');
+      await dormir(300);
+      const S = await sonidos(p);
+      assert.deepEqual(S.contextos.map((c) => c.enGesto), [true], `el toque de la TV crea el AudioContext: ${JSON.stringify(S.contextos)}`);
+      tresTics(tics(S), [12, 13, 14], 0.7);
+      assert.equal(de(S, 'plop').length, 1);
+      assert.deepEqual(patrones(S), ['40', '40', '40', FRENO]);
+    }, { timeout: 60000 });
   });
 }

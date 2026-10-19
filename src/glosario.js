@@ -7,7 +7,7 @@
 // (tests/unit/glosario.test.mjs): qué términos se suman en cada paso del tiempo, cuáles
 // con sonido y qué se lista, en qué orden. El panel y el aviso son del componente.
 
-import { SEEK_MIN } from "./candado.js";
+import { umbralPaso } from "./avisos.js";
 
 // Cuánto queda resaltado con "recién" lo último que se sumó.
 export const RECIEN_MS = 6000;
@@ -55,9 +55,10 @@ export function totalPosible(interactions) {
  * tiempo ya llegó y que todavía no está en `nombrados`. El glosario sólo crece: lo que
  * ya se nombró no se va si el alumno vuelve para atrás.
  *
- * 🔴 Con sonido sólo los que se CRUZAN reproduciendo (un paso de hasta SEEK_MIN hacia
- * adelante, como el candado). Un salto hacia adelante, la restauración del avance o
- * los de tiempo 0 al cargar se suman callados: el alumno no los escuchó nombrar.
+ * 🔴 Con sonido sólo los que se CRUZAN reproduciendo (un paso hacia adelante de hasta
+ * umbralPaso(velocidad): SEEK_MIN, como el candado, y más a más de 1×). Un salto
+ * hacia adelante, la restauración del avance o los de tiempo 0 al cargar se suman
+ * callados: el alumno no los escuchó nombrar.
  *
  * @param {object} p
  * @param {Array} p.interactions las del PLAYER_CONFIG
@@ -65,11 +66,12 @@ export function totalPosible(interactions) {
  * @param {number} p.prev tiempo del render anterior
  * @param {number} p.t tiempo de este render
  * @param {boolean} p.reproduciendo si el video se está reproduciendo
+ * @param {number} [p.velocidad] la del video (1, 2…): agranda el umbral del salto
  * @returns {Array<{id: string, nombre: string, sonido: boolean}>} en orden de tiempo
  */
-export function terminosNuevos({ interactions, nombrados, prev, t, reproduciendo }) {
+export function terminosNuevos({ interactions, nombrados, prev, t, reproduciendo, velocidad = 1 }) {
   const paso = t - prev;
-  const cruzando = !!reproduciendo && paso > 0 && paso <= SEEK_MIN;
+  const cruzando = !!reproduciendo && paso > 0 && paso <= umbralPaso(velocidad);
   return (interactions || [])
     .map((ia, i) => ({ ia, i }))
     .filter(({ ia }) => esTermino(ia) && !nombrados.has(ia.id) && ia.time <= t)

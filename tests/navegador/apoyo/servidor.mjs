@@ -21,7 +21,8 @@
 //                   compilado adentro para la vista previa.
 // Query de /player.html: motor=hls|nativo|auto · progreso=<json del avance> ·
 // subs=vtt · ias=glosario (INTERACCIONES_GLOSARIO: etiquetas, nota, pregunta, punto
-// para tocar) · etiquetas=glosario|pantalla (el modo de la actividad) · sonido=simulado
+// para tocar) · ias=juntas (INTERACCIONES_JUNTAS: dos que frenan a menos de 3 s, y una
+// etiqueta en el mismo segundo que la segunda) · etiquetas=glosario|pantalla (el modo de la actividad) · sonido=simulado
 // (Web Audio y vibración de mentira que anotan todo: simulados/sonido-simulado.js) ·
 // cast=fake (la TV simulada + el emisor de Chrome; lat, hayTV… los leen los
 // simulados) · airplay=1 · nofs=1 · webview=1 (como el WebView de hub-app: sin Cast Web
@@ -97,6 +98,15 @@ export const INTERACCIONES_GLOSARIO = [
   { id: 'hs22', type: 'hotspot', time: 22, duration: 8, data: { spots: [{ id: 's1', x: 30, y: 40, label: 'Antena', info: 'Por acá sale y entra el enlace.' }] } },
   { id: 'ocusync', type: 'label', time: 32, duration: 8, data: { text: 'Ocusync', definition: 'Tecnología de transmisión inalámbrica de DJI. Gestiona el uplink y el downlink para mantener un enlace estable.', x: 5, y: 15 } },
   { id: 'tf40', type: 'true-false', time: 40, data: { statement: 'El uplink lleva los comandos del control al dron.', correct: true, explanation: 'Sí: el uplink va del control al dron.' } },
+];
+// Dos que frenan a menos de 3 s (?ias=juntas): los tics de la nota (4, 5, 6) se pisaban
+// con los del V/F de los 9 (6, 7, 8). Sólo se anuncia la próxima: la nota con sus tres y
+// el V/F con el que le queda al seguir (8). La etiqueta de los 9 cae en el mismo segundo
+// que el V/F: se suma sin su plop suave encima del plop del freno.
+export const INTERACCIONES_JUNTAS = [
+  INTERACCIONES_GLOSARIO.find((ia) => ia.id === 'nota7'),
+  { id: 'tf9', type: 'true-false', time: 9, data: { statement: 'El downlink va del dron hacia el control.', correct: true, explanation: 'Sí: por ahí viajan la telemetría y el video.' } },
+  { ...INTERACCIONES_GLOSARIO.find((ia) => ia.id === 'frecuencia'), time: 9 },
 ];
 // Subtítulos sintéticos (los de los cursos son contenido pago y no van en el repo). El
 // segundo cue cruza la nota de los 8 s: con la tarjeta abierta no se tiene que ver.
@@ -240,6 +250,7 @@ export async function crearServidor({ html, video }) {
     // Los avisos y el glosario: otras interacciones y el modo de las etiquetas (lo que
     // pone player.php con el ajuste de la actividad; sin él, el de por defecto).
     if (q.get('ias') === 'glosario') config.interactions = INTERACCIONES_GLOSARIO;
+    if (q.get('ias') === 'juntas') config.interactions = INTERACCIONES_JUNTAS;
     if (['glosario', 'pantalla'].includes(q.get('etiquetas'))) config.etiquetas = q.get('etiquetas');
     if (q.get('video') === 'ninguno') { delete config.videoUrl; config.vimeoId = ''; }
     if (q.get('video') === 'texto') { delete config.videoUrl; config.vimeoId = 'ID_DEL_VIDEO'; config.vimeoHash = 'HASH_DEL_VIDEO'; }
