@@ -31,6 +31,12 @@ window.PLAYER_CONFIG = {
   // vimeoId. En el campus lo arma y lo firma player.php: no se escribe a mano.
   // videoUrl: "https://vz-ejemplo.b-cdn.net/11111111-2222-4333-8444-555555555555/playlist.m3u8",
 
+  // ─── ETIQUETAS ──────────────────────────────────────────
+  // "glosario" (por defecto): cada etiqueta se suma a un glosario interactivo (botón
+  // con contador en la barra) en el momento en que se nombra. "pantalla": pines sobre
+  // el video, como antes. En el campus lo pone player.php con el ajuste de la actividad.
+  // etiquetas: "pantalla",
+
   // ─── SUBTÍTULOS ─────────────────────────────────────────
   // Opción A: Archivo .vtt externo
   subtitlesUrl: null, // "https://tu-servidor.com/subs.vtt"

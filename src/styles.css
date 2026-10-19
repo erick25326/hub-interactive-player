@@ -1183,6 +1183,13 @@ html, body { margin: 0; padding: 0; background: #000; }
 @container ivc (max-width: 372px) {
   .iv-controls-row.con-girar .iv-tv-btn:not(.siempre) { display: none; }
 }
+/* 🔴 El botón del glosario (1.4.0) es uno más en la fila: a 360 px con el de girar (o
+   con el de la TV, sin pantalla completa) el de SALIR quedaba 10 px afuera (medido
+   oct-2026 con angosto.mjs). Hasta los 400 px cede también la duración total; el
+   glosario se queda en la fila (en los Android de 360 a 412 px es donde más se usa). */
+@container ivc (max-width: 400px) {
+  .iv-controls-row.con-glosario .iv-time-total { display: none; }
+}
 
 /* ─── ACCESIBILIDAD ───────────────────────────────────────── */
 /* Foco visible sólo con teclado (:focus-visible), en menta: con el mouse o el dedo
@@ -1226,4 +1233,299 @@ html, body { margin: 0; padding: 0; background: #000; }
 .iv-subtitle-container.sobre-controles { bottom: max(25%, 64px); }
 @media (max-width: 600px) {
   .iv-subtitle-container.sobre-controles { bottom: max(22%, 64px); }
+}
+
+/* ─── AVISOS DE LAS INTERACCIONES QUE FRENAN (1.4.0) ──────── */
+/* Cuenta regresiva de los 3 segundos antes de una pregunta, nota o actividad (la
+   decide src/avisos.js; suena el tic-tac). Chica, arriba a la derecha, sin tapar el
+   video ni recibir toques. El número cambia con cada tic (la key lo vuelve a montar:
+   una sola animación corta por número, nada infinito). */
+.iv-cuenta {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 20px);
+  padding: 4px 12px 4px 4px;
+  border-radius: 999px;
+  background: rgba(6, 25, 56, 0.9);
+  border: 1px solid rgba(247, 127, 71, 0.75);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  pointer-events: none;
+  animation: ivFadeIn 0.2s ease;
+}
+.iv-cuenta-num {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #F77F47;
+  color: #2A0E00;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  animation: ivCuentaNum 0.25s ease;
+}
+.iv-cuenta-texto { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iv-cuenta.iv-cuenta-nota { border-color: rgba(132, 244, 190, 0.75); }
+.iv-cuenta.iv-cuenta-nota .iv-cuenta-num { background: #84F4BE; color: #062E60; }
+.iv-cuenta.iv-cuenta-actividad { border-color: rgba(245, 158, 11, 0.8); }
+.iv-cuenta.iv-cuenta-actividad .iv-cuenta-num { background: #F59E0B; color: #2A1600; }
+@keyframes ivCuentaNum {
+  from { transform: scale(0.7); opacity: 0.4; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* ─── GLOSARIO INTERACTIVO (1.4.0) ────────────────────────── */
+/* Botón de la barra con su contador (como la marca del engranaje: no ocupa ancho). El
+   contador late UNA vez con cada término nuevo (la key del JSX lo reinicia). */
+.iv-glosario-btn { position: relative; }
+.iv-glosario-btn.abierto { color: #84F4BE; }
+.iv-glosario-marca {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 15px;
+  background: #14CCF7;
+  color: #062E60;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 7px;
+  text-align: center;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.iv-glosario-marca.late { animation: ivLate 0.9s ease 1; }
+@keyframes ivLate {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.45); background: #84F4BE; }
+  100% { transform: scale(1); }
+}
+
+/* Aviso "Nuevo en el glosario: …" (con el panel cerrado). Arriba a la izquierda; con
+   la cuenta regresiva a la vista baja un renglón para no pisarla en un celular. La
+   zona existe siempre (aria-live) y no recibe toques: sólo el botón. */
+.iv-glosario-aviso-zona {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 9;
+  display: flex;
+  pointer-events: none;
+}
+.iv-glosario-aviso-zona.con-cuenta { top: 46px; }
+.iv-glosario-aviso {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(100%, 420px);
+  padding: 7px 12px 7px 9px;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+  color: #062E60;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  animation: ivFadeIn 0.2s ease;
+}
+.iv-glosario-aviso svg { flex-shrink: 0; width: 18px; height: 18px; color: #0162F5; }
+.iv-glosario-aviso span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iv-glosario-aviso strong { font-weight: 700; }
+
+/* El panel. La capa ocupa el contenedor y no recibe toques (los de afuera del panel
+   llegan a lo que está debajo, que lo cierra); existe para que el panel pregunte por
+   el ancho Y el alto disponibles, como .iv-ajustes-capa. Encima de todo lo del video
+   (también del cartel de la TV), debajo de las tarjetas no: una pregunta lo cierra. */
+.iv-glosario-capa {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  pointer-events: none;
+  container-type: size;
+  container-name: ivgl;
+}
+/* Ancho: lateral derecho, de arriba abajo. */
+.iv-glosario {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(360px, 46%);
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  background: rgba(6, 25, 56, 0.97);
+  color: #fff;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.45);
+  cursor: default;
+  font-size: 13px;
+  animation: ivGlosarioLado 0.2s ease;
+}
+@keyframes ivGlosarioLado {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.iv-glosario-cabecera {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.iv-glosario-cabecera > svg { flex-shrink: 0; width: 18px; height: 18px; color: #14CCF7; }
+.iv-glosario-titulo { font-family: 'Changa', sans-serif; font-size: 16px; font-weight: 600; letter-spacing: 0.01em; }
+.iv-glosario-cuenta {
+  flex: 1;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.iv-glosario-cerrar {
+  flex-shrink: 0;
+  display: flex;
+  padding: 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+}
+.iv-glosario-cerrar:hover { background: rgba(255, 255, 255, 0.1); }
+/* Con el panel abierto, la cuenta regresiva va acá, debajo del título (afuera quedaba
+   tapada por el panel lateral, o tapaba la X de la hoja de abajo). */
+.iv-glosario-se-viene {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(247, 127, 71, 0.16);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  font-weight: 600;
+}
+.iv-glosario-se-viene .iv-cuenta-num { width: 22px; height: 22px; font-size: 12px; }
+.iv-glosario-se-viene.iv-se-viene-nota { background: rgba(132, 244, 190, 0.14); }
+.iv-glosario-se-viene.iv-se-viene-nota .iv-cuenta-num { background: #84F4BE; color: #062E60; }
+.iv-glosario-se-viene.iv-se-viene-actividad { background: rgba(245, 158, 11, 0.16); }
+.iv-glosario-se-viene.iv-se-viene-actividad .iv-cuenta-num { background: #F59E0B; color: #2A1600; }
+.iv-glosario-lista {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.iv-glosario-termino { border-radius: 8px; transition: background 0.6s ease; }
+.iv-glosario-termino + .iv-glosario-termino { margin-top: 2px; }
+.iv-glosario-termino > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.iv-glosario-termino > button:hover { background: rgba(255, 255, 255, 0.08); }
+.iv-glosario-termino > button[aria-expanded="true"] .iv-glosario-nombre { color: #84F4BE; }
+.iv-glosario-icono {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: rgba(20, 204, 247, 0.16);
+  color: #14CCF7;
+  font-size: 12px;
+  font-weight: 700;
+}
+.iv-glosario-nota .iv-glosario-icono { background: rgba(132, 244, 190, 0.16); color: #84F4BE; }
+.iv-glosario-icono svg { width: 15px; height: 15px; }
+.iv-glosario-nombre { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.iv-glosario-recien {
+  flex-shrink: 0;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #84F4BE;
+  color: #062E60;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.iv-glosario-tiempo {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+/* Lo último que se sumó: resaltado mientras dice "recién" (el componente saca la clase
+   a los 6 s; la transición de salida es una sola). */
+.iv-glosario-termino.recien { background: rgba(132, 244, 190, 0.12); }
+.iv-glosario-def {
+  padding: 0 10px 10px 44px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.iv-glosario-def[hidden] { display: none; }
+.iv-glosario-def strong { color: #fff; }
+.iv-glosario-sindef { margin: 0; color: rgba(255, 255, 255, 0.5); }
+.iv-glosario-vacio { margin: 0; padding: 14px; color: rgba(255, 255, 255, 0.7); line-height: 1.5; }
+/* Angosto (celular parado, el iframe chico del campus): hoja de abajo, a lo ancho.
+   Bajo (≤300 px de alto: un 16:9 de celular parado mide ~210): ocupa todo. */
+@container ivgl (max-width: 560px) {
+  .iv-glosario {
+    top: auto;
+    left: 0;
+    width: auto;
+    height: 78%;
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.45);
+    animation-name: ivGlosarioAbajo;
+  }
+}
+@container ivgl (max-width: 560px) and (max-height: 300px) {
+  .iv-glosario { height: 100%; border-radius: 0; border-top: none; }
+  .iv-glosario-cabecera { padding-top: 4px; padding-bottom: 4px; }
+  .iv-glosario-termino > button { min-height: 36px; padding: 6px 8px; }
+}
+@keyframes ivGlosarioAbajo {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Movimiento reducido: sin latidos ni animaciones de entrada en lo nuevo. */
+@media (prefers-reduced-motion: reduce) {
+  .iv-cuenta, .iv-cuenta-num, .iv-glosario-marca.late, .iv-glosario-aviso, .iv-glosario { animation: none; }
+  .iv-glosario-termino { transition: none; }
 }

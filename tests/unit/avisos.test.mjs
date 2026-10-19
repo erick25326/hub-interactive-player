@@ -5,6 +5,7 @@
 // esto, el nivel navegador (tests/navegador/escenarios/avisos.mjs).
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   frena, queSeViene, textoCuenta, ticsEntre, olvidarTics, cuentaRegresiva,
   leerPreferencia, guardarPreferencia, AVISO_S, VIBRA_TIC, VIBRA_FRENO, OLVIDO_S, CLAVE_SONIDO, CLAVE_VIBRACION,
@@ -37,6 +38,16 @@ function recorrer({ interactions = TODAS, desde, hasta, paso = 0.25, completed =
 
 test('las constantes de los avisos son las acordadas con Erick', () => {
   assert.deepEqual({ AVISO_S, VIBRA_TIC, VIBRA_FRENO, OLVIDO_S }, { AVISO_S: 3, VIBRA_TIC: 40, VIBRA_FRENO: [60, 40, 60], OLVIDO_S: 0.5 });
+});
+
+test('el reproductor usa los módulos de avisos, glosario y sonidos, sin copias propias', () => {
+  const jsx = fs.readFileSync(new URL('../../src/InteractiveVideoPlayer.jsx', import.meta.url), 'utf8');
+  assert.match(jsx, /import \{[^}]*\bticsEntre\b[^}]*\} from "\.\/avisos\.js"/);
+  assert.match(jsx, /import \{[^}]*\bterminosNuevos\b[^}]*\} from "\.\/glosario\.js"/);
+  assert.match(jsx, /import \{[^}]*\bcrearSonidos\b[^}]*\} from "\.\/sonidos\.js"/);
+  for (const f of ['ticsEntre', 'olvidarTics', 'cuentaRegresiva', 'terminosNuevos', 'entradas', 'crearSonidos']) {
+    assert.doesNotMatch(jsx, new RegExp(`function ${f}\\b|const ${f}\\s*=`), `${f} está definida otra vez en el JSX`);
+  }
 });
 
 describe('qué frena y qué se anuncia', () => {

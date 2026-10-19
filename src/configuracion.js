@@ -25,6 +25,11 @@ export const DEFAULT_CONFIG = {
   // = receptor propio registrado en la consola de Cast (ver cast.js y el README).
   castAppId: null,
   loop: false,              // true = repetir video al terminar
+  // Las etiquetas (label): 'glosario' (desde la 1.4.0, por defecto) las suma a un
+  // glosario interactivo a medida que se nombran; 'pantalla' las muestra como pines
+  // sobre el video, como antes (respaldo por actividad, ajuste "Etiquetas" de
+  // mod_ivplayer). Cualquier otro valor cuenta como 'glosario'.
+  etiquetas: 'glosario',
   subtitlesUrl: null,
   subtitlesCues: [],
   // Texto crudo de un VTT o SRT (lo inyecta player.php desde "Editar transcripción").

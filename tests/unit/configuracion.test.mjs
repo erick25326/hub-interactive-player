@@ -19,6 +19,12 @@ describe('config por defecto', () => {
     assert.deepEqual(DEFAULT_CONFIG.interactions, []);
     assert.equal(hayVideo(DEFAULT_CONFIG), false);
   });
+  test('las etiquetas van al glosario interactivo salvo que la actividad pida "pantalla" (1.4.0)', () => {
+    assert.equal(DEFAULT_CONFIG.etiquetas, 'glosario');
+    // El componente decide con "!== 'pantalla'": cualquier otro valor (un SCORM o una
+    // demo armados sin el campo, uno mal escrito) también es el glosario.
+    assert.match(leer('src/InteractiveVideoPlayer.jsx'), /const modoGlosario = etiquetas !== 'pantalla';/);
+  });
 
   test('getConfig: sin PLAYER_CONFIG, la por defecto; con PLAYER_CONFIG, mezclada encima', () => {
     const antes = globalThis.window;
