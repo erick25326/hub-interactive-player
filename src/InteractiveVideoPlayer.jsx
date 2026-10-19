@@ -16,7 +16,7 @@ import { getConfig, hayVideo } from "./configuracion.js";
 // y vibración) y el glosario interactivo de las etiquetas: las decisiones son puras y
 // viven aparte (tests/unit/avisos.test.mjs, glosario.test.mjs). Los sonidos, Web Audio.
 import { ticsEntre, olvidarTics, cuentaRegresiva, textoCuenta, queSeViene, comoAvisar, VIBRA_TIC, VIBRA_FRENO, CLAVE_SONIDO, CLAVE_VIBRACION, leerPreferencia, guardarPreferencia } from "./avisos.js";
-import { terminosNuevos, entradas as entradasDelGlosario, hayGlosario, totalPosible, cobertura, pausarAlAbrir, reanudarAlCerrar, RECIEN_MS, AVISO_MS } from "./glosario.js";
+import { terminosNuevos, entradas as entradasDelGlosario, hayGlosario, totalPosible, cobertura, pausarAlAbrir, pasoATapar, reanudarAlCerrar, RECIEN_MS, AVISO_MS } from "./glosario.js";
 import { crearSonidos, vibracionPosible } from "./sonidos.js";
 
 // parseVTT y textoDeCue (subtítulos VTT/SRT) viven en subtitulos.js.
@@ -1470,8 +1470,11 @@ function Reproductor() {
       if(t?.closest?.('.iv-glosario-aviso')) return;
       if(t?.classList?.contains('iv-click-layer')) return;
       // 🔴 El botón de reproducir decide él: si cerrar retomara el video que pausó el
-      // glosario, el clic que viene detrás lo encontraba andando y lo pausaba.
-      if(playBtnRef.current?.contains(t)) pausaGlosarioRef.current=false;
+      // glosario, el clic que viene detrás lo encontraba andando y lo pausaba. También
+      // el GRANDE (a la vista si, pausado por el glosario, el celular se acuesta y el
+      // panel pasa al costado): al retomar desaparece bajo el dedo y el clic del toque
+      // caía en la capa de toques, que lo volvía a pausar.
+      if(playBtnRef.current?.contains(t)||t?.closest?.('.iv-big-play')) pausaGlosarioRef.current=false;
       setGlosarioAbierto(false);
     };
     document.addEventListener('pointerdown',h,true);
@@ -1482,7 +1485,11 @@ function Reproductor() {
 
   const togglePlay=()=>{
     const p=playerRef.current;if(!p||!ready)return;
-    if(playing){playIntentRef.current=null;p.pause();return;}
+    // 🔴 Una pausa del alumno con el glosario abierto es suya: cerrarlo no la retoma. No
+    // alcanza con el pointerdown sobre Reproducir: el toque en el costado del video
+    // pausa 300 ms DESPUÉS (por si viene el doble toque), y si en ese rato se abrió el
+    // glosario, esta pausa llega con el panel ya abierto y sin pasar por ahí.
+    if(playing){playIntentRef.current=null;pausaGlosarioRef.current=false;p.pause();return;}
     // El play es EL gesto: ahí se crea (o se reanuda) el sonido de los avisos.
     sonidosRef.current.desbloquear({audio:sonidoOnRef.current});
     safePlay();
@@ -1567,25 +1574,51 @@ function Reproductor() {
   // contenedor, que siempre es 16:9 (la pantalla completa también lo centra).
   // 🔴 La pausa y la vuelta son las del botón (pause con el intent anulado, safePlay):
   // para el candado, los avisos, el avance y la firma es una pausa más del alumno.
-  useLayoutEffect(()=>{
+  // Lo último que se midió con el panel abierto (ver el ResizeObserver de abajo).
+  const tapaGlosarioRef=useRef(0);
+  const medirTapaGlosario=()=>{
+    const panel=glosarioPanelRef.current, capa=panel&&panel.parentElement;
+    return panel&&capa?cobertura(
+      {x:panel.offsetLeft,y:panel.offsetTop,ancho:panel.offsetWidth,alto:panel.offsetHeight},
+      {x:0,y:0,ancho:capa.clientWidth,alto:capa.clientHeight}):0;
+  };
+  const transmitiendoAhora=()=>{ const p=playerRef.current; return !!tvRef.current||!!(p&&p.esTV); };
+  const pausarSiTapa=(tapa)=>{
     const p=playerRef.current;
-    const transmitiendo=!!tvRef.current||!!(p&&p.esTV);
+    if(p&&pausarAlAbrir({reproduciendo:playingRef.current,transmitiendo:transmitiendoAhora(),cobertura:tapa})){
+      pausaGlosarioRef.current=true;
+      playIntentRef.current=null;
+      p.pause();
+    }
+  };
+  useLayoutEffect(()=>{
     if(glosarioAbierto){
-      const panel=glosarioPanelRef.current, capa=panel&&panel.parentElement;
-      const tapa=panel&&capa?cobertura(
-        {x:panel.offsetLeft,y:panel.offsetTop,ancho:panel.offsetWidth,alto:panel.offsetHeight},
-        {x:0,y:0,ancho:capa.clientWidth,alto:capa.clientHeight}):0;
-      if(p&&pausarAlAbrir({reproduciendo:playingRef.current,transmitiendo,cobertura:tapa})){
-        pausaGlosarioRef.current=true;
-        playIntentRef.current=null;
-        p.pause();
-      }
+      const tapa=medirTapaGlosario();
+      tapaGlosarioRef.current=tapa;
+      pausarSiTapa(tapa);
       return;
     }
     const volver=reanudarAlCerrar({pausoElGlosario:pausaGlosarioRef.current,
-      pregunta:!!(activeIA||activeIARef.current),error:!!videoError,transmitiendo});
+      pregunta:!!(activeIA||activeIARef.current),error:!!videoError,transmitiendo:transmitiendoAhora()});
     pausaGlosarioRef.current=false;
     if(volver) safePlay();
+  },[glosarioAbierto]);
+  // 🔴 Con el panel abierto el reproductor puede cambiar de tamaño sin que nadie toque
+  // nada: el celular que se para con el glosario abierto (acostado iba al costado y el
+  // video seguía; parado, en el iframe del campus, el panel tapa todo) o la pantalla
+  // completa que se cierra con el atrás del sistema. Medir sólo al abrir dejaba el video
+  // corriendo debajo, que es lo que se quería evitar. Si PASA a tapar, vale lo mismo que
+  // al abrirlo (pasoATapar); si deja de tapar, no se retoma: eso lo hace cerrar el panel.
+  useEffect(()=>{
+    if(!glosarioAbierto||typeof ResizeObserver!=='function') return;
+    const capa=glosarioPanelRef.current?.parentElement; if(!capa) return;
+    const ro=new ResizeObserver(()=>{
+      const antes=tapaGlosarioRef.current, ahora=medirTapaGlosario();
+      tapaGlosarioRef.current=ahora;
+      if(pasoATapar(antes,ahora)) pausarSiTapa(ahora);   // sólo usa refs: vale la de este render
+    });
+    ro.observe(capa);
+    return()=>ro.disconnect();
   },[glosarioAbierto]);
   const skip=(seconds)=>{
     const p=playerRef.current;if(!p||!ready)return;

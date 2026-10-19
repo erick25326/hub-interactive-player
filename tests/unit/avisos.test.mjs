@@ -48,7 +48,7 @@ test('el reproductor usa los módulos de avisos, glosario y sonidos, sin copias 
   assert.match(jsx, /import \{[^}]*\bcrearSonidos\b[^}]*\} from "\.\/sonidos\.js"/);
   assert.match(jsx, /import \{[^}]*\bcomoAvisar\b[^}]*\} from "\.\/avisos\.js"/);
   assert.match(jsx, /import \{[^}]*\bpausarAlAbrir\b[^}]*\breanudarAlCerrar\b[^}]*\} from "\.\/glosario\.js"/);
-  for (const f of ['ticsEntre', 'olvidarTics', 'cuentaRegresiva', 'terminosNuevos', 'entradas', 'crearSonidos', 'comoAvisar', 'cobertura', 'pausarAlAbrir', 'reanudarAlCerrar']) {
+  for (const f of ['ticsEntre', 'olvidarTics', 'cuentaRegresiva', 'terminosNuevos', 'entradas', 'crearSonidos', 'comoAvisar', 'cobertura', 'pausarAlAbrir', 'pasoATapar', 'reanudarAlCerrar']) {
     assert.doesNotMatch(jsx, new RegExp(`function ${f}\\b|const ${f}\\s*=`), `${f} está definida otra vez en el JSX`);
   }
 });

@@ -4,7 +4,7 @@
 // va). Lo que hace el componente con esto, tests/navegador/escenarios/glosario.mjs.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nombreDe, esTermino, esNota, hayGlosario, totalPosible, terminosNuevos, entradas, cobertura, pausarAlAbrir, reanudarAlCerrar, RECIEN_MS, AVISO_MS, TAPA_MIN } from '../../src/glosario.js';
+import { nombreDe, esTermino, esNota, hayGlosario, totalPosible, terminosNuevos, entradas, cobertura, pausarAlAbrir, pasoATapar, reanudarAlCerrar, RECIEN_MS, AVISO_MS, TAPA_MIN } from '../../src/glosario.js';
 
 const L = (id, time, text, definition = `Definición de ${text}.`) => ({ id, type: 'label', time, duration: 8, data: { text, definition, x: 5, y: 15 } });
 const LECCION = [
@@ -199,5 +199,25 @@ describe('pausarAlAbrir y reanudarAlCerrar: el glosario que tapa el video lo pau
     assert.equal(cerrar({ pregunta: true }), false);
     assert.equal(cerrar({ error: true }), false);
     assert.equal(cerrar({ transmitiendo: true }), false);
+  });
+});
+
+describe('pasoATapar: con el panel abierto, el reproductor cambia de tamaño (girar el celular, salir de pantalla completa)', () => {
+  test('de al costado (36 %) a tapar todo (el celular que se para): se decide como al abrir', () => {
+    assert.equal(pasoATapar(0.3557, 1), true);
+    assert.equal(pasoATapar(0.26, 0.78), true);
+    assert.equal(pasoATapar(TAPA_MIN, 0.7001), true, 'el 70 % justo no tapaba');
+  });
+  test('si ya tapaba, otro cambio de tamaño no vuelve a decidir (la pausa, o el play de afuera, siguen como estaban)', () => {
+    assert.equal(pasoATapar(1, 1), false);
+    assert.equal(pasoATapar(0.78, 1), false);
+  });
+  test('si deja de tapar (el celular que se acuesta), nada: el video lo retoma cerrar el panel', () => {
+    assert.equal(pasoATapar(1, 0.3557), false);
+    assert.equal(pasoATapar(0.3, 0.4), false);
+  });
+  test('sin medida previa (0, undefined) cuenta como que no tapaba', () => {
+    assert.equal(pasoATapar(undefined, 1), true);
+    assert.equal(pasoATapar(0, 0.5), false);
   });
 });

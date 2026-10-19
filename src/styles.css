@@ -1507,7 +1507,8 @@ html, body { margin: 0; padding: 0; background: #000; }
    16:9 de celular parado mide ~210): ocupa todo, controles incluidos. Ahí no entra otra
    cosa. Si el panel tapa más del 70 % del video (el bajo y la hoja de abajo), el
    componente lo pausa al abrir y lo retoma al cerrar (TAPA_MIN, src/glosario.js): lo
-   mide al abrir, así que cambiar estas medidas no pide tocar nada más. */
+   mide al abrir y cada vez que cambia de tamaño con el panel abierto, así que cambiar
+   estas medidas no pide tocar nada más. */
 @container ivgl (max-width: 560px) {
   .iv-glosario {
     top: auto;

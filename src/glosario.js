@@ -107,7 +107,7 @@ export function entradas({ interactions, nombrados, completed }) {
 // alto; la pantalla completa con el celular parado, lo mismo: centra un 16:9) el panel
 // ocupa todo y el video seguía corriendo sin verse. Ahora, si lo tapa, abrirlo lo pausa
 // y cerrarlo lo retoma. En una pantalla ancha (el panel al costado, el video a la
-// vista) sigue sin pausar. El componente mide y hace lo que digan estas tres.
+// vista) sigue sin pausar. El componente mide y hace lo que digan estas cuatro.
 
 /**
  * Qué fracción del área del video (0 a 1) tapa el panel. Rectángulos `{ x, y, ancho,
@@ -132,6 +132,18 @@ export function cobertura(panel, video) {
  */
 export function pausarAlAbrir({ reproduciendo, transmitiendo, cobertura: tapa }) {
   return !!reproduciendo && !transmitiendo && Number(tapa) > TAPA_MIN;
+}
+
+/**
+ * Con el panel ABIERTO el reproductor puede cambiar de tamaño: el celular que se para
+ * (acostado, el panel iba al costado; parado, en el iframe del campus, tapa todo) o la
+ * pantalla completa que se cierra sin pasar por un toque (el atrás del sistema, Escape
+ * en la nativa). ¿Pasó a tapar el video? Ahí vale lo mismo que al abrirlo
+ * (pausarAlAbrir con lo que pasa en ese momento). Al revés, si deja de tapar, no se
+ * retoma: girar el celular no es pedir que siga; lo retoma cerrar el panel, como siempre.
+ */
+export function pasoATapar(antes, ahora) {
+  return !(Number(antes) > TAPA_MIN) && Number(ahora) > TAPA_MIN;
 }
 
 /**

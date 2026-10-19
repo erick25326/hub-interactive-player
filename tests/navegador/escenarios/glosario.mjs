@@ -339,5 +339,95 @@ export function registrar(entorno) {
       assert.equal(e.pausado, false, `reproduce: ${JSON.stringify(e)}`);
       assert.equal(e.boton, 'Pausar');
     });
+
+    // Girar el celular con el panel abierto (verificación del 19-oct-2026): medir sólo al
+    // abrir dejaba el video corriendo debajo del panel que, parado, tapa todo. El giro es
+    // el ancho del iframe del campus, como lo cambia view.php.
+    paso(entorno, 'con el panel abierto al costado, el celular se para (900 → 375): al pasar a tapar el video lo pausa; acostarlo de nuevo no lo retoma, cerrar sí', async () => {
+      await p.abrir({ pagina: 'marco.html', query: { ...Q, ancho: '900px' }, progreso: { completed: ['nota7'], currentTime: 8 }, esperarEn: 8 });
+      assert.deepEqual(await contenedor(p), [900, 506]);
+      await p.reproducir();
+      await p.debe(`A.comp() > 8.3`, 5000, 'no arrancó');
+      await p.clic('.iv-glosario-btn');
+      await p.debe(`!!D.querySelector('.iv-glosario')`, 2000, 'no se abrió el glosario');
+      await dormir(600);
+      assert.ok((await tapa(p)) < 0.4, 'al costado deja ver el video');
+      assert.equal(await p.a('A.video().paused'), false, 'al costado no pausa');
+      await p.ev(`(document.querySelector('iframe').style.width = '375px', true)`);
+      await p.debe(`A.video().paused && A.estado().boton === 'Reproducir'`, 2000, 'el panel pasó a tapar el video y no lo pausó');
+      assert.deepEqual(await contenedor(p), [375, 211]);
+      assert.ok((await tapa(p)) > 0.7, 'parado tapa todo');
+      const t0 = await p.a('A.comp()');
+      await p.ev(`(document.querySelector('iframe').style.width = '900px', true)`);
+      await dormir(800);
+      assert.equal(await p.a('A.video().paused'), true, 'dejar de tapar no lo retoma: girar no es pedir que siga');
+      await p.clic('.iv-glosario-cerrar');
+      await p.debe(`!A.video().paused && A.comp() > ${t0 + 0.3}`, 3000, 'cerrar el glosario no retomó el video');
+    }, { timeout: 60000 });
+
+    // Pausado por el glosario y después acostado (el panel al costado), el botón grande
+    // de reproducir queda a la vista. Tocarlo es como tocar Reproducir: decide el toque.
+    // Si cerrar lo retomaba, el botón grande desaparecía bajo el dedo y el clic que el
+    // navegador arma al levantarlo caía en la capa de toques, que lo volvía a pausar.
+    paso(entorno, 'pausado por el glosario y después acostado: tocar el botón grande de reproducir cierra el panel y reproduce (no lo vuelve a pausar)', async () => {
+      await p.vista({ ancho: 900, alto: 700, movil: true, tactil: true });
+      try {
+        await p.abrir({ pagina: 'marco.html', query: { ...Q, ancho: '375px' }, progreso: { completed: ['nota7'], currentTime: 8 }, esperarEn: 8 });
+        await p.toque('.iv-controls-row button[aria-label="Reproducir"]');
+        await p.debe(`!A.video().paused && A.comp() > 8.3`, 5000, 'no arrancó');
+        await p.toque('.iv-glosario-btn');
+        await p.debe(`A.video().paused && A.estado().boton === 'Reproducir'`, 2000, 'abrir el glosario que tapa el video no lo pausó');
+        await p.ev(`(document.querySelector('iframe').style.width = '900px', true)`);
+        await dormir(600);
+        assert.ok((await tapa(p)) < 0.4, 'acostado, el panel va al costado');
+        const c = await p.apuntar('.iv-big-play');
+        assert.ok(c && (await p.a(`A.estaEn(${c.lx}, ${c.ly})`)), 'el botón grande de reproducir no está a la vista');
+        // Un dedo de verdad: tarda en levantarse.
+        await p.cdp.cmd('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: c.x, y: c.y }] });
+        await dormir(150);
+        await p.cdp.cmd('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await p.debe(`!D.querySelector('.iv-glosario')`, 2000, 'tocar el botón grande no cerró el panel');
+        await dormir(1000);
+        const e = await p.estado();
+        assert.equal(e.pausado, false, `reproduce: ${JSON.stringify(e)}`);
+        assert.equal(e.boton, 'Pausar');
+      } finally {
+        await p.vista();
+      }
+    }, { timeout: 60000 });
+
+    // El toque al costado del video pausa 300 ms DESPUÉS (espera por el doble toque). Si
+    // en ese rato se abre el glosario, esa pausa llega con el panel abierto y es del
+    // alumno: cerrar no la retoma (togglePlay apaga la marca).
+    paso(entorno, 'un toque al costado del video y enseguida el glosario: la pausa del toque es del alumno y cerrar NO lo retoma', async () => {
+      await p.vista({ ancho: 375, alto: 740, movil: true, escala: 2, tactil: true });
+      try {
+        await p.abrir({ pagina: 'marco.html', query: { ...Q, ancho: '375px' }, progreso: { completed: ['nota7'], currentTime: 8 }, esperarEn: 8 });
+        await p.toque('.iv-controls-row button[aria-label="Reproducir"]');
+        await p.debe(`!A.video().paused && A.comp() > 8.3`, 5000, 'no arrancó');
+        // Cuándo llega cada toque, medido en la página (para saber que el glosario se
+        // abrió ANTES de que venza la espera del doble toque).
+        await p.a(`(W.__toques = [], D.addEventListener('touchend', (e) => W.__toques.push({ t: W.performance.now(), glosario: !!e.target.closest?.('.iv-glosario-btn') }), true), W.__plays = 0, A.video().addEventListener('play', () => { W.__plays++; }), true)`);
+        const c = await p.apuntar('.iv-click-layer');
+        const izq = await p.a(`D.querySelector('.iv-click-layer').getBoundingClientRect().left + 25`);
+        const x = c.x - c.lx + izq, y = c.y;
+        await p.cdp.cmd('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+        await p.cdp.cmd('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await p.toque('.iv-glosario-btn');
+        await p.debe(`!!D.querySelector('.iv-glosario')`, 2000, 'no se abrió el glosario');
+        const toques = await p.a('W.__toques');
+        assert.ok(toques.length === 2 && !toques[0].glosario && toques[1].glosario && toques[1].t - toques[0].t < 250,
+          `el glosario tenía que abrirse antes de que venza la espera del doble toque (300 ms): ${JSON.stringify(toques)}`);
+        await dormir(600);   // vence la espera: la pausa del toque llega con el panel abierto
+        assert.equal(await p.a('A.video().paused'), true);
+        await p.a(`(W.__plays = 0, true)`);
+        await p.toque('.iv-glosario-cerrar');
+        await p.debe(`!D.querySelector('.iv-glosario')`, 2000, 'la X no cerró el glosario');
+        await dormir(1200);
+        assert.deepEqual(await p.a('[A.video().paused, W.__plays]'), [true, 0], 'la pausa es del toque del alumno: cerrar no la retoma');
+      } finally {
+        await p.vista();
+      }
+    }, { timeout: 60000 });
   });
 }
