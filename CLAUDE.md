@@ -609,16 +609,32 @@ los sonidos (Web Audio, sin archivos): `src/sonidos.js`.
   El único cambio en el efecto de disparo es el plop en `mostrar` (la réplica de
   `tests/unit/apoyo/simulador.mjs` no lo necesita). Qué "frena" es lo mismo que mira el
   bucle: todo menos `label`, también un tipo desconocido.
-- 🔴 **"Reproduciendo" es `playingRef` + un paso de hasta `SEEK_MIN`** (el umbral del
-  candado). Todo salto (barra, ±10, transcripción, restaurar, la vuelta de la TV en
-  pausa) es callado: ni tic-tac ni plop suave del glosario. El plop al FRENAR sí suena
-  aunque se llegue saltando (la tarjeta aparece igual).
+- 🔴 **"Reproduciendo" es `playingRef` SIN un salto pedido en vuelo (`seekTargetRef`) +
+  un paso de hasta `umbralPaso(velocidad)`** (`SEEK_MIN`, el del candado, a 1× o menos;
+  proporcional por encima: a 2× un tick de 1 s de reloj son 2 s de video). Todo salto
+  (barra, ±10, transcripción, restaurar, la vuelta de la TV en pausa) es callado: ni
+  tic-tac ni plop suave del glosario. El plop al FRENAR sí suena aunque se llegue
+  saltando (la tarjeta aparece igual). 🔴 Sin `seekTargetRef`, el ±10 que frena EXACTO en
+  una pendiente a menos de 2 s era un paso corto con el video andando y sonaba como
+  reproducción (verificación del cierre, oct-2026). El candado sigue con `SEEK_MIN`.
+- 🔴 **Sólo se anuncia la PRÓXIMA pendiente** (`ticsEntre`): con dos a menos de 3 s los
+  tics se intercalaban, la cuenta saltaba de "1 Se viene una nota" a "3 Se viene una
+  pregunta" y el tic de la segunda cortaba el `[60,40,60]` del freno de la primera
+  (`vibrate()` reemplaza la vibración en curso). La segunda avisa después, con los tics
+  que le queden.
+- 🔴 **En el paso que frena suena sólo el plop** (`frenando = activeIA || activeIARef`):
+  el efecto de disparo va antes y ya puso la tarjeta, pero `activeIA` de ESE render sigue
+  en null. Mirar sólo `activeIA` dejaba pasar un tic de la siguiente y el plop suave de
+  una etiqueta del mismo segundo. El término igual se suma (con "recién"), callado.
 - 🔴 **Un tic tocado se olvida recién si el tiempo vuelve `OLVIDO_S` antes de su marca**
   (`olvidarTics`): el HLS nativo y el estimador de la TV retroceden centésimas, y sin eso
   sonaba dos veces. Dos marcas en un mismo paso suenan como UN tic (el último).
 - 🔴 **Nada suena ni vibra antes del primer gesto** (`desbloquear()` en `togglePlay`, en
-  `handleTouchEnd` —el play de los bordes sale 300 ms después—, en "Continuar" y al
-  prender los ajustes). Chrome bloquea `navigator.vibrate` sin gesto (aviso en consola) y
+  `handleTouchEnd` —el play de los bordes sale 300 ms después—, en "Continuar", al
+  prender los ajustes y en `tocarTV`: conectar la TV antes del play la hace arrancar sola
+  y, sin eso, la primera interacción no sonaba ni vibraba). 🔴 NO desbloquear con
+  cualquier clic o tecla del reproductor: rompe "con los sonidos apagados no se crea el
+  AudioContext" (se probó y se descartó). Chrome bloquea `navigator.vibrate` sin gesto (aviso en consola) y
   un AudioContext creado fuera de un gesto queda suspendido. Un contexto suspendido no
   encola: se reanuda y ese aviso se pierde (si no, sonaba todo junto al volver).
   Con los sonidos apagados por el alumno el gesto sólo habilita la vibración
@@ -633,6 +649,13 @@ los sonidos (Web Audio, sin archivos): `src/sonidos.js`.
   menú, un toque en la capa de toques SÓLO lo cierra (no pausa). Abrirlo no pausa.
   Ajustes y glosario se excluyen. Va adentro del contenedor (pantalla completa, iframe,
   hub-app) con una capa `container-type: size` (`ivgl`) para medir ancho y alto.
+  🔴 **Termina en `bottom: 56px`, sobre la fila de controles** (como `.iv-ajustes`): de
+  borde a borde tapaba Glosario, TV, Ajustes y Pantalla completa (también la salida de
+  la pantalla completa). Excepción: el reproductor bajo (≤300 px de alto) lo ocupa todo,
+  controles incluidos, con el video andando debajo (decisión abierta de Erick: pausar al
+  abrir o dejarlo así). Tocar un control con el panel abierto hace lo suyo y lo cierra
+  (el `pointerdown` de afuera). Con el panel abierto, un término nuevo va a
+  `.iv-glosario-anuncio` (`aria-live`) porque el aviso visible no se muestra.
 - 🔴 **La fila de controles con el botón del glosario**: a 360 px con el de girar (o con
   el de la TV sin pantalla completa) el de SALIR de pantalla completa quedaba 10 px
   afuera. `.con-glosario` esconde la duración total hasta 400 px (styles.css);
@@ -647,9 +670,11 @@ los sonidos (Web Audio, sin archivos): `src/sonidos.js`.
   lo que va en `PLAYER_CONFIG`; correr.php prueba también el paso del upgrade con un
   XMLDB de mentira y que `install.xml` diga lo mismo.
 - Pruebas: `?ias=glosario` (INTERACCIONES_GLOSARIO, con los textos de la lección 3.1),
-  `?etiquetas=pantalla`, `?sonido=simulado` (`simulados/sonido-simulado.js`: anota cada
+  `?ias=juntas` (dos que frenan a menos de 3 s y una etiqueta en el mismo segundo que la
+  segunda), `?etiquetas=pantalla`, `?sonido=simulado` (`simulados/sonido-simulado.js`: anota cada
   oscilador con el segundo del video, cada vibración, la cuenta que se vio y si el
-  contexto se creó dentro del gesto). `escenarios/avisos.mjs` y `glosario.mjs`.
+  contexto se creó dentro del gesto). `escenarios/avisos.mjs` y `glosario.mjs`;
+  `clicBarra(p, seg)` (avisos.mjs) hace un clic real en la barra en ese segundo.
 - Sin animaciones infinitas en lo nuevo (lo mira `glosario.mjs`) y sin ninguna con
   `prefers-reduced-motion`.
 

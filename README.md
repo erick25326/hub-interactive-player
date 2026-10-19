@@ -60,9 +60,9 @@ el job queda verde con una advertencia arriba del log.
 
 | Capa | Dónde | Qué protege |
 |---|---|---|
-| Unitarias | `tests/unit/` | El candado (`src/candado.js`: `debeFrenar`, la guardia, `tiempoAGuardar`) con casos fijos y un simulador de ticks; el parser de subtítulos (`src/subtitulos.js`); la firma de Bunny contra los vectores oficiales (espejo en Node), incluida la regla de "¿esta actividad usa Bunny?" que comparten `player.php` y `firma.php`; la renovación de la firma (`src/firma.js`: qué recarga Reintentar según el motivo y si la página de arriba se puede tocar, leer y reescribir las URLs del master, variantes, `.ts` y miniatura, el reloj con la hora del celular corrida, el Renovador contra un `firma.php` falso); el adaptador de Chromecast (`CastPlayer`) contra una TV falsa que avisa un salto en un solo estado; la config por defecto sin video y cuándo hay video para reproducir (`src/configuracion.js`, y que `config.example.js` tal cual no traiga uno); el puente con hub-app (`src/puenteApp.js`: sobres, respuestas de otra instancia, topes, el saludo sin respuesta, latido y adios) y el SDK imitado (`src/castNativo.js`: un Media por msid, estados repetidos descartados, rechazos de `requestSession`, `CastPlayer` a través del shim); del configurador, lo que acepta del mensaje de `mod_form.php` con el video de Bunny (`fuenteBunnyDeMoodle`), el motor (hls.js o nativo), que el enlace firmado no llegue a lo que se exporta o vuelve a Moodle, el armado que mete hls.js en el configurador publicado, de qué orígenes acepta el mensaje de Moodle (el campus y test-academy) y que de un JSON o de Moodle entren sólo los cinco tipos de interacción y los números como números; la red de seguridad (`src/respaldo.js`: con qué errores salta a Vimeo y con cuáles nunca —la firma, la sesión, la TV, sin respaldo ofrecido—, lo que se le manda a `respaldo.php` y cómo se lee su respuesta, la URL con `origen=vimeo`), la pregunta al CDN del HLS nativo antes de dar el error (`src/sondeo.js`: qué pide, qué devuelve con cada respuesta, el tope de tiempo y el error que sale) y el guardado del avance que espera la respuesta (`moodleGuardarAvanceYa`). Los avisos de las interacciones que frenan (`src/avisos.js`: qué tic toca en cada paso —3, 2 y 1 s antes, en tiempo de video, alto-bajo-alto—, nunca al llegar saltando ni en pausa, que un temblor del reloj no lo repita y un salto hacia atrás sí, la cuenta regresiva y las preferencias del alumno sin localStorage), los sonidos contra un Web Audio de mentira (`src/sonidos.js`: nada antes del gesto, la sesión de audio de iPhone, tonos y volumen, vibrar sólo con pantalla táctil) y el glosario (`src/glosario.js`: qué término se suma en cada paso y cuál con sonido, lo último arriba, las notas vistas). Además, una huella del código de las funciones de `lib.php` que sólo prueba PHP: si cambian, avisa que hay que correr la prueba PHP (también el cableado del modo de las etiquetas: formulario, columna, upgrade, backup y `PLAYER_CONFIG`). |
+| Unitarias | `tests/unit/` | El candado (`src/candado.js`: `debeFrenar`, la guardia, `tiempoAGuardar`) con casos fijos y un simulador de ticks; el parser de subtítulos (`src/subtitulos.js`); la firma de Bunny contra los vectores oficiales (espejo en Node), incluida la regla de "¿esta actividad usa Bunny?" que comparten `player.php` y `firma.php`; la renovación de la firma (`src/firma.js`: qué recarga Reintentar según el motivo y si la página de arriba se puede tocar, leer y reescribir las URLs del master, variantes, `.ts` y miniatura, el reloj con la hora del celular corrida, el Renovador contra un `firma.php` falso); el adaptador de Chromecast (`CastPlayer`) contra una TV falsa que avisa un salto en un solo estado; la config por defecto sin video y cuándo hay video para reproducir (`src/configuracion.js`, y que `config.example.js` tal cual no traiga uno); el puente con hub-app (`src/puenteApp.js`: sobres, respuestas de otra instancia, topes, el saludo sin respuesta, latido y adios) y el SDK imitado (`src/castNativo.js`: un Media por msid, estados repetidos descartados, rechazos de `requestSession`, `CastPlayer` a través del shim); del configurador, lo que acepta del mensaje de `mod_form.php` con el video de Bunny (`fuenteBunnyDeMoodle`), el motor (hls.js o nativo), que el enlace firmado no llegue a lo que se exporta o vuelve a Moodle, el armado que mete hls.js en el configurador publicado, de qué orígenes acepta el mensaje de Moodle (el campus y test-academy) y que de un JSON o de Moodle entren sólo los cinco tipos de interacción y los números como números; la red de seguridad (`src/respaldo.js`: con qué errores salta a Vimeo y con cuáles nunca —la firma, la sesión, la TV, sin respaldo ofrecido—, lo que se le manda a `respaldo.php` y cómo se lee su respuesta, la URL con `origen=vimeo`), la pregunta al CDN del HLS nativo antes de dar el error (`src/sondeo.js`: qué pide, qué devuelve con cada respuesta, el tope de tiempo y el error que sale) y el guardado del avance que espera la respuesta (`moodleGuardarAvanceYa`). Los avisos de las interacciones que frenan (`src/avisos.js`: qué tic toca en cada paso —3, 2 y 1 s antes, en tiempo de video, alto-bajo-alto—, sólo de la PRÓXIMA pendiente aunque haya dos a menos de 3 s, el umbral del salto que crece con la velocidad, nunca al llegar saltando ni en pausa, que un temblor del reloj no lo repita y un salto hacia atrás sí, la cuenta regresiva y las preferencias del alumno sin localStorage), los sonidos contra un Web Audio de mentira (`src/sonidos.js`: nada antes del gesto, la sesión de audio de iPhone, tonos y volumen, vibrar sólo con pantalla táctil) y el glosario (`src/glosario.js`: qué término se suma en cada paso y cuál con sonido, también a 2×, lo último arriba, las notas vistas). Además, una huella del código de las funciones de `lib.php` que sólo prueba PHP: si cambian, avisa que hay que correr la prueba PHP (también el cableado del modo de las etiquetas: formulario, columna, upgrade, backup y `PLAYER_CONFIG`). |
 | PHP | `tests/php/correr.php` | La sintaxis de cada `.php` del plugin (`php -l`: `player.php` y `firma.php` necesitan Moodle y ninguna otra prueba los ejecuta) y las funciones puras de `mod/ivplayer/lib.php` leídas del archivo real: firma HS256 de Bunny, la regla de qué actividad reproduce Bunny (`ivplayer_bunny_video`, la de `player.php` y `firma.php`, y que la clave no salga) y normalización de subtítulos (BOM, UTF-16, Windows-1252, bytes rotos). Además, el cableado del evento de vista (`ivplayer_view`) con reemplazos mínimos de Moodle: qué evento sale, con qué datos, la finalización después, y que sin la clase (antes del upgrade) la lección no rompe. Y el enlace del configurador con el video de Bunny (`ivplayer_bunny_configurador`: la regla de la lección, vida de 2 a 3 h, sólo el playlist, sin la clave) y el bloque JSON que lo lleva en el formulario (un `</script>` adentro no lo cierra). Y la red de seguridad: la regla con que `player.php` respeta `?origen=vimeo` (ajuste prendido + ID de Vimeo, `ivplayer_respaldo_forzar`), las causas que acepta `respaldo.php` (nunca 401/403/410) y el registro del salto con el evento propio (sin la clase y con ella). Y el modo de las etiquetas (1.4.0): `ivplayer_modo_etiquetas` (sólo "pantalla" vuelve a los pines; NULL antes del upgrade es el glosario), `ivplayer_config_base` (lo que `player.php` pone en `PLAYER_CONFIG`, con `etiquetas`), el paso del upgrade de `db/upgrade.php` corrido con un XMLDB de mentira (agrega la columna una sola vez y marca 2026101903) y que `install.xml`, `version.php` y el backup digan lo mismo. El `php -l` corre también en el workflow que publica el ZIP. |
-| Navegador | `tests/navegador/` | El bundle compilado en Chrome, con clics y toques reales por CDP: el candado con hls.js y con HLS nativo (saltos de afuera, también con una nota abierta; restauración; +10 y −10; play de afuera), el cambio de calidad antes de una pregunta (y, con el nativo, un salto del cambio de fuente que aterriza corrido), los subtítulos, la TV con Chromecast y AirPlay simulados (también como adentro de hub-app, por el puente: salir y volver, el saludo sin respuesta, sin Chromecast, iPhone con AirPlay o sin, y el WebView de la app de hoy), la fila de controles de 320 a 400 px en pantalla completa simulada (y sin ella, con la TV y el glosario en la fila), y la firma de Bunny que vence a los pocos segundos (el servidor de pruebas la valida como el CDN, con 403): sin cortes ni saltos y con el candado intacto, el 403 que se arregla solo (también con la red que tarda en volver), el pedido que espera una renovación en camino, un salto y un play durante esa espera (y, con el nativo, un −10 durante el rescate y la calidad elegida justo al vencer), una calidad rota que no es el vencimiento (con hls.js pasa a otra, sin cartel), el cartel si no se puede renovar, su Reintentar (con la sesión cerrada recarga la página de arriba; con otro motivo, o con la de arriba de otro origen, sólo el iframe) y la TV que recarga con la firma nueva. Sin video configurado (sin `PLAYER_CONFIG`, sin video o con un ID que no es un ID), el cartel "No hay video para mostrar" sin crear ningún reproductor ni pedirle nada a Vimeo. Y el configurador armado como el de GitHub Pages con un MP4 de la compu (generado con ffmpeg): tomar el tiempo, saltar, la vista previa con el reproductor, exportar sin `vimeoId`, liberar el archivo al cambiarlo, un archivo que no es video o que no se puede leer, un video sin la duración en la cabecera (WebM), el JSON de la skill con `videoUrl` y el ida y vuelta con Moodle pasado por el manejador real de `mod_form.php` (el campo de Vimeo no se toca). La red de seguridad con fallas simuladas del CDN (404 del playlist, 503 de los segmentos a mitad de la clase, el CDN caído; con el HLS nativo, el 404 salta con la misma causa que hls.js y un 403 de los segmentos con la firma vigente no salta): recarga sólo el iframe con Vimeo y retoma donde iba, sin pisar el avance; y no salta con la sesión cerrada, con la firma vencida (se renueva o, sin permiso, el cartel), con el ajuste apagado, si respaldo.php no lo deja ni transmitiendo por AirPlay. También con el video de Bunny que manda Moodle (un HLS de ffmpeg servido por un CDN de mentira en otro origen, que valida el token como Bunny): reproducirlo con hls.js (y con el nativo), tomar el tiempo y saltar, la vista previa, exportar y guardar sin el enlace firmado y sin tocar el campo de Vimeo, un archivo de la compu encima y volver, el enlace vencido o rechazado, y del lado de `mod_form.php` (su script real) que el bloque firmado salga de la página y no se mande si se cambió el campo de Bunny o venció, medido con el reloj del servidor. Y lo que encontró la revisión de seguridad de la 1.4.0: un tipo de interacción armado no se ejecuta ni en la vista previa de `mod_form.php` ni en el configurador (tampoco el id de una opción, x/y o la duración), y `mod_form.php` acepta lo que vuelve sólo de la ventana que abrió. Los avisos y el glosario (1.4.0) con Web Audio y vibración de mentira (`simulados/sonido-simulado.js`): tres tics 3 s antes y un plop al frenar en una nota, una pregunta y unos puntos para tocar (también a 2×), la cuenta regresiva, nada al llegar saltando, el aviso que se repite al volver para atrás, los ajustes del alumno que lo apagan y quedan recordados, el glosario que crece de a un término con su plop suave (sin vibrar), lo último arriba con "recién", el aviso que abre el panel en ese término, teclado y Escape, tocar afuera sin pausar, un salto hacia adelante que suma callado, el modo "En pantalla" igual que antes, movimiento reducido, y transmitiendo a la TV (los avisos en el celular, el panel encima del cartel de la TV). |
+| Navegador | `tests/navegador/` | El bundle compilado en Chrome, con clics y toques reales por CDP: el candado con hls.js y con HLS nativo (saltos de afuera, también con una nota abierta; restauración; +10 y −10; play de afuera), el cambio de calidad antes de una pregunta (y, con el nativo, un salto del cambio de fuente que aterriza corrido), los subtítulos, la TV con Chromecast y AirPlay simulados (también como adentro de hub-app, por el puente: salir y volver, el saludo sin respuesta, sin Chromecast, iPhone con AirPlay o sin, y el WebView de la app de hoy), la fila de controles de 320 a 400 px en pantalla completa simulada (y sin ella, con la TV y el glosario en la fila), y la firma de Bunny que vence a los pocos segundos (el servidor de pruebas la valida como el CDN, con 403): sin cortes ni saltos y con el candado intacto, el 403 que se arregla solo (también con la red que tarda en volver), el pedido que espera una renovación en camino, un salto y un play durante esa espera (y, con el nativo, un −10 durante el rescate y la calidad elegida justo al vencer), una calidad rota que no es el vencimiento (con hls.js pasa a otra, sin cartel), el cartel si no se puede renovar, su Reintentar (con la sesión cerrada recarga la página de arriba; con otro motivo, o con la de arriba de otro origen, sólo el iframe) y la TV que recarga con la firma nueva. Sin video configurado (sin `PLAYER_CONFIG`, sin video o con un ID que no es un ID), el cartel "No hay video para mostrar" sin crear ningún reproductor ni pedirle nada a Vimeo. Y el configurador armado como el de GitHub Pages con un MP4 de la compu (generado con ffmpeg): tomar el tiempo, saltar, la vista previa con el reproductor, exportar sin `vimeoId`, liberar el archivo al cambiarlo, un archivo que no es video o que no se puede leer, un video sin la duración en la cabecera (WebM), el JSON de la skill con `videoUrl` y el ida y vuelta con Moodle pasado por el manejador real de `mod_form.php` (el campo de Vimeo no se toca). La red de seguridad con fallas simuladas del CDN (404 del playlist, 503 de los segmentos a mitad de la clase, el CDN caído; con el HLS nativo, el 404 salta con la misma causa que hls.js y un 403 de los segmentos con la firma vigente no salta): recarga sólo el iframe con Vimeo y retoma donde iba, sin pisar el avance; y no salta con la sesión cerrada, con la firma vencida (se renueva o, sin permiso, el cartel), con el ajuste apagado, si respaldo.php no lo deja ni transmitiendo por AirPlay. También con el video de Bunny que manda Moodle (un HLS de ffmpeg servido por un CDN de mentira en otro origen, que valida el token como Bunny): reproducirlo con hls.js (y con el nativo), tomar el tiempo y saltar, la vista previa, exportar y guardar sin el enlace firmado y sin tocar el campo de Vimeo, un archivo de la compu encima y volver, el enlace vencido o rechazado, y del lado de `mod_form.php` (su script real) que el bloque firmado salga de la página y no se mande si se cambió el campo de Bunny o venció, medido con el reloj del servidor. Y lo que encontró la revisión de seguridad de la 1.4.0: un tipo de interacción armado no se ejecuta ni en la vista previa de `mod_form.php` ni en el configurador (tampoco el id de una opción, x/y o la duración), y `mod_form.php` acepta lo que vuelve sólo de la ventana que abrió. Los avisos y el glosario (1.4.0) con Web Audio y vibración de mentira (`simulados/sonido-simulado.js`): tres tics 3 s antes y un plop al frenar en una nota, una pregunta y unos puntos para tocar (también a 2×), la cuenta regresiva, nada al llegar saltando, el aviso que se repite al volver para atrás, los ajustes del alumno que lo apagan y quedan recordados, el glosario que crece de a un término con su plop suave (sin vibrar), lo último arriba con "recién", el aviso que abre el panel en ese término, teclado y Escape, tocar afuera sin pausar, un salto hacia adelante que suma callado, el modo "En pantalla" igual que antes, movimiento reducido, y transmitiendo a la TV (los avisos en el celular, el panel encima del cartel de la TV, y conectándola antes del primer play). Y lo que encontró la verificación del cierre: dos que frenan a menos de 3 s (sólo la próxima, el freno vibra entero, la etiqueta del mismo segundo sin plop suave encima), un salto corto con la barra reproduciendo (callado: ni el término ni el tic que cruza), y el panel abierto que deja libre la fila de controles y le anuncia el término nuevo al lector de pantalla. |
 
 🔴 El simulador de las unitarias (`tests/unit/apoyo/simulador.mjs`) usa las
 decisiones REALES de `candado.js`, pero el efecto de disparo del componente (el orden
@@ -163,7 +163,7 @@ php <moodle>/admin/cli/purge_caches.php                 # nadie queda con el map
   en ese rato (`class_exists`), pero no hay que dejarlo así.
 - Al terminar: *Administración del sitio → Notificaciones* sin nada pendiente, y
   *Plugins → Módulos de actividad → Video Interactivo* con la versión del release (1.4.0,
-  2026101902).
+  2026101903).
 - 🔴 `scripts/moodle-auto-update.php` (el original de `~/ivplayer-update.php`) deja el
   respaldo de la versión anterior en `mod/ivplayer_backup/`, adentro de la carpeta web:
   ahí se puede abrir por web y corre el reproductor viejo (sin evento de vista ni red de
@@ -199,25 +199,41 @@ tic-tac antes de frenar y un "plop" al frenar.
   una pregunta / nota / actividad") y una vibración corta en cada tic. Al frenar, un
   "plop" y una vibración más larga. Los segundos son de VIDEO: a 2× los tics van cada
   medio segundo. Si llega saltando (barra, ±10 s, la transcripción, retomar el avance)
-  no hay tic-tac; el plop al frenar sí. Si vuelve para atrás, el aviso se repite al
-  cruzarlo de nuevo. Una pregunta ya respondida no avisa (el candado no la frena).
+  no hay tic-tac; el plop al frenar sí. Todo salto pedido es callado, también uno corto
+  (un toque en la barra 1 s más adelante, o el ±10 que frena justo en una pendiente que
+  estaba a menos de 2 s). Si vuelve para atrás, el aviso se
+  repite al cruzarlo de nuevo. Una pregunta ya respondida no avisa (el candado no la
+  frena). Con dos a menos de 3 s (una nota a los 7 y una pregunta a los 9) se anuncia
+  sólo la próxima: la nota con sus tres tics y su plop (y la vibración larga entera),
+  y la pregunta, al seguir, con los tics que le queden. Al frenar suena sólo el plop:
+  ni un tic ni el plop suave de una etiqueta del mismo segundo encima.
 - **Las etiquetas** (modo "Glosario interactivo", el de por defecto): no frenan ni
   aparecen sobre el video. Cada término se suma al glosario en el momento en que se
   nombra, con un plop suave (sin vibrar): el botón "Glosario" de la barra (un libro con
   el contador, que late una vez) y, con el panel cerrado, un aviso "Nuevo en el glosario:
   …" que al tocarlo abre el panel en ese término. El panel muestra sólo lo ya nombrado,
   lo último arriba (resaltado unos segundos con "recién"); cada término se toca (o Enter)
-  para desplegar la definición. Se cierra con la X, Escape o tocando afuera, y no pausa
-  el video. Lateral derecho en un reproductor ancho, hoja de abajo en el celular parado.
+  para desplegar la definición. Se cierra con la X, Escape o tocando afuera (también un
+  control de la barra: hace lo suyo y lo cierra), y no pausa el video. Lateral derecho
+  en un reproductor ancho y hoja de abajo en uno angosto, los dos apoyados sobre la fila
+  de controles (pausar, Ajustes y pantalla completa siguen a mano). En un reproductor
+  bajo (≤300 px de alto: el iframe del campus con el celular parado mide ~210) ocupa
+  todo, controles incluidos, y el video sigue corriendo debajo hasta cerrarlo. Con el
+  panel abierto el aviso no se muestra, pero un término nuevo se le anuncia igual al
+  lector de pantalla.
   Las notas, después de verlas, quedan en el glosario con su marca (para releerlas). Un
   salto hacia adelante suma callado lo que quedó atrás; volver para atrás no saca nada;
   Reiniciar lo vacía.
 - **Transmitiendo a la TV**: todo sigue en el celular (los sonidos y la vibración salen
   en el celular, que es el que tiene las preguntas) y el glosario se abre encima del
-  cartel "Reproduciendo en la TV". Las etiquetas ya no se dibujan sobre ese cartel.
+  cartel "Reproduciendo en la TV". Las etiquetas ya no se dibujan sobre ese cartel. Si
+  conecta la TV antes de dar play (la TV arranca sola), ese toque es el gesto que
+  habilita los sonidos.
 - **Ajustes del alumno** (el engranaje): "Sonidos de aviso" y "Vibración" (sólo en un
   equipo que vibra: no en la compu ni en iPhone), sí/no, recordados en su navegador.
-  Por defecto, sí. Al prenderlos suena (o vibra) una muestra.
+  Por defecto, sí. Al prenderlos suena (o vibra) una muestra. Ajustes abre siempre en
+  la vista principal (ahí están los dos interruptores), así que la velocidad queda a un
+  toque más. A 320 px de ancho "Vibración" queda debajo y se llega desplazando el panel.
 
 ### El ajuste de la actividad: "Etiquetas"
 
@@ -233,8 +249,11 @@ por defecto)** o **En pantalla (como antes)**. Se guarda en la columna `etiqueta
   igual: son independientes del modo.
 - El modo viaja en el backup y al duplicar la actividad. Un backup de antes de la 1.4.0
   restaura con el glosario.
-- Sin `etiquetas` en `PLAYER_CONFIG` (SCORM, demos de la web, la vista previa del
-  configurador) es el glosario. El configurador conserva el modo de un JSON importado.
+- Sin `etiquetas` en `PLAYER_CONFIG` (SCORM, demos de la web) es el glosario. El menú
+  del formulario es la única fuente del modo: `mod_form.php` no se lo manda al
+  configurador ni lo lee de lo que vuelve, y la vista previa del configurador es una
+  página con la lista de interacciones, no el reproductor. El configurador sí conserva
+  el modo de un JSON importado al exportarlo (no cambia el menú de la actividad).
 
 ### Cómo suenan
 
@@ -243,6 +262,15 @@ un solo HTML. El `AudioContext` se crea en el primer gesto (el play): antes no s
 vibra nada. En iPhone/iPad (Safari 16.4+) se pide la sesión de audio `playback` para que
 el interruptor de silencio no los apague; donde no existe, no pasa nada. Son
 independientes del botón de silencio del video (para eso está "Sonidos de aviso").
+También desbloquean el sonido el toque en el video, "Continuar" de una tarjeta, prender
+"Sonidos de aviso" y el botón de la TV.
+
+Qué cuenta como reproducción y qué como salto (`src/avisos.js` y `src/glosario.js`):
+un paso del tiempo hacia adelante de hasta `umbralPaso(velocidad)` con el video andando y
+sin un salto pedido en vuelo (`seekTargetRef`). El umbral es `SEEK_MIN` (2 s, el del
+candado) a 1× o menos y crece con la velocidad (4 s a 2×): a 2× un tick de 1 s de reloj
+(el latido de la TV con la página en segundo plano) son 2 s de video y no es un salto.
+El candado no cambia: sigue con `SEEK_MIN`.
 
 ### Pendiente de probar en equipos reales
 
@@ -250,6 +278,21 @@ Las pruebas usan Web Audio y vibración de mentira (`tests/navegador/simulados/s
 Falta oírlos y sentirlos en: un iPhone con el interruptor de silencio puesto (la sesión
 `playback`), un Android en Chrome, y adentro de hub-app (en Android, `navigator.vibrate`
 del WebView necesita el permiso `VIBRATE` en la app; sin él, no vibra y no avisa nada).
+También: con AirPlay, si los sonidos salen por la TV en vez de por el celular; si en
+iOS se pierde la muestra al prender "Sonidos de aviso" (el contexto arranca un instante
+después); si un iPhone con música de fondo la corta al dar play; y el consumo de batería
+del `AudioContext` que queda andando.
+
+Decisiones abiertas (de Erick):
+
+- **El panel en un reproductor bajo** (≤300 px de alto) tapa todo y el video sigue
+  corriendo sin verse. Opciones: pausar al abrir y retomar al cerrar, o dejarlo así.
+- **El silencio del video no calla los avisos.** Quien silenció el video (o un iPhone con
+  el interruptor, que la sesión `playback` saltea) oye igual el tic-tac y el plop.
+  Propuesta: respetar el silencio que pone el alumno con el botón (no el que fuerza el
+  navegador al arrancar) y seguir vibrando.
+- **Con el glosario abierto, el teclado sólo cierra** (espacio, flechas, f, m y c no
+  hacen nada), igual que con Ajustes abierto, y el video sigue.
 
 ## Vistas en el log del campus (evento de vista)
 
