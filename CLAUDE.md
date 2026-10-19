@@ -512,6 +512,59 @@ la misma superficie del Web SDK que `cast-simulado.js`, y `CastPlayer` no cambia
   `app=mudo` (nadie contesta), `cast=0`, `holaLento`, `latPuente`, `duplicados=1`,
   `plataforma=ios` (+`airplayApp=0`), `appCastPublicada=1`. Ver puente-app-simulado.js.
 
+## Subtítulos en la TV (1.4.0, Chromecast y modo app) — trampas
+La TV baja el VTT ella sola, sin la cookie del campus: `mod/ivplayer/subtitulos.php`
+(`id`, `e`, `s` = base64url HMAC-SHA256 de `"cmid|e"` con el ajuste `subtitulossecreto`).
+`player.php` pone `subtitlesUrlTv` en `PLAYER_CONFIG` y `firma.php` devuelve `subtitulosTv`
+con cada renovación. `CastPlayer` manda la pista en el LOAD y la prende/apaga con
+EDIT_TRACKS_INFO. Uso, decisiones y pendientes: README ("Subtítulos en la TV"). El
+contrato con hub-app (capacidad `'subtitulos'`, campos de `cargar` y `media`, comando
+`pistas`) está FUERA del repo: `C:\dev\ivcast-adenda-pistas.md`, para sumar al pedido.
+- 🔴 **subtitulos.php: `NO_MOODLE_COOKIES` y la firma ANTES de la base** (`hash_equals`,
+  vigente y no más allá de `ivplayer_subtitulos_tv_tope`: duración del token + 1 h del
+  redondeo + 5 min). No pide sesión ni mira la visibilidad del curso (decisión escrita en el
+  archivo y en el README). 403 sin detalle; CORS abierto; `Cache-Control: private, max-age=300`.
+- 🔴 **El vencimiento del enlace es el de la firma del video** (`$bunny['expires']`, o
+  `ivplayer_bunny_expires` con Bunny sin firmar). Por eso el tope sale de la misma cuenta:
+  un enlace legítimo pasa siempre (lo prueba correr.php con TTL mínimo, por defecto y máximo).
+- 🔴 **El secreto no es un ajuste del panel**: lo crean `install.php` y el paso 2026101904
+  (`mod_ivplayer_crear_secreto_subtitulos`, upgradelib) y no se pisa. `settings.php` sólo
+  dice si está. Sin él no hay `subtitlesUrlTv` y el celular sigue dibujando (nunca "sin
+  subtítulos en ningún lado").
+- 🔴 **`ivplayer_subtitulos_cues` es `parseVTT` + `textoDeCue` en PHP**: la TV muestra los
+  mismos cues que el celular. Si se toca uno, tocar el otro; `tests/php/vectores-subtitulos.json`
+  los ata (correr.php y `tests/unit/subtitulos-tv.test.mjs`). El trim de JS saca los
+  espacios de Unicode: en PHP, la clase `[\s\p{Zs}\x{FEFF}\x{2028}\x{2029}]`. Salida WebVTT
+  estricta (HH:MM:SS.mmm, `&<>` escapados, sin renglones vacíos adentro de un cue).
+- 🔴 **El celular NO dibuja los subtítulos con la pista en la TV** (`tv.subtitulos`, de
+  `ad.subtitulosEnTV()`: enlace + SDK con pistas). Sin pista en la TV (SCORM, demo, sin
+  secreto, app sin `'subtitulos'`, AirPlay) los dibuja como antes.
+- 🔴 **La pista va en el LOAD aunque estén apagados** (`activeTrackIds: []`): prenderlos
+  es un EDIT_TRACKS_INFO, no un LOAD. Un toque durante la carga lo corrige `_actualizar` al
+  terminar (`k.subs`). Cada recarga (renovación, el video terminado) lleva el estado vigente
+  y el enlace de la última renovación (`Renovador.subtitulosTv()`; una respuesta sin enlace
+  no borra el que había).
+- **Adoptar:** `pistasDe(m)` lee `activeTrackIds` (el botón toma lo de la TV,
+  `onSubtitulos`) y si la media tiene la pista (`media.tracks` en el SDK de Google; la app
+  no las informa: `null`, no se sabe). Sin la pista: prenderlos recarga con ella
+  (`_recargarPorPista` en `_quizasRecargar`, en el acto). No sabiendo: EDIT_TRACKS_INFO y,
+  si la TV lo rechaza, lo mismo. Los cambios hechos desde otro emisor después de adoptar
+  NO se reflejan en el botón (manda el celular).
+- 🔴 **castNativo: sin `'subtitulos'` en las capacidades no existen `Track`,
+  `TextTrackStyle` ni `EditTracksInfoRequest`** (`pistasPosibles` da false) y el `cargar` es
+  el de v1, sin claves nuevas: una app que no conoce las pistas las tiraría y los
+  subtítulos no se verían en ningún lado. `activeTrackIds` entra en `claveMedia` (prender en
+  pausa cambia sólo eso y no es un repetido) y un `media` sin el campo conserva el último.
+- Simulados: la TV guarda las pistas, rechaza un id que no tiene (como el receptor) y BAJA
+  el VTT de la prendida (`__tv.bajadas`); el servidor de pruebas tiene un `/subtitulos` que
+  sólo sirve enlaces emitidos y vigentes, y `/firma` con `subs=1` trae `subtitulosTv`. La
+  app simulada declara `'subtitulos'` (salvo `sinSubtitulos=1`) y descarta pistas de otro
+  origen. `reanudarSubs=1`: la sesión que ya estaba trae la pista prendida. `subsTv=0`: sin
+  enlace. Escenario: `escenarios/tv-subtitulos.mjs`; la renovación, en `firma.mjs`.
+- Mutantes verificados (oct-2026): sin el enlace de la renovación, sin el "no dibujar" del
+  celular, sin la corrección del toque durante la carga y sin `activeTrackIds` en
+  `claveMedia`, cada uno lo agarra una prueba.
+
 ## Red de seguridad: Vimeo si Bunny falla (1.4.0, plan Bunny 0.4) — trampas
 Con el ajuste del sitio `respaldovimeo` prendido (APAGADO por defecto) y la actividad con
 ID de Vimeo, una falla del CDN de Bunny recarga la lección con Vimeo y retoma del avance.
@@ -741,7 +794,7 @@ los sonidos (Web Audio, sin archivos): `src/sonidos.js`.
 
 ## Subtítulos de la lección (oct-2026)
 - Salen del VTT/SRT que el docente sube en "Editar transcripción" (formato hubcampus, filearea `format_hubcampus/transcriptvtt` del contexto del módulo): el MISMO archivo de la transcripción sincronizada del tema. player.php lo normaliza a UTF-8 (`ivplayer_subtitulos_normalizar`: BOM, UTF-16, Windows-1252, bytes rotos) y lo manda crudo en `subtitlesVtt`; lo parsea `parseVTT`.
-- 🔴 `parseVTT` usa la MISMA regex de tiempo que `parse_timed_cues` del tema (campus-theme, hook_callbacks.php). Si se toca una, tocar la otra: si no, la pestaña de transcripción y el video leen distinto el mismo archivo. Probado con los 14 archivos reales de los cursos (869 cues, iguales).
+- 🔴 `parseVTT` usa la MISMA regex de tiempo que `parse_timed_cues` del tema (campus-theme, hook_callbacks.php). Si se toca una, tocar la otra: si no, la pestaña de transcripción y el video leen distinto el mismo archivo. Probado con los 14 archivos reales de los cursos (869 cues, iguales). Y desde la 1.4.0 hay una tercera copia: `ivplayer_subtitulos_cues` (lib.php), la que arma el VTT de la TV (ver "Subtítulos en la TV").
 - Con Vimeo, una pista propia de Vimeo gana; una AUTOGENERADA (`-x-autogen`) no le gana al archivo del docente.
 - Pendiente fuera de este repo: el tema no normaliza la codificación (un SRT en UTF-16 no muestra transcripción) y el backup de format_hubcampus no copia `transcriptvtt` (al duplicar la actividad se pierden transcripción y subtítulos).
 
