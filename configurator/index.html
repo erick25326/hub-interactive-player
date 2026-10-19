@@ -1887,7 +1887,7 @@ function buildConfig() {
     ? { vimeoId: '', vimeoHash: null }
     : vimeoDe(document.getElementById('vimeoInput').value);
   return {
-    ...passthroughConfig, // subtitlesUrl / loop de un config importado
+    ...passthroughConfig, // subtitlesUrl / loop / etiquetas de un config importado
     title: document.getElementById('courseTitle').value || 'Sin titulo',
     vimeoId: vimeoId || '',
     vimeoHash: vimeoHash || null,
@@ -1998,6 +1998,9 @@ function loadConfig(config) {
   passthroughConfig = {};
   if (config.subtitlesUrl) passthroughConfig.subtitlesUrl = config.subtitlesUrl;
   if (config.loop !== undefined) passthroughConfig.loop = config.loop;
+  // El modo de las etiquetas (1.4.0: glosario o en pantalla) de un JSON importado viaja
+  // igual al exportar (SCORM). Sólo los dos valores que entiende el reproductor.
+  if (config.etiquetas === 'glosario' || config.etiquetas === 'pantalla') passthroughConfig.etiquetas = config.etiquetas;
 
   // Reset counters
   counters = { note: 0, 'multiple-choice': 0, 'true-false': 0, hotspot: 0, label: 0 };
