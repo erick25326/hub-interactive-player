@@ -663,7 +663,7 @@ los sonidos (Web Audio, sin archivos): `src/sonidos.js`.
   seguridad). Un `useLayoutEffect` sobre `glosarioAbierto` mide al abrir con `offset*`
   del panel contra `clientWidth/Height` de su capa (no los mueven ni el giro de 90° ni
   la animación de entrada de 24 px) y lleva la marca `pausaGlosarioRef`; las decisiones
-  son puras (`cobertura`, `pausarAlAbrir`, `reanudarAlCerrar` en glosario.js). Casos: bajo
+  son puras (`cobertura`, `pausarAlAbrir`, `pasoATapar`, `reanudarAlCerrar` en glosario.js). Casos: bajo
   (100 %), hoja de abajo angosta (78 %), lateral (26 % a 1280, 36 % a 900: no pausa).
   🔴 La pausa y la vuelta son las del BOTÓN (`playIntentRef=null` + `pause()`;
   `safePlay()`), no un camino propio: candado, avisos, avance y firma la ven como una
@@ -675,12 +675,23 @@ los sonidos (Web Audio, sin archivos): `src/sonidos.js`.
   glosario.mjs): sobre el ícono, el ícono cambia (Reproducir → Pausar) entre el
   mousedown y el mouseup y Chrome no da el clic, así que la prueba pasaba con el error.
   `reanudarAlCerrar` no pregunta si está andando: con la marca prendida, a lo sumo la
-  pausa todavía no llegó (abrir y cerrar enseguida) y retomar es lo correcto. Se decide
-  al abrir: girar el celular con el panel abierto no lo vuelve a evaluar. Mutantes
+  pausa todavía no llegó (abrir y cerrar enseguida) y retomar es lo correcto. Mutantes
   verificados (oct-2026): sin el apagado del pointerdown, sin el de 'play', sin
   `pregunta` y sin `transmitiendo`, cada uno lo agarra una prueba de glosario.mjs.
-  Equivalente: apagar la marca en `togglePlay` (con el panel abierto nada llega a él
-  sin pasar antes por ese pointerdown; se sacó).
+  🔴 **También la apaga la rama de pausa de `togglePlay`** (verificación del 19-oct):
+  NO es equivalente al pointerdown. El toque al costado del video pausa 300 ms después
+  (`singleTapTimer`, por el doble toque): si en ese rato se abrió el glosario, esa
+  pausa del alumno llega con el panel abierto sin pasar por el pointerdown, y cerrar la
+  retomaba. El pointerdown también mira el botón GRANDE (`.iv-big-play`): queda a la
+  vista si, pausado por el glosario, el celular se acuesta; al retomar desaparecía bajo
+  el dedo y el clic del toque caía en la capa de toques, que lo pausaba (la prueba es
+  táctil: es el caso del celular).
+  🔴 **Se vuelve a medir con el panel abierto** (`ResizeObserver` sobre la
+  capa, `tapaGlosarioRef` con la última medida): medir sólo al abrir dejaba el video
+  corriendo debajo si el celular se paraba con el panel al costado (o se salía de la
+  pantalla completa con el atrás). Si PASA a tapar (`pasoATapar`) decide como al abrir;
+  si deja de tapar, no retoma (lo hace cerrar). Las tres con prueba y mutante en
+  glosario.mjs (el giro es el ancho del iframe de `/marco.html`, 900 → 375 → 900).
 - 🔴 **El silencio del video calla los SONIDOS de aviso, no la vibración** (Erick,
   19-oct-2026): `comoAvisar` (avisos.js) con `silencioRef` = el estado `muted`, o sea el
   ícono del botón de volumen (botón, tecla M, barra en 0, lo que lee el manejador de

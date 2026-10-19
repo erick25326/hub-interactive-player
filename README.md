@@ -252,15 +252,19 @@ angosto (tapa el 78 %); en una pantalla ancha el panel va al costado (tapa ~26 %
 1280 × 720 y ~36 % a 900 × 506) y el video sigue, como antes. Se mide al abrir, con el
 panel ya armado, contra el contenedor del video (siempre 16:9): un cambio de las
 medidas del panel en `styles.css` no pide tocar nada más. Las decisiones son puras:
-`cobertura`, `pausarAlAbrir` y `reanudarAlCerrar` en `src/glosario.js`.
+`cobertura`, `pausarAlAbrir`, `pasoATapar` y `reanudarAlCerrar` en `src/glosario.js`.
 
 - **Sólo si estaba reproduciendo** al abrirlo. En pausa no se toca nada, ni al cerrar.
 - **No se retoma si algo más lo frenó o lo tomó en el medio**: una pregunta (aparece y
   cierra el panel: el video queda en la pregunta), un error, la TV, o un play de otro
   lado aunque después lo vuelvan a pausar (los auriculares, la pantalla de bloqueo). Si
   el alumno toca **Reproducir** con el panel abierto (en la hoja de abajo la fila de
-  controles queda a la vista), decide ese toque: el panel se cierra y el video arranca
-  (sin ese cuidado, cerrar lo retomaría y el clic que viene detrás lo pausaría).
+  controles queda a la vista; el botón grande del centro, si el celular se acostó con el
+  video pausado por el panel), decide ese toque: el panel se cierra y el video arranca
+  (sin ese cuidado, cerrar lo retomaría y el clic que viene detrás lo pausaría). Una
+  pausa del alumno que llega con el panel abierto también es suya: el toque al costado
+  del video pausa 300 ms después (espera por el doble toque), y si en ese rato se abrió
+  el glosario, cerrarlo no lo retoma.
 - **Transmitiendo a la TV (Chromecast o AirPlay) no se pausa nunca**: el video está en
   la TV y el celular es el control; lo que tapa el panel es el cartel "Reproduciendo
   en…".
@@ -268,8 +272,12 @@ medidas del panel en `styles.css` no pide tocar nada más. Las decisiones son pu
   play anulado, `safePlay` al volver): para el candado, los avisos, el avance guardado y
   la renovación de la firma es una pausa más del alumno. El tic-tac sigue donde iba (un
   aviso a medias no se repite ni se saltea).
-- Se decide al abrir: si el reproductor cambia de tamaño con el panel abierto (girar el
-  celular), sigue como estaba hasta cerrarlo.
+- **Si con el panel abierto el reproductor cambia de tamaño** (girar el celular, salir
+  de la pantalla completa con el atrás del sistema) y el panel **pasa a tapar** el video,
+  vale lo mismo que al abrirlo: lo pausa si estaba reproduciendo (antes, acostado con el
+  panel al costado y después parado, el video seguía corriendo debajo del panel). Si
+  **deja de tapar**, no se retoma: girar el celular no es pedir que siga; lo retoma
+  cerrar el panel.
 
 ### El silencio del video (decisión de Erick, 19-oct-2026)
 
@@ -343,7 +351,8 @@ iOS se pierde la muestra al prender "Sonidos de aviso" (el contexto arranca un i
 después); si un iPhone con música de fondo la corta al dar play; y el consumo de batería
 del `AudioContext` que queda andando. Y las dos decisiones del 19-oct-2026: la pausa
 del glosario en un celular de verdad (el iframe del campus y hub-app, parado y en
-pantalla completa) y el silencio con Vimeo adentro de la app de Moodle (el arranque en
+pantalla completa, y girándolo con el panel abierto: las pruebas lo simulan cambiando
+el ancho del iframe) y el silencio con Vimeo adentro de la app de Moodle (el arranque en
 silencio que fuerza el navegador).
 
 Decisiones abiertas (de Erick):
