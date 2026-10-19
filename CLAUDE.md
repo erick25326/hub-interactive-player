@@ -20,6 +20,9 @@ A standalone interactive video player that replaces H5P for Hub Education's Mood
   (puro) y el aviso a `respaldo.php`. Ver "Red de seguridad".
 - `src/sondeo.js` — HLS nativo: antes del error, le pregunta al CDN qué pasó (el
   `<video>` no da el código HTTP). Ver "Red de seguridad".
+- `src/avisos.js` / `src/glosario.js` — los avisos de lo que frena (tic-tac, cuenta,
+  preferencias del alumno) y el glosario de las etiquetas, puros; `src/sonidos.js`, los
+  sonidos (Web Audio) y la vibración. Ver "Glosario interactivo y avisos".
 - `src/styles.css` — All styles with `.iv-` prefix namespace
 - `src/main.jsx` — React entry point
 - `vite.config.js` — Build config with singlefile plugin
@@ -30,7 +33,7 @@ A standalone interactive video player that replaces H5P for Hub Education's Mood
 2. **multiple-choice** — 4 options, feedback, explanation
 3. **true-false** — Binary choice with feedback
 4. **hotspot** — Clickable points overlaid on video, must view all to continue
-5. **label** — Pin over the video; click opens a popup with a definition
+5. **label** — Does not stop the video. By default (1.4.0, `etiquetas: 'glosario'`) it joins the interactive glossary when its time comes; with `etiquetas: 'pantalla'` it is a pin over the video whose click opens a popup with the definition (as before). See "Glosario interactivo y avisos".
 
 ## Text formatting (labels, notes, questions, explanations)
 
@@ -463,7 +466,7 @@ TVs reales están en el README.
 - A ≤372 px con el botón de girar (`.con-girar`) el de la TV va a Ajustes: entre 341
   y ~365 recortaba el de salir de pantalla completa.
 - AirPlay en iPhone: si se cierra el selector sin elegir, vuelve la calidad fijada.
-- Pendiente de producto: las etiquetas se dibujan sobre el cartel de la TV.
+- Las etiquetas se dibujaban sobre el cartel de la TV: con el glosario (1.4.0, por defecto) ya no; en el modo "pantalla", sí (como antes).
 - El receptor simulado (`tv-simulada.js` + los emisores `cast-simulado.js` y
   `puente-app-simulado.js`, y `airplay-simulado.js`) está en tests/navegador/simulados/ y
   lo usan las pruebas de tests/navegador/escenarios/tv.mjs y tv-app.mjs.
@@ -594,6 +597,61 @@ instalarlo. Procedimiento completo en el README ("Instalar el plugin en el campu
 - Vuelta atrás: una versión nueva hacia adelante (1.4.1); Moodle no deja bajar.
 - `ivplayer_view` no es pura: la prueba `correr.php` aparte, con reemplazos mínimos de
   `\core\event\course_module_viewed` y `completion_info` (el cableado, no el log).
+
+## Glosario interactivo y avisos (1.4.0, pedido de Erick 18-oct-2026) — trampas
+Tic-tac 3 s antes de lo que frena, cuenta regresiva, "plop" + vibración al frenar, y las
+etiquetas en un glosario que crece a medida que se nombran (o en pantalla, como antes,
+por actividad). Uso y lo que falta probar en equipos reales: README ("Glosario
+interactivo y avisos de las interacciones"). Lo puro: `src/avisos.js` y `src/glosario.js`;
+los sonidos (Web Audio, sin archivos): `src/sonidos.js`.
+- 🔴 **Los avisos NO tocan el candado.** Van en un efecto propio DESPUÉS del de disparo,
+  con su propio `prevAvisoRef` (no `prevTimeRef`, que tiene sus reglas: ver "Candado").
+  El único cambio en el efecto de disparo es el plop en `mostrar` (la réplica de
+  `tests/unit/apoyo/simulador.mjs` no lo necesita). Qué "frena" es lo mismo que mira el
+  bucle: todo menos `label`, también un tipo desconocido.
+- 🔴 **"Reproduciendo" es `playingRef` + un paso de hasta `SEEK_MIN`** (el umbral del
+  candado). Todo salto (barra, ±10, transcripción, restaurar, la vuelta de la TV en
+  pausa) es callado: ni tic-tac ni plop suave del glosario. El plop al FRENAR sí suena
+  aunque se llegue saltando (la tarjeta aparece igual).
+- 🔴 **Un tic tocado se olvida recién si el tiempo vuelve `OLVIDO_S` antes de su marca**
+  (`olvidarTics`): el HLS nativo y el estimador de la TV retroceden centésimas, y sin eso
+  sonaba dos veces. Dos marcas en un mismo paso suenan como UN tic (el último).
+- 🔴 **Nada suena ni vibra antes del primer gesto** (`desbloquear()` en `togglePlay`, en
+  `handleTouchEnd` —el play de los bordes sale 300 ms después—, en "Continuar" y al
+  prender los ajustes). Chrome bloquea `navigator.vibrate` sin gesto (aviso en consola) y
+  un AudioContext creado fuera de un gesto queda suspendido. Un contexto suspendido no
+  encola: se reanuda y ese aviso se pierde (si no, sonaba todo junto al volver).
+  Con los sonidos apagados por el alumno el gesto sólo habilita la vibración
+  (`desbloquear({audio:false})`): ni AudioContext ni sesión de audio.
+- 🔴 **Vibración = `navigator.vibrate` Y pantalla táctil** (`vibracionPosible`): Chrome
+  de escritorio tiene `vibrate` y no vibra; iPhone no lo tiene. En hub-app (Android) hace
+  falta el permiso `VIBRATE` de la app: no se puede detectar desde la página.
+- **El glosario sólo crece** (`nombrados`): volver para atrás no saca nada y al volver a
+  cruzar no suena; Reiniciar lo vacía. Las notas entran por `completed` (también las de
+  una sesión anterior, que vienen en el avance), sin sonido ni aviso.
+- 🔴 **El panel cierra con una pregunta o un error** (como el menú de Ajustes) y, como el
+  menú, un toque en la capa de toques SÓLO lo cierra (no pausa). Abrirlo no pausa.
+  Ajustes y glosario se excluyen. Va adentro del contenedor (pantalla completa, iframe,
+  hub-app) con una capa `container-type: size` (`ivgl`) para medir ancho y alto.
+- 🔴 **La fila de controles con el botón del glosario**: a 360 px con el de girar (o con
+  el de la TV sin pantalla completa) el de SALIR de pantalla completa quedaba 10 px
+  afuera. `.con-glosario` esconde la duración total hasta 400 px (styles.css);
+  `angosto.mjs` mide de 320 a 400 con y sin pantalla completa. Un botón más en la fila,
+  volver a medir.
+- **Ajustes abre siempre en la vista principal** (ahí están "Sonidos de aviso" y
+  "Vibración"); antes, sin calidades ni TV en el menú, abría en Velocidad.
+- **Modo "pantalla"** (`PLAYER_CONFIG.etiquetas`, columna `etiquetas`, paso 2026101903):
+  el reproductor de antes, con los avisos. Cualquier otro valor (o ninguno) es el
+  glosario: en PHP `ivplayer_modo_etiquetas`, en el componente `!== 'pantalla'`. Las
+  actividades que ya existían quedan con el glosario. `ivplayer_config_base` (pura) arma
+  lo que va en `PLAYER_CONFIG`; correr.php prueba también el paso del upgrade con un
+  XMLDB de mentira y que `install.xml` diga lo mismo.
+- Pruebas: `?ias=glosario` (INTERACCIONES_GLOSARIO, con los textos de la lección 3.1),
+  `?etiquetas=pantalla`, `?sonido=simulado` (`simulados/sonido-simulado.js`: anota cada
+  oscilador con el segundo del video, cada vibración, la cuenta que se vio y si el
+  contexto se creó dentro del gesto). `escenarios/avisos.mjs` y `glosario.mjs`.
+- Sin animaciones infinitas en lo nuevo (lo mira `glosario.mjs`) y sin ninguna con
+  `prefers-reduced-motion`.
 
 ## Brand
 - Colors: #0162F5 (primary), #14CCF7 (secondary), #84F4BE (accent), #062E60 (dark)
