@@ -106,5 +106,17 @@ function xmldb_ivplayer_upgrade($oldversion) {
         upgrade_mod_savepoint(true, 2026101903, 'ivplayer');
     }
 
+    if ($oldversion < 2026101904) {
+        // Subtítulos en la TV (1.4.0): el secreto con que player.php y firma.php firman el
+        // enlace de subtitulos.php (la TV baja el VTT sin la sesión del campus). Si ya hay
+        // uno, no se toca. Una instalación nueva lo crea en install.php. Sin este paso
+        // (código nuevo, upgrade sin correr) no se le ofrece la pista a la TV y el celular
+        // sigue dibujando los subtítulos, como antes.
+        require_once(__DIR__ . '/upgradelib.php');
+        mod_ivplayer_crear_secreto_subtitulos();
+
+        upgrade_mod_savepoint(true, 2026101904, 'ivplayer');
+    }
+
     return true;
 }

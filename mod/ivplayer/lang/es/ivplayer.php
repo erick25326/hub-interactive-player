@@ -72,6 +72,12 @@ $string['appheading_desc'] = 'Adentro de la app de Hub Education el reproductor 
 $string['appcastpublicada'] = 'La app con Chromecast ya está publicada';
 $string['appcastpublicada_desc'] = 'La app de Hub Education con Chromecast ya está publicada en Google Play. Prendela recién cuando la versión esté disponible para todos: cambia el aviso que ven los alumnos con la app vieja, que pasa a decirles que la actualicen.';
 
+// Subtítulos en la TV (1.4.0): sólo el estado, sin campo (el secreto no se muestra).
+$string['subtitulostvheading'] = 'Subtítulos en la TV';
+$string['subtitulostvheading_desc'] = 'Al transmitir con Chromecast (desde Chrome o desde la app), la TV muestra los subtítulos de la lección (los de "Editar transcripción") y el botón de subtítulos del reproductor los prende y apaga en la TV. La TV los baja con un enlace firmado que vence junto con el del video. Estado: {$a}';
+$string['subtitulostv_listo'] = 'listo. La clave interna con que se firman los enlaces existe (no se muestra).';
+$string['subtitulostv_sinsecreto'] = 'falta la clave interna con que se firman los enlaces: se crea al actualizar el plugin (Administración del sitio > Notificaciones, o admin/cli/upgrade.php). Mientras tanto, transmitiendo, los subtítulos se siguen viendo sólo en el celular.';
+
 // Cartel de player.php cuando no hay nada que reproducir.
 $string['sinvideo'] = 'Esta actividad todavía no tiene un video cargado.';
 $string['sinvideo_bunnysinhost'] = 'El video de esta actividad está en Bunny Stream, pero el campus todavía no tiene Bunny configurado.';

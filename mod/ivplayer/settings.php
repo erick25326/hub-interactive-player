@@ -104,4 +104,13 @@ if ($ADMIN->fulltree) {
         get_string('appcastpublicada', 'ivplayer'),
         get_string('appcastpublicada_desc', 'ivplayer'),
         0));
+
+    // Subtítulos en la TV (subtitulos.php): sólo el ESTADO, sin campo. El secreto con que se
+    // firman los enlaces lo crean la instalación y el upgrade (db/upgradelib.php) y no se
+    // muestra nunca: ni acá, ni en la exportación de presets (no es un ajuste del panel).
+    $settings->add(new admin_setting_heading('mod_ivplayer/subtitulostvheading',
+        get_string('subtitulostvheading', 'ivplayer'),
+        get_string('subtitulostvheading_desc', 'ivplayer', get_string(
+            strlen(ivplayer_subtitulos_tv_secreto()) >= IVPLAYER_SUBTITULOS_TV_SECRETO_MIN ? 'subtitulostv_listo' : 'subtitulostv_sinsecreto',
+            'ivplayer'))));
 }

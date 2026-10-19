@@ -72,6 +72,12 @@ $string['appheading_desc'] = 'Inside the Hub Education app, the player casts to 
 $string['appcastpublicada'] = 'The app with Chromecast is published';
 $string['appcastpublicada_desc'] = 'The Hub Education app with Chromecast is published on Google Play. Turn this on only once that version is available to everyone: it changes the notice students with the old app see, which then asks them to update it.';
 
+// Subtitles on the TV (1.4.0): only the status, no field (the secret is never shown).
+$string['subtitulostvheading'] = 'Subtitles on the TV';
+$string['subtitulostvheading_desc'] = 'When casting with Chromecast (from Chrome or from the app), the TV shows the lesson subtitles (the ones from "Edit transcript") and the player\'s subtitles button turns them on and off on the TV. The TV downloads them through a signed link that expires together with the video link. Status: {$a}';
+$string['subtitulostv_listo'] = 'ready. The internal key used to sign the links exists (it is never shown).';
+$string['subtitulostv_sinsecreto'] = 'the internal key used to sign the links is missing: it is created when the plugin is upgraded (Site administration > Notifications, or admin/cli/upgrade.php). Until then, while casting, subtitles are only shown on the phone.';
+
 // player.php notice when there is nothing to play.
 $string['sinvideo'] = 'This activity does not have a video yet.';
 $string['sinvideo_bunnysinhost'] = 'This activity\'s video is on Bunny Stream, but Bunny is not configured on this site yet.';

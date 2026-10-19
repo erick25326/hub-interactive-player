@@ -9,7 +9,9 @@
  * nuevas, sin recargar la página.
  *
  *   POST cmid=<id del módulo>&sesskey=<sesskey>
- *   200 { ok: true, playlist, poster, expires, ahora }
+ *   200 { ok: true, playlist, poster, expires, ahora, subtitulosTv? }   subtitulosTv: el
+ *                               enlace firmado de subtitulos.php con el vencimiento nuevo
+ *                               (sólo si la lección tiene subtítulos; ver lib.php)
  *   4xx { ok: false, motivo }   motivo: 'sesion' (401: se cerró la sesión o el sesskey ya
  *                               no vale), 'permiso' (403), 'actividad' (404),
  *                               'sinbunny' (409: la actividad ya no reproduce Bunny
@@ -140,10 +142,26 @@ if ($video === null || !$video['firmada']) {
     ivplayer_firma_responder(409, ['ok' => false, 'motivo' => 'sinbunny']);
 }
 
-ivplayer_firma_responder(200, [
+$respuesta = [
     'ok' => true,
     'playlist' => $video['playlist'],
     'poster' => $video['poster'],
     'expires' => $video['expires'],
     'ahora' => $ahora,
-]);
+];
+// Subtítulos en la TV: el enlace a subtitulos.php con el vencimiento NUEVO, el mismo que el
+// del video. Cuando la TV vuelve a cargar el video con la firma nueva, la pista va con éste
+// (el viejo vence con la firma vieja). Si algo falla acá, la renovación del video sale
+// igual, sin él: la TV conserva el que tenía hasta que venza.
+try {
+    $subtitulos = ivplayer_subtitulos_texto($context);
+    if ($subtitulos !== null && ivplayer_subtitulos_a_vtt($subtitulos) !== null) {
+        $subtitulostv = ivplayer_subtitulos_tv_url($cm->id, $video['expires']);
+        if ($subtitulostv !== null) {
+            $respuesta['subtitulosTv'] = $subtitulostv;
+        }
+    }
+} catch (Throwable $e) {
+    // Sin el mensaje, como arriba.
+}
+ivplayer_firma_responder(200, $respuesta);

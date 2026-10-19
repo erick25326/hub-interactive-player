@@ -1058,3 +1058,259 @@ function ivplayer_subtitulos_normalizar(string $texto): ?string {
     }
     return $texto;
 }
+
+/* ─── Subtítulos en la TV (Chromecast, 1.4.0) ───────────────── */
+//
+// Con el video en la TV, los subtítulos los tiene que dibujar la TV: el receptor de Cast
+// (el de Google en Chrome, o el Cast nativo de hub-app) baja el VTT él solo, como baja el
+// video. Pero lo pide SIN la cookie del campus, así que no puede leerlo de player.php ni
+// de pluginfile.php. Lo sirve subtitulos.php, sin sesión y con una firma propia en la URL:
+//
+//   subtitulos.php?id=<cmid>&e=<vencimiento unix>&s=<base64url(HMAC-SHA256("cmid|e", secreto))>
+//
+// El secreto es un ajuste del plugin (subtitulossecreto) que crean la instalación y el
+// upgrade (db/upgradelib.php) y que no se muestra ni se exporta. La URL la arma player.php
+// con el MISMO vencimiento que la firma del video (subtitlesUrlTv en PLAYER_CONFIG) y
+// firma.php la renueva junto con él: cuando la TV vuelve a cargar el video con la firma
+// nueva, la pista va con la URL nueva. Uso y trampas: README ("Subtítulos en la TV") y
+// CLAUDE.md.
+//
+// Las funciones puras (de ivplayer_subtitulos_tv_firma a ivplayer_subtitulos_a_vtt) no
+// tocan Moodle: tests/php/correr.php las lee de este archivo y las prueba.
+
+/** Largo mínimo del secreto: el que crea upgradelib son 43 caracteres (32 bytes). */
+define('IVPLAYER_SUBTITULOS_TV_SECRETO_MIN', 32);
+/** Margen, en segundos, sobre la vida más larga que puede tener un enlace legítimo. */
+define('IVPLAYER_SUBTITULOS_TV_MARGEN', 300);
+
+/**
+ * La firma del enlace de subtítulos para la TV, o null si no se puede firmar.
+ *
+ * Mensaje "cmid|e" con el secreto como CLAVE del HMAC (como el token de Bunny) y el digest
+ * binario en base64url, sin "=". Pura (tests/php/correr.php).
+ *
+ * @param int $cmid Módulo del curso (la actividad).
+ * @param int $expires Vencimiento, UNIX en segundos.
+ * @param string $secreto El ajuste subtitulossecreto. Nunca sale: lo que sale es la firma.
+ * @return string|null null sin secreto (o uno corto), con un cmid o un vencimiento no positivos.
+ */
+function ivplayer_subtitulos_tv_firma(int $cmid, int $expires, string $secreto): ?string {
+    if ($cmid <= 0 || $expires <= 0 || strlen($secreto) < IVPLAYER_SUBTITULOS_TV_SECRETO_MIN) {
+        return null;
+    }
+    $digest = hash_hmac('sha256', $cmid . '|' . $expires, $secreto, true);
+    return rtrim(strtr(base64_encode($digest), '+/', '-_'), '=');
+}
+
+/**
+ * Los parámetros de la URL de subtitulos.php para la TV (id, e, s), o null.
+ *
+ * Pura (tests/php/correr.php). player.php y firma.php la usan a través de
+ * ivplayer_subtitulos_tv_url(), que le pone el secreto del sitio y la ruta.
+ *
+ * @param int $cmid
+ * @param int $expires El MISMO vencimiento que la firma del video.
+ * @param string $secreto
+ * @return array{id: int, e: int, s: string}|null
+ */
+function ivplayer_subtitulos_tv_parametros(int $cmid, int $expires, string $secreto): ?array {
+    $firma = ivplayer_subtitulos_tv_firma($cmid, $expires, $secreto);
+    return $firma === null ? null : ['id' => $cmid, 'e' => $expires, 's' => $firma];
+}
+
+/**
+ * ¿El pedido que llegó a subtitulos.php trae una firma buena, vigente y dentro del tope?
+ *
+ * 🔴 Comparación con hash_equals (tiempo constante): con === la firma se podría adivinar
+ * de a un carácter midiendo cuánto tarda la respuesta. Y la firma va ANTES de mirar la
+ * base: sin ella, nadie hace que el servidor busque nada.
+ * El tope no deja pasar un vencimiento lejano: un enlace legítimo vence, como mucho, a la
+ * duración del token del video más la hora del redondeo (ivplayer_bunny_expires).
+ * Pura (tests/php/correr.php): recibe lo que leyó subtitulos.php, el secreto y la hora.
+ *
+ * @param mixed $cmid El parámetro id (PARAM_INT: un entero, 0 si faltó).
+ * @param mixed $expires El parámetro e.
+ * @param mixed $firma El parámetro s.
+ * @param string $secreto
+ * @param int $ahora UNIX en segundos.
+ * @param int $tope Cuánto más allá de $ahora puede vencer un enlace (ivplayer_subtitulos_tv_tope).
+ * @return bool
+ */
+function ivplayer_subtitulos_tv_valida($cmid, $expires, $firma, string $secreto, int $ahora, int $tope): bool {
+    if (!is_int($cmid) || !is_int($expires) || !is_string($firma) || $firma === '') {
+        return false;
+    }
+    $esperada = ivplayer_subtitulos_tv_firma($cmid, $expires, $secreto);
+    if ($esperada === null || !hash_equals($esperada, $firma)) {
+        return false;
+    }
+    return $expires > $ahora && $expires <= $ahora + $tope;
+}
+
+/**
+ * Cuánto más allá de ahora puede vencer un enlace de subtítulos legítimo: la duración del
+ * token del video, la hora del redondeo de ivplayer_bunny_expires y un margen.
+ *
+ * 🔴 Con la duración del sitio: si el admin la baja, los enlaces ya emitidos con la vieja
+ * dejan de valer. La TV baja el VTT al cargar el video, y cada carga de después (la
+ * renovación de la firma) trae uno nuevo, así que a lo sumo una TV que se recarga sin
+ * renovar (el video terminado y vuelto a empezar) se queda sin subtítulos hasta la
+ * próxima renovación.
+ * Pura (tests/php/correr.php).
+ *
+ * @param int $ttl Duración del token del video (ivplayer_bunny_ttl), en segundos.
+ * @return int Segundos.
+ */
+function ivplayer_subtitulos_tv_tope(int $ttl): int {
+    return max(0, $ttl) + 3600 + IVPLAYER_SUBTITULOS_TV_MARGEN;
+}
+
+/**
+ * Los cues de un VTT o SRT ya normalizado a UTF-8: [inicio en ms, fin en ms, texto].
+ *
+ * 🔴 Es parseVTT + textoDeCue de src/subtitulos.js, línea por línea, para que la TV
+ * muestre EXACTAMENTE lo mismo que dibuja el celular: la misma regex del tiempo (que es
+ * también la de la transcripción del tema), las mismas etiquetas sacadas y las mismas
+ * entidades resueltas. Si se toca una, tocar la otra: los vectores compartidos
+ * (tests/php/vectores-subtitulos.json) los prueban las dos, en PHP (correr.php) y en Node
+ * (tests/unit/subtitulos-tv.test.mjs). El trim de JS saca también los espacios de Unicode
+ * (el de no separación, U+FEFF…): acá, con la misma clase.
+ * Pura (tests/php/correr.php).
+ *
+ * @param string $texto UTF-8 válido (ivplayer_subtitulos_normalizar).
+ * @return array<int, array{0: int, 1: int, 2: string}>
+ */
+function ivplayer_subtitulos_cues(string $texto): array {
+    $blancos = '[\s\p{Zs}\x{FEFF}\x{2028}\x{2029}]';
+    $recortar = function (string $s) use ($blancos): string {
+        return (string) preg_replace('/^' . $blancos . '+|' . $blancos . '+$/uD', '', $s);
+    };
+    $tiempo = '/(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/';
+    // Milisegundos exactos: "0." + 1 a 3 dígitos es una fracción decimal (",5" = 500 ms).
+    $ms = function ($h, $m, $s, $f): int {
+        return (((int) $h * 60 + (int) $m) * 60 + (int) $s) * 1000 + (int) str_pad((string) $f, 3, '0', STR_PAD_RIGHT);
+    };
+    // textoDeCue: fuera lo que tiene forma de etiqueta (VTT y SRT), entidades resueltas.
+    $textodecue = function (string $t) use ($recortar): string {
+        $t = (string) preg_replace('/<\/?[a-zA-Z][^<>]*>|<\d{2,}:\d{2}[:.,\d]*>/u', '', $t);
+        $t = str_replace(['&lt;', '&gt;', '&nbsp;', '&lrm;', '&rlm;', '&quot;', '&apos;'],
+            ['<', '>', "\u{00A0}", '', '', '"', "'"], $t);
+        $cp = function ($n): string {
+            return ($n > 0 && $n <= 0x10FFFF && ($n < 0xD800 || $n > 0xDFFF)) ? (string) mb_chr((int) $n, 'UTF-8') : '';
+        };
+        $t = (string) preg_replace_callback('/&#(\d+);/', function ($m) use ($cp) {
+            return $cp((int) $m[1]);
+        }, $t);
+        $t = (string) preg_replace_callback('/&#x([0-9a-f]+);/i', function ($m) use ($cp) {
+            return $cp(hexdec($m[1]));
+        }, $t);
+        return $recortar(str_replace('&amp;', '&', $t));
+    };
+    $lineas = preg_split('/\r*\n|\r/', $texto);
+    $cues = [];
+    $cur = null;
+    $cerrar = function () use (&$cur, &$cues, $textodecue) {
+        if ($cur !== null) {
+            $t = $textodecue(implode("\n", $cur['l']));
+            if ($t !== '' && $cur['fin'] > $cur['inicio']) {
+                $cues[] = [$cur['inicio'], $cur['fin'], $t];
+            }
+        }
+        $cur = null;
+    };
+    $n = count($lineas);
+    for ($i = 0; $i < $n; $i++) {
+        $linea = $lineas[$i];
+        $m = [];
+        if (preg_match($tiempo, $linea, $m)) {
+            $cerrar();
+            $cur = ['inicio' => $ms($m[1], $m[2], $m[3], $m[4]), 'fin' => $ms($m[5], $m[6], $m[7], $m[8]), 'l' => []];
+            continue;
+        }
+        if ($cur === null) {
+            continue;
+        }
+        if ($recortar($linea) === '') {
+            foreach ($cur['l'] as $x) {
+                if ($recortar($x) !== '') {
+                    $cerrar();
+                    break;
+                }
+            }
+            continue;
+        }
+        // El número de un SRT pegado al tiempo siguiente no es texto.
+        if (preg_match('/^' . $blancos . '*\d+' . $blancos . '*$/uD', $linea) && $i + 1 < $n && preg_match($tiempo, $lineas[$i + 1])) {
+            continue;
+        }
+        $cur['l'][] = $linea;
+    }
+    $cerrar();
+    return $cues;
+}
+
+/**
+ * Un VTT o SRT (ya en UTF-8) como WebVTT estricto, el que entiende cualquier receptor de
+ * Cast, o null si no tiene ningún cue.
+ *
+ * Sale de los MISMOS cues que dibuja el celular (ivplayer_subtitulos_cues): un SRT pasa a
+ * WebVTT, y un VTT "flojo" (horas de un dígito o ausentes, coma, milisegundos cortos,
+ * ajustes de posición) queda con los tiempos en HH:MM:SS.mmm. El texto va sin etiquetas
+ * (como en el celular) y con &, < y > escapados: así una flecha o una etiqueta del texto
+ * no se leen como tiempo o formato. Sin renglones en blanco adentro de un cue (cortarían
+ * el cue en el receptor).
+ * Pura (tests/php/correr.php).
+ *
+ * @param string $texto UTF-8 válido (ivplayer_subtitulos_normalizar).
+ * @return string|null
+ */
+function ivplayer_subtitulos_a_vtt(string $texto): ?string {
+    $cues = ivplayer_subtitulos_cues($texto);
+    if (!$cues) {
+        return null;
+    }
+    $hora = function (int $ms): string {
+        return sprintf('%02d:%02d:%02d.%03d', intdiv($ms, 3600000), intdiv($ms, 60000) % 60, intdiv($ms, 1000) % 60, $ms % 1000);
+    };
+    $bloques = [];
+    foreach ($cues as [$inicio, $fin, $t]) {
+        $lineas = [];
+        foreach (explode("\n", $t) as $l) {
+            if (preg_match('/[^\s\p{Zs}\x{FEFF}\x{2028}\x{2029}]/u', $l)) {
+                $lineas[] = str_replace(['&', '<', '>'], ['&amp;', '&lt;', '&gt;'], $l);
+            }
+        }
+        $bloques[] = $hora($inicio) . ' --> ' . $hora($fin) . "\n" . implode("\n", $lineas);
+    }
+    return "WEBVTT\n\n" . implode("\n\n", $bloques) . "\n";
+}
+
+/**
+ * El secreto con que se firman los enlaces de subtítulos para la TV, o '' si no está (el
+ * código se actualizó y el upgrade todavía no corrió: sin él no se ofrece la pista a la
+ * TV, y el celular sigue dibujando los subtítulos).
+ *
+ * 🔴 Sólo del lado del servidor, para firmar y verificar. No va al navegador, ni a un
+ * log, ni a un error, ni a la pantalla de ajustes.
+ *
+ * @return string
+ */
+function ivplayer_subtitulos_tv_secreto(): string {
+    $secreto = get_config('mod_ivplayer', 'subtitulossecreto');
+    return is_string($secreto) ? trim($secreto) : '';
+}
+
+/**
+ * La URL firmada de subtitulos.php para la TV, o null si no se puede firmar (sin secreto).
+ *
+ * La usan player.php (subtitlesUrlTv, con el vencimiento de la firma del video) y firma.php
+ * (subtitulosTv, la nueva con cada renovación).
+ *
+ * @param int $cmid
+ * @param int $expires El vencimiento de la firma del video.
+ * @return string|null
+ */
+function ivplayer_subtitulos_tv_url(int $cmid, int $expires): ?string {
+    $parametros = ivplayer_subtitulos_tv_parametros($cmid, $expires, ivplayer_subtitulos_tv_secreto());
+    return $parametros === null ? null : (new moodle_url('/mod/ivplayer/subtitulos.php', $parametros))->out(false);
+}

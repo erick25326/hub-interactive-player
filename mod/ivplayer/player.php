@@ -123,7 +123,19 @@ $base = ivplayer_config_base($ivplayer, $video);
 // única fuente; con Vimeo, si el video trae su propia pista la dibuja Vimeo y éstos
 // quedan sin usar (ver hasVimeoSubs en el reproductor).
 $subtitulos = ivplayer_subtitulos_texto($context);
-$config = json_encode($subtitulos !== null ? $base + ['subtitlesVtt' => $subtitulos] : $base, $jsonflags);
+$extra = $subtitulos !== null ? ['subtitlesVtt' => $subtitulos] : [];
+// Subtítulos en la TV (Chromecast): con Bunny se puede transmitir, y la TV baja el VTT
+// ELLA sola, sin la cookie del campus. Se le da un enlace firmado a subtitulos.php con el
+// MISMO vencimiento que la firma del video (firma.php los renueva juntos), y sólo si hay
+// algún cue que mostrar. Sin el secreto del plugin (upgrade sin correr) no hay enlace y,
+// transmitiendo, el celular sigue dibujándolos como antes.
+if ($bunny !== null && $subtitulos !== null && ivplayer_subtitulos_a_vtt($subtitulos) !== null) {
+    $subtitulostv = ivplayer_subtitulos_tv_url($cm->id, $bunny['expires'] ?? ivplayer_bunny_expires($ahora, ivplayer_bunny_ttl()));
+    if ($subtitulostv !== null) {
+        $extra['subtitlesUrlTv'] = $subtitulostv;
+    }
+}
+$config = json_encode($base + $extra, $jsonflags);
 if ($config === false) {
     // Nunca dejar al reproductor sin config por los subtítulos.
     $config = json_encode($base, $jsonflags);

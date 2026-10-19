@@ -3,7 +3,8 @@
  * Después de crear las tablas en una instalación nueva del plugin.
  *
  * En un sitio que ya tenía el plugin no corre esto sino db/upgrade.php, que hace lo
- * mismo en su paso de la 1.3.0.
+ * mismo en sus pasos: la clave de Bunny en la lista de ajustes sensibles (1.3.0) y el
+ * secreto de los subtítulos para la TV (2026101904).
  *
  * @package    mod_ivplayer
  * @copyright  Hub Education
@@ -19,5 +20,6 @@ require_once(__DIR__ . '/upgradelib.php');
  */
 function xmldb_ivplayer_install() {
     mod_ivplayer_marcar_clave_sensible();
+    mod_ivplayer_crear_secreto_subtitulos();
     return true;
 }

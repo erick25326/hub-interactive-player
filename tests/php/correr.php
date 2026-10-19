@@ -1,8 +1,10 @@
 <?php
 // Pruebas de las funciones PURAS de mod/ivplayer/lib.php, con PHP de verdad y sin
 // Moodle: la firma de Bunny (HS256), la regla de "¿esta actividad usa Bunny?" que
-// comparten player.php y firma.php, la lectura de lo que pega el docente y la
-// normalización de los subtítulos a UTF-8. Antes, la sintaxis de TODOS los .php del
+// comparten player.php y firma.php, la lectura de lo que pega el docente, la
+// normalización de los subtítulos a UTF-8 y los subtítulos para la TV (la firma del enlace
+// de subtitulos.php y el paso a WebVTT estricto, con vectores-subtitulos.json, que
+// comparte con la prueba de Node). Antes, la sintaxis de TODOS los .php del
 // plugin (php -l): los que necesitan Moodle no los ejecuta ninguna prueba.
 //
 //   php tests/php/correr.php          (desde cualquier carpeta)
@@ -77,6 +79,12 @@ $funciones = [
     'ivplayer_respaldo_datos',
     'ivplayer_modo_etiquetas',
     'ivplayer_config_base',
+    'ivplayer_subtitulos_tv_firma',
+    'ivplayer_subtitulos_tv_parametros',
+    'ivplayer_subtitulos_tv_valida',
+    'ivplayer_subtitulos_tv_tope',
+    'ivplayer_subtitulos_cues',
+    'ivplayer_subtitulos_a_vtt',
 ];
 
 $rutalib = dirname(__DIR__, 2) . '/mod/ivplayer/lib.php';
@@ -112,7 +120,7 @@ foreach ($funciones as $nombre) {
     $codigo .= $cuerpo . "\n";
 }
 // Las constantes que usan esas funciones, con el valor de lib.php (no copiado).
-foreach (['IVPLAYER_BUNNY_TTL_CONFIGURADOR'] as $constante) {
+foreach (['IVPLAYER_BUNNY_TTL_CONFIGURADOR', 'IVPLAYER_SUBTITULOS_TV_SECRETO_MIN', 'IVPLAYER_SUBTITULOS_TV_MARGEN'] as $constante) {
     $m = [];
     if (!preg_match("/^define\\('" . $constante . "', (\\d+)\\);/m", $src, $m)) {
         fwrite(STDERR, "No encontré la constante $constante en lib.php." . PHP_EOL);
@@ -352,6 +360,116 @@ for ($i = 0; $i < 500; $i++) {
 }
 chequear('500 entradas de bytes al azar: siempre UTF-8 válido o null', $malos, 0);
 seccion('subtítulos: BOM, UTF-16, Windows-1252, bytes rotos, vacío');
+
+// ─── Subtítulos en la TV (1.4.0): la firma del enlace de subtitulos.php ─────────
+// La TV baja el VTT sin la cookie del campus: la firma de la URL es el permiso. Los
+// vectores (vectores-subtitulos.json) los calculó el HMAC de Node (tests/unit/
+// subtitulos-tv.test.mjs los vuelve a calcular): dos implementaciones que dan lo mismo.
+$vsubs = json_decode((string) file_get_contents(__DIR__ . '/vectores-subtitulos.json'), true);
+if (!is_array($vsubs) || empty($vsubs['firma']) || empty($vsubs['casos'])) {
+    fwrite(STDERR, 'No pude leer vectores-subtitulos.json' . PHP_EOL);
+    exit(2);
+}
+foreach ($vsubs['firma'] as $f) {
+    chequear("firma de cmid {$f['cmid']}, e {$f['e']} (contra el HMAC de Node)",
+        ivplayer_subtitulos_tv_firma($f['cmid'], $f['e'], $f['secreto']), $f['esperada']);
+    chequear("parámetros de cmid {$f['cmid']}", ivplayer_subtitulos_tv_parametros($f['cmid'], $f['e'], $f['secreto']),
+        ['id' => $f['cmid'], 'e' => $f['e'], 's' => $f['esperada']]);
+}
+$sec = $vsubs['firma'][0]['secreto'];
+$e0 = 1767225600;
+$s0 = ivplayer_subtitulos_tv_firma(42, $e0, $sec);
+$tope = ivplayer_subtitulos_tv_tope(21600);
+chequear('el tope: la duración del token + la hora del redondeo + 5 min', [$tope, ivplayer_subtitulos_tv_tope(3600), ivplayer_subtitulos_tv_tope(-5)],
+    [21600 + 3600 + 300, 3600 + 3600 + 300, 3600 + 300]);
+chequear('base64url sin "=" ni "+" ni "/" (va tal cual en la query, PARAM_ALPHANUMEXT)', preg_match('/^[A-Za-z0-9_-]{43}$/D', (string) $s0), 1);
+chequear('buena y vigente: pasa', ivplayer_subtitulos_tv_valida(42, $e0, $s0, $sec, $e0 - 3600, $tope), true);
+chequear('vencida (justo en e, y después): 403', [ivplayer_subtitulos_tv_valida(42, $e0, $s0, $sec, $e0, $tope),
+    ivplayer_subtitulos_tv_valida(42, $e0, $s0, $sec, $e0 + 1, $tope)], [false, false]);
+chequear('un vencimiento más allá del tope no pasa aunque la firma sea buena (y justo en el tope, sí)',
+    [ivplayer_subtitulos_tv_valida(42, $e0, $s0, $sec, $e0 - $tope - 1, $tope), ivplayer_subtitulos_tv_valida(42, $e0, $s0, $sec, $e0 - $tope, $tope)], [false, true]);
+chequear('cmid alterado (la misma firma para otra actividad): 403', ivplayer_subtitulos_tv_valida(43, $e0, $s0, $sec, $e0 - 60, $tope), false);
+chequear('e alterado (estirar el vencimiento): 403', ivplayer_subtitulos_tv_valida(42, $e0 + 3600, $s0, $sec, $e0 - 60, $tope), false);
+$s0mal = substr($s0, 0, -1) . (substr($s0, -1) === 'A' ? 'B' : 'A');
+chequear('firma con un carácter cambiado, recortada o de otro secreto: 403', [
+    ivplayer_subtitulos_tv_valida(42, $e0, $s0mal, $sec, $e0 - 60, $tope),
+    ivplayer_subtitulos_tv_valida(42, $e0, substr($s0, 0, 20), $sec, $e0 - 60, $tope),
+    ivplayer_subtitulos_tv_valida(42, $e0, ivplayer_subtitulos_tv_firma(42, $e0, $sec . 'x'), $sec, $e0 - 60, $tope),
+], [false, false, false]);
+chequear('sin secreto o con uno corto (menos de 32): ni firma ni verificación', [
+    ivplayer_subtitulos_tv_firma(42, $e0, ''), ivplayer_subtitulos_tv_firma(42, $e0, str_repeat('x', 31)),
+    ivplayer_subtitulos_tv_parametros(42, $e0, ''), ivplayer_subtitulos_tv_valida(42, $e0, $s0, '', $e0 - 60, $tope),
+    is_string(ivplayer_subtitulos_tv_firma(42, $e0, str_repeat('x', 32))),
+], [null, null, null, false, true]);
+chequear('cmid o vencimiento no positivos: sin firma', [ivplayer_subtitulos_tv_firma(0, $e0, $sec), ivplayer_subtitulos_tv_firma(-1, $e0, $sec),
+    ivplayer_subtitulos_tv_firma(42, 0, $sec)], [null, null, null]);
+chequear('lo que llega mal tipado (texto, arreglo, vacío) no pasa', [
+    ivplayer_subtitulos_tv_valida('42', $e0, $s0, $sec, $e0 - 60, $tope), ivplayer_subtitulos_tv_valida(42, (string) $e0, $s0, $sec, $e0 - 60, $tope),
+    ivplayer_subtitulos_tv_valida(42, $e0, [$s0], $sec, $e0 - 60, $tope), ivplayer_subtitulos_tv_valida(42, $e0, '', $sec, $e0 - 60, $tope),
+    ivplayer_subtitulos_tv_valida(0, $e0, $s0, $sec, $e0 - 60, $tope),
+], [false, false, false, false, false]);
+// Los enlaces de verdad salen con el vencimiento de la firma del video
+// (ivplayer_bunny_expires): tienen que pasar SIEMPRE, con cualquier duración del ajuste y
+// a cualquier hora (también un segundo antes y justo en la hora en punto).
+$malos = [];
+foreach ([3600, 21600, 604800] as $ttl) {
+    foreach ([1767225600, 1767225601, 1767229199, 1767227000] as $ahora) {
+        $e = ivplayer_bunny_expires($ahora, $ttl);
+        $p = ivplayer_subtitulos_tv_parametros(42, $e, $sec);
+        if (!ivplayer_subtitulos_tv_valida($p['id'], $p['e'], $p['s'], $sec, $ahora, ivplayer_subtitulos_tv_tope($ttl))) {
+            $malos[] = "$ttl@$ahora";
+        }
+    }
+}
+chequear('un enlace con el vencimiento del video (ivplayer_bunny_expires) pasa con cualquier duración y hora', $malos, []);
+chequear('el secreto no sale en los parámetros (van a PLAYER_CONFIG y a la TV)',
+    strpos((string) json_encode(ivplayer_subtitulos_tv_parametros(42, $e0, $sec), JSON_UNESCAPED_SLASHES), $sec), false);
+seccion('subtítulos en la TV: firma y verificación del enlace (vencido, tope, cmid o e alterados)');
+
+// El VTT que baja la TV: los MISMOS cues que dibuja el celular (parseVTT de
+// src/subtitulos.js, que la prueba de Node pasa por los mismos vectores), en WebVTT
+// estricto. Un SRT pasa a WebVTT.
+foreach ($vsubs['casos'] as $c) {
+    chequear('cues: ' . $c['nombre'], ivplayer_subtitulos_cues($c['entrada']), $c['cues']);
+    chequear('WebVTT: ' . $c['nombre'], ivplayer_subtitulos_a_vtt($c['entrada']), $c['vtt']);
+    if ($c['vtt'] !== null) {
+        // Pasar dos veces no cambia nada: lo que se sirve ya es la forma final.
+        chequear('WebVTT dos veces = una: ' . $c['nombre'], ivplayer_subtitulos_a_vtt($c['vtt']), $c['vtt']);
+    }
+}
+// Con la normalización de antes (lo que hace subtitulos.php: ivplayer_subtitulos_texto y
+// después esto): un SRT viejo en UTF-16 o Windows-1252 también llega a la TV.
+$srt16 = "\xFF\xFE" . mb_convert_encoding("1\r\n00:00:01,000 --> 00:00:02,000\r\nCámara\r\n", 'UTF-16LE', 'UTF-8');
+chequear('SRT en UTF-16 con BOM → WebVTT en UTF-8', ivplayer_subtitulos_a_vtt((string) ivplayer_subtitulos_normalizar($srt16)),
+    "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nCámara\n");
+chequear('SRT en Windows-1252 → WebVTT en UTF-8', ivplayer_subtitulos_a_vtt((string) ivplayer_subtitulos_normalizar("1\n00:00:01,000 --> 00:00:02,000\nCampa\xF1a\n")),
+    "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nCampaña\n");
+// Entradas al azar: lo que sale es null o WebVTT con los tiempos en su forma estricta.
+mt_srand(1904);
+$malos = 0;
+$piezas = ["\n", "\r\n", ' --> ', '00:00:0', '1,5', '2.000', '<i>', '</i>', '&amp;', '&#65;', 'á', ' ', '1', 'texto', 'WEBVTT'];
+for ($i = 0; $i < 400; $i++) {
+    $x = '';
+    for ($k = mt_rand(0, 40); $k > 0; $k--) {
+        $x .= $piezas[mt_rand(0, count($piezas) - 1)];
+    }
+    $r = ivplayer_subtitulos_a_vtt($x);
+    if ($r === null) {
+        continue;
+    }
+    $bien = strncmp($r, "WEBVTT\n\n", 8) === 0 && mb_check_encoding($r, 'UTF-8');
+    foreach (explode("\n\n", substr($r, 8, -1)) as $bloque) {
+        $l = explode("\n", $bloque);
+        $bien = $bien && count($l) >= 2 && preg_match('/^\d{2}:\d{2}:\d{2}\.\d{3} --> \d{2}:\d{2}:\d{2}\.\d{3}$/D', $l[0])
+            && strpos($bloque, '<') === false && strpos(implode("\n", array_slice($l, 1)), '-->') === false;
+    }
+    if (!$bien) {
+        $malos++;
+        echo 'MAL  WebVTT al azar #' . $i . ': ' . json_encode($x) . PHP_EOL;
+    }
+}
+chequear('400 entradas armadas al azar: null o WebVTT estricto', $malos, 0);
+seccion('subtítulos en la TV: SRT y VTT flojo → WebVTT estricto, con los cues del celular');
 
 // ─── La casilla "La app con Chromecast ya está publicada" (1.4.0) ────────────
 // player.php pone ivplayer_app_cast_publicada(get_config(...)) en MOODLE_CONTEXT
@@ -745,6 +863,8 @@ class ivp_dbman_prueba {
     public function create_table($t) {}
 }
 function upgrade_mod_savepoint($ok, $version, $modulo) { $GLOBALS["ivp_savepoints"][] = [$ok, $version, $modulo]; }
+function get_config($plugin, $nombre = null) { $c = $GLOBALS["ivp_config"][$plugin] ?? []; return array_key_exists((string) $nombre, $c) ? $c[$nombre] : false; }
+function set_config($nombre, $valor, $plugin = null) { $GLOBALS["ivp_config"][$plugin ?? "core"][$nombre] = $valor; return true; }
 ');
 $DB = new class {
     public $dbman;
@@ -753,25 +873,53 @@ $DB = new class {
     }
 };
 require $raizplugin . '/db/upgrade.php';
-$upgrade = function (int $desde, array $existen = []) use ($DB) {
+// La configuración del sitio de mentira (get_config/set_config de arriba): por defecto, con
+// la lista de ajustes sensibles de core (la que trae un sitio instalado).
+$LISTA_CORE = 'smtppass@@none, proxypassword@@none';
+$upgrade = function (int $desde, array $existen = [], ?array $config = null) use ($DB, $LISTA_CORE) {
     $DB->dbman = new ivp_dbman_prueba();
     $DB->dbman->existen = $existen;
     $GLOBALS['ivp_savepoints'] = [];
+    $GLOBALS['ivp_config'] = $config ?? ['adminpresets' => ['sensiblesettings' => $LISTA_CORE]];
     $r = xmldb_ivplayer_upgrade($desde);
     return [$r, $DB->dbman->agregados, $GLOBALS['ivp_savepoints']];
 };
 $campo = ['etiquetas', 'char', '16', null, true, null, 'glosario', 'videoloop'];
-chequear('upgrade desde 2026101902: agrega etiquetas (char 16, no nula, por defecto glosario, después de videoloop) y marca 2026101903',
-    $upgrade(2026101902), [true, [['ivplayer', $campo]], [[true, 2026101903, 'ivplayer']]]);
+chequear('upgrade desde 2026101902: agrega etiquetas (char 16, no nula, por defecto glosario, después de videoloop) y marca 2026101903 y 2026101904',
+    $upgrade(2026101902), [true, [['ivplayer', $campo]], [[true, 2026101903, 'ivplayer'], [true, 2026101904, 'ivplayer']]]);
 chequear('upgrade con la columna ya creada (se cortó a la mitad): no la duplica y marca igual',
-    $upgrade(2026101902, ['ivplayer.etiquetas']), [true, [], [[true, 2026101903, 'ivplayer']]]);
-chequear('upgrade desde 2026101903: nada', $upgrade(2026101903), [true, [], []]);
+    $upgrade(2026101902, ['ivplayer.etiquetas']), [true, [], [[true, 2026101903, 'ivplayer'], [true, 2026101904, 'ivplayer']]]);
+// Subtítulos en la TV: el paso 2026101904 crea el secreto de subtitulos.php (32 bytes al
+// azar en base64url), si falta, y lo suma a la lista de ajustes sensibles.
+chequear('upgrade desde 2026101903: sólo el paso del secreto', $upgrade(2026101903), [true, [], [[true, 2026101904, 'ivplayer']]]);
+$secreto1 = $GLOBALS['ivp_config']['mod_ivplayer']['subtitulossecreto'] ?? null;
+chequear('el secreto: 43 caracteres de base64url (32 bytes), sin "="', preg_match('/^[A-Za-z0-9_-]{43}$/D', (string) $secreto1), 1);
+chequear('el secreto entra en la lista de ajustes sensibles, sin tocar las de core',
+    $GLOBALS['ivp_config']['adminpresets']['sensiblesettings'], $LISTA_CORE . ', subtitulossecreto@@mod_ivplayer');
+$upgrade(2026101903);
+chequear('otro sitio, otro secreto (al azar, no fijo en el código)', ($GLOBALS['ivp_config']['mod_ivplayer']['subtitulossecreto'] ?? null) !== $secreto1, true);
+$yaesta = str_repeat('k', 43);
+$upgrade(2026101903, [], ['mod_ivplayer' => ['subtitulossecreto' => $yaesta], 'adminpresets' => ['sensiblesettings' => $LISTA_CORE . ', subtitulossecreto@@mod_ivplayer']]);
+chequear('uno que ya existe no se cambia, y la lista no se duplica', [$GLOBALS['ivp_config']['mod_ivplayer']['subtitulossecreto'],
+    $GLOBALS['ivp_config']['adminpresets']['sensiblesettings']], [$yaesta, $LISTA_CORE . ', subtitulossecreto@@mod_ivplayer']);
+$upgrade(2026101903, [], ['mod_ivplayer' => ['subtitulossecreto' => 'corto'], 'adminpresets' => ['sensiblesettings' => $LISTA_CORE]]);
+chequear('uno corto (cargado a mano) se reemplaza', strlen((string) $GLOBALS['ivp_config']['mod_ivplayer']['subtitulossecreto']), 43);
+$upgrade(2026101903, [], []);
+chequear('sin la lista de core (sitio a medio instalar): el secreto sí, la lista no se crea',
+    [strlen((string) ($GLOBALS['ivp_config']['mod_ivplayer']['subtitulossecreto'] ?? '')), $GLOBALS['ivp_config']['adminpresets'] ?? null], [43, null]);
+chequear('upgrade desde 2026101904: nada', $upgrade(2026101904), [true, [], []]);
+// Una instalación nueva hace lo mismo (install.php): la clave de Bunny y el secreto.
+require $raizplugin . '/db/install.php';
+$GLOBALS['ivp_config'] = ['adminpresets' => ['sensiblesettings' => $LISTA_CORE]];
+chequear('install.php: crea el secreto y marca sensibles la clave de Bunny y el secreto', [xmldb_ivplayer_install(),
+    strlen((string) ($GLOBALS['ivp_config']['mod_ivplayer']['subtitulossecreto'] ?? '')), $GLOBALS['ivp_config']['adminpresets']['sensiblesettings']],
+    [true, 43, $LISTA_CORE . ', bunnytokenkey@@mod_ivplayer, subtitulossecreto@@mod_ivplayer']);
 $srcversion = (string) file_get_contents($raizplugin . '/version.php');
 $mv = [];
 preg_match('/\$plugin->version = (\d+);/', $srcversion, $mv);
 preg_match_all('/upgrade_mod_savepoint\(true, (\d+), \'ivplayer\'\)/', (string) file_get_contents($raizplugin . '/db/upgrade.php'), $ms);
-chequear('version.php es la del último paso del upgrade (2026101903) y la release sigue 1.4.0',
-    [(int) ($mv[1] ?? 0), max(array_map('intval', $ms[1])), preg_match("/\\\$plugin->release = '1\\.4\\.0';/", $srcversion)], [2026101903, 2026101903, 1]);
+chequear('version.php es la del último paso del upgrade (2026101904) y la release sigue 1.4.0',
+    [(int) ($mv[1] ?? 0), max(array_map('intval', $ms[1])), preg_match("/\\\$plugin->release = '1\\.4\\.0';/", $srcversion)], [2026101904, 2026101904, 1]);
 $xml = str_replace("\r\n", "\n", (string) file_get_contents($raizplugin . '/db/install.xml'));
 chequear('install.xml crea la misma columna (instalación nueva = sitio actualizado)',
     preg_match('/<FIELD NAME="etiquetas" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="glosario"[ \/]/', $xml), 1);
@@ -782,7 +930,7 @@ chequear('el backup lleva etiquetas', preg_match("/'videoloop', 'etiquetas', 'in
 $rs = (string) file_get_contents($raizplugin . '/backup/moodle2/restore_ivplayer_stepslib.php');
 chequear('el restore lo normaliza con ivplayer_modo_etiquetas (y carga lib.php)',
     [preg_match('/\$data->etiquetas = ivplayer_modo_etiquetas\(\$data->etiquetas\);/', $rs), preg_match("/require_once\\(__DIR__ \\. '\\/\\.\\.\\/\\.\\.\\/lib\\.php'\\);/", $rs)], [1, 1]);
-seccion('etiquetas: el paso del upgrade, install.xml, version.php y el backup');
+seccion('etiquetas y secreto de los subtítulos: los pasos del upgrade, install.php, install.xml, version.php y el backup');
 
 echo PHP_EOL . "$ok ok, $mal mal" . PHP_EOL;
 exit($mal ? 1 : 0);

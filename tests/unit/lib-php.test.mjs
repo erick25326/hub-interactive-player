@@ -268,10 +268,100 @@ test('el modo de las etiquetas: formulario, columna, upgrade, backup y PLAYER_CO
   const upgrade = leer('db/upgrade.php');
   assert.match(upgrade, /if \(\$oldversion < 2026101903\) \{[\s\S]*?new xmldb_field\('etiquetas', XMLDB_TYPE_CHAR, '16', null, XMLDB_NOTNULL, null, 'glosario', 'videoloop'\);[\s\S]*?upgrade_mod_savepoint\(true, 2026101903, 'ivplayer'\);/);
   const version = leer('version.php');
-  assert.equal(Number((version.match(/\$plugin->version = (\d+);/) || [])[1]), 2026101903);
+  // 2026101903 es el paso de la columna; la versión siguió subiendo (2026101904: el secreto
+  // de los subtítulos en la TV, ver la prueba de abajo).
+  assert.ok(Number((version.match(/\$plugin->version = (\d+);/) || [])[1]) >= 2026101903);
   assert.match(version, /\$plugin->release = '1\.4\.0';/);
 
   // Backup y restore: el modo viaja con la actividad.
   assert.match(leer('backup/moodle2/backup_ivplayer_stepslib.php'), /'videoloop', 'etiquetas', 'interactions'/);
   assert.match(leer('backup/moodle2/restore_ivplayer_stepslib.php'), /\$data->etiquetas = ivplayer_modo_etiquetas\(\$data->etiquetas\);/);
+});
+
+// Subtítulos en la TV (1.4.0): la TV baja el VTT de subtitulos.php sin la sesión del
+// campus, con un enlace firmado. La firma, la verificación y el paso a WebVTT los prueba
+// correr.php (PHP de verdad, en CI o en el servidor) con vectores que comparte con
+// subtitulos-tv.test.mjs. Acá, sin PHP: que no cambien sin pasar por correr.php y que las
+// puntas sigan enchufadas. Si se suelta una, la TV no recibe la pista (o recibe una
+// vencida), el endpoint mira la base sin firma, o el secreto queda a la vista.
+test('subtítulos en la TV: subtitulos.php, player.php, firma.php, el secreto y la versión, enchufados', async () => {
+  const fs = await import('node:fs');
+  const leer = (rel) => fs.readFileSync(new URL('../../mod/ivplayer/' + rel, import.meta.url), 'utf8').split('\r\n').join('\n');
+  const lib = leerLib();
+  const huellas = {
+    ivplayer_subtitulos_tv_firma: 'f7510b69dece50ac',
+    ivplayer_subtitulos_tv_parametros: '447a1ad5322a1267',
+    ivplayer_subtitulos_tv_valida: '72bc21b2c27d0afd',
+    ivplayer_subtitulos_tv_tope: 'b5b734f8a4722062',
+    ivplayer_subtitulos_cues: 'a8304960fddcc320',
+    ivplayer_subtitulos_a_vtt: 'fcca70b60190614a',
+    ivplayer_subtitulos_tv_secreto: '54fdf1f2702392f8',
+    ivplayer_subtitulos_tv_url: '4b0adf06818af121',
+  };
+  for (const [nombre, esperada] of Object.entries(huellas)) {
+    const f = funcionPhp(lib, nombre);
+    assert.ok(f, `${nombre} ya no está en lib.php`);
+    assert.equal(huella(f), esperada,
+      `${nombre} cambió en lib.php: corré npm run test:php (o el workflow "Pruebas") y, si da bien, poné la huella nueva (${huella(f)})`);
+  }
+  // La firma: HMAC-SHA256 de "cmid|e" con el secreto como clave, comparada con hash_equals.
+  assert.match(funcionPhp(lib, 'ivplayer_subtitulos_tv_firma'), /hash_hmac\('sha256', \$cmid \. '\|' \. \$expires, \$secreto, true\)/);
+  assert.match(funcionPhp(lib, 'ivplayer_subtitulos_tv_valida'), /hash_equals\(\$esperada, \$firma\)/);
+  assert.match(funcionPhp(lib, 'ivplayer_subtitulos_tv_url'), /new moodle_url\('\/mod\/ivplayer\/subtitulos\.php', \$parametros\)/);
+
+  // subtitulos.php: sin cookies, la firma ANTES de tocar la base, CORS abierto, VTT con
+  // caché privada corta, 403 sin detalle.
+  const s = leer('subtitulos.php');
+  const iCookies = s.indexOf("define('NO_MOODLE_COOKIES', true);"), iConfig = s.indexOf("require_once(__DIR__ . '/../../config.php');");
+  assert.ok(iCookies > 0 && iCookies < iConfig, 'NO_MOODLE_COOKIES antes de cargar Moodle: la TV no tiene que recibir ni crear sesión');
+  assert.doesNotMatch(s, /\b(require_login|require_course_login|require_capability|require_sesskey|sesskey)\s*\(/, 'sin sesión: la firma es el permiso');
+  const iValida = s.indexOf('ivplayer_subtitulos_tv_valida('), iDb = s.indexOf('get_coursemodule_from_id(');
+  assert.ok(iValida > 0 && iDb > iValida, 'la firma se verifica antes de mirar la base');
+  assert.match(s, /ivplayer_subtitulos_tv_tope\(ivplayer_bunny_ttl\(\)\)/);
+  assert.match(s, /if \(!\$valida\) \{\s*ivplayer_subtitulos_responder\(403\);/, '403 sin detalle');
+  assert.match(s, /get_coursemodule_from_id\('ivplayer', \$cmid, 0, false, IGNORE_MISSING\)/, 'sólo actividades de este plugin');
+  assert.match(s, /ivplayer_subtitulos_texto\(\$context\)/, 'el mismo archivo que la transcripción y el celular');
+  assert.match(s, /ivplayer_subtitulos_a_vtt\(\$texto\)/, 'en WebVTT estricto (un SRT incluido)');
+  assert.match(s, /header\('Access-Control-Allow-Origin: \*'\);/);
+  assert.match(s, /header\('Content-Type: text\/vtt; charset=utf-8'\);/);
+  assert.match(s, /header\('Cache-Control: private, max-age=300'\);/);
+  assert.doesNotMatch(s, /\b(debugging|error_log|mtrace|print_r|var_dump|var_export)\s*\(/, 'nada a un log');
+
+  // player.php: subtitlesUrlTv en PLAYER_CONFIG, sólo con Bunny y subtítulos, con el
+  // vencimiento de la firma del video.
+  const player = leer('player.php');
+  assert.match(player, /if \(\$bunny !== null && \$subtitulos !== null && ivplayer_subtitulos_a_vtt\(\$subtitulos\) !== null\) \{/);
+  assert.match(player, /ivplayer_subtitulos_tv_url\(\$cm->id, \$bunny\['expires'\] \?\? ivplayer_bunny_expires\(\$ahora, ivplayer_bunny_ttl\(\)\)\)/);
+  assert.match(player, /\$extra\['subtitlesUrlTv'\] = \$subtitulostv;/);
+  const iUrl = player.indexOf("$extra['subtitlesUrlTv']"), iCfg = player.indexOf('$config = json_encode($base + $extra');
+  assert.ok(iUrl > 0 && iCfg > iUrl, 'subtitlesUrlTv va en PLAYER_CONFIG (lo lee el componente al conectar la TV)');
+  assert.doesNotMatch(player, /subtitulos_tv_secreto|subtitulossecreto/, 'el secreto no sale de lib.php');
+
+  // firma.php: con cada renovación, el enlace nuevo con el vencimiento nuevo.
+  const firma = leer('firma.php');
+  assert.match(firma, /ivplayer_subtitulos_tv_url\(\$cm->id, \$video\['expires'\]\)/);
+  assert.match(firma, /\$respuesta\['subtitulosTv'\] = \$subtitulostv;/);
+  assert.ok(firma.indexOf("$respuesta['subtitulosTv']") < firma.indexOf('ivplayer_firma_responder(200, $respuesta);'));
+
+  // El secreto: lo crean la instalación y el paso 2026101904 del upgrade, y no hay un campo
+  // que lo muestre (settings.php sólo dice si está).
+  assert.match(leer('db/install.php'), /mod_ivplayer_crear_secreto_subtitulos\(\);/);
+  const upgrade = leer('db/upgrade.php');
+  assert.match(upgrade, /if \(\$oldversion < 2026101904\) \{[\s\S]*?mod_ivplayer_crear_secreto_subtitulos\(\);[\s\S]*?upgrade_mod_savepoint\(true, 2026101904, 'ivplayer'\);/);
+  const ulib = leer('db/upgradelib.php');
+  assert.match(ulib, /random_bytes\(32\)/);
+  assert.match(ulib, /set_config\('subtitulossecreto', \$secreto, 'mod_ivplayer'\);/);
+  assert.match(ulib, /mod_ivplayer_marcar_sensible\('subtitulossecreto@@mod_ivplayer'\);/);
+  const ajustes = leer('settings.php');
+  assert.doesNotMatch(ajustes, /mod_ivplayer\/subtitulossecreto/, 'el secreto no es un ajuste del panel: no se muestra ni se exporta');
+  assert.match(ajustes, /new admin_setting_heading\('mod_ivplayer\/subtitulostvheading',/);
+  for (const idioma of ['es', 'en']) {
+    const lang = leer(`lang/${idioma}/ivplayer.php`);
+    for (const clave of ['subtitulostvheading', 'subtitulostvheading_desc', 'subtitulostv_listo', 'subtitulostv_sinsecreto']) {
+      assert.ok(lang.includes(`$string['${clave}'] = '`), `falta el texto ${clave} en lang/${idioma}`);
+    }
+  }
+  const version = leer('version.php');
+  assert.equal(Number((version.match(/\$plugin->version = (\d+);/) || [])[1]), 2026101904);
+  assert.match(version, /\$plugin->release = '1\.4\.0';/);
 });

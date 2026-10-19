@@ -1,0 +1,205 @@
+{
+  "_": "Vectores de los subtítulos para la TV (1.4.0). Los usan tests/php/correr.php (ivplayer_subtitulos_cues, ivplayer_subtitulos_a_vtt y la firma de lib.php) y tests/unit/subtitulos-tv.test.mjs (parseVTT del celular lee lo mismo, y la firma con el HMAC de Node). Sintéticos: el texto de los cursos es contenido pago y el repo es público.",
+  "firma": [
+    {
+      "cmid": 42,
+      "e": 1767225600,
+      "secreto": "clave-sintetica-de-prueba-0123456789abcdef",
+      "esperada": "Ox6dtMZwAuN_-gHlMA4m7PifOGxiEoh0OPatiRcWb2I"
+    },
+    {
+      "cmid": 7,
+      "e": 1767229200,
+      "secreto": "clave-sintetica-de-prueba-0123456789abcdef",
+      "esperada": "0YDamij4iVLpv-5KV26rFdM0sLUNf9z_t9ss6n_h9Hw"
+    },
+    {
+      "cmid": 123456,
+      "e": 1800000000,
+      "secreto": "Zm9vYmFyYmF6cXV4LXNvbG8tcGFyYS1wcnVlYmFz_-0",
+      "esperada": "UWjanys4unul0WDHmXrb2b3y0ruw92M8C8uCQhYSvvM"
+    }
+  ],
+  "casos": [
+    {
+      "nombre": "SRT con CRLF, números y dos renglones",
+      "entrada": "1\r\n00:00:01,000 --> 00:00:02,500\r\nCámara y Óptica\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nSegundo cue\r\notro renglón\r\n",
+      "cues": [
+        [
+          1000,
+          2500,
+          "Cámara y Óptica"
+        ],
+        [
+          3000,
+          4000,
+          "Segundo cue\notro renglón"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:02.500\nCámara y Óptica\n\n00:00:03.000 --> 00:00:04.000\nSegundo cue\notro renglón\n"
+    },
+    {
+      "nombre": "VTT flojo: sin horas, hora de un dígito, milisegundos cortos, ajustes de posición y cruzando la hora",
+      "entrada": "WEBVTT\n\n01:02.5 --> 01:03.25 line:90% position:50%\nSin horas\n\n59:59.500 --> 01:00:02.000\nCruza la hora\n\n0:00:03,5 --> 0:00:04,050\nUn dígito\n",
+      "cues": [
+        [
+          62500,
+          63250,
+          "Sin horas"
+        ],
+        [
+          3599500,
+          3602000,
+          "Cruza la hora"
+        ],
+        [
+          3500,
+          4050,
+          "Un dígito"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:01:02.500 --> 00:01:03.250\nSin horas\n\n00:59:59.500 --> 01:00:02.000\nCruza la hora\n\n00:00:03.500 --> 00:00:04.050\nUn dígito\n"
+    },
+    {
+      "nombre": "etiquetas de VTT y entidades: el texto plano del celular, escapado para el receptor",
+      "entrada": "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Docente><i>Drones</i> &lt; 250 g &amp; más</v>\n<c.amarillo>Hola</c> &#233;l &#xF1;u &quot;ok&quot; &apos;sí&apos;&lrm;\n",
+      "cues": [
+        [
+          1000,
+          3000,
+          "Drones < 250 g & más\nHola él ñu \"ok\" 'sí'"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nDrones &lt; 250 g &amp; más\nHola él ñu \"ok\" 'sí'\n"
+    },
+    {
+      "nombre": "SRT con un \"<\" suelto y etiqueta <font>",
+      "entrada": "1\n00:00:01,000 --> 00:00:02,000\n<font color=\"#ffff00\">Drones < 250 g</font>\n",
+      "cues": [
+        [
+          1000,
+          2000,
+          "Drones < 250 g"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nDrones &lt; 250 g\n"
+    },
+    {
+      "nombre": "NOTE y STYLE se ignoran; un cue al revés y uno vacío se descartan",
+      "entrada": "WEBVTT\n\nNOTE comentario del editor\n\nSTYLE\n::cue { color: red }\n\n00:00:03.000 --> 00:00:02.000\nAl revés\n\n00:00:05.000 --> 00:00:06.000\n<i></i>\n\n00:00:07.000 --> 00:00:08.000\nBien\n",
+      "cues": [
+        [
+          7000,
+          8000,
+          "Bien"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:07.000 --> 00:00:08.000\nBien\n"
+    },
+    {
+      "nombre": "un separador con espacios cierra el cue",
+      "entrada": "1\n00:00:01,000 --> 00:00:03,000\nHola\n \t\n2\n00:00:03,000 --> 00:00:05,000\nChau\n",
+      "cues": [
+        [
+          1000,
+          3000,
+          "Hola"
+        ],
+        [
+          3000,
+          5000,
+          "Chau"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHola\n\n00:00:03.000 --> 00:00:05.000\nChau\n"
+    },
+    {
+      "nombre": "un renglón que queda vacío al sacar etiquetas no corta el cue en la TV",
+      "entrada": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nArriba\n<b></b>\nAbajo\n",
+      "cues": [
+        [
+          1000,
+          2000,
+          "Arriba\n\nAbajo"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nArriba\nAbajo\n"
+    },
+    {
+      "nombre": "una flecha en el texto (cruda o como entidad) no se lee como un tiempo",
+      "entrada": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nIda --> vuelta\nIda --&gt; vuelta\n",
+      "cues": [
+        [
+          1000,
+          2000,
+          "Ida --> vuelta\nIda --> vuelta"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nIda --&gt; vuelta\nIda --&gt; vuelta\n"
+    },
+    {
+      "nombre": "&nbsp;: espacio de no separación en el medio, recortado en las puntas",
+      "entrada": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n&nbsp;Con&nbsp;espacio&nbsp;\n",
+      "cues": [
+        [
+          1000,
+          2000,
+          "Con espacio"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nCon espacio\n"
+    },
+    {
+      "nombre": "marcas de karaoke (<00:00:02.500>) afuera",
+      "entrada": "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nUno <00:00:02.500>dos\n",
+      "cues": [
+        [
+          1000,
+          3000,
+          "Uno dos"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nUno dos\n"
+    },
+    {
+      "nombre": "fin de línea CR solo (Mac viejo)",
+      "entrada": "1\r00:00:01,000 --> 00:00:03,000\rHola\r\r2\r00:00:03,000 --> 00:00:05,000\rChau\r",
+      "cues": [
+        [
+          1000,
+          3000,
+          "Hola"
+        ],
+        [
+          3000,
+          5000,
+          "Chau"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHola\n\n00:00:03.000 --> 00:00:05.000\nChau\n"
+    },
+    {
+      "nombre": "un número que no va antes de un tiempo es texto",
+      "entrada": "1\n00:00:01,000 --> 00:00:03,000\n2024\nfue el año\n2\n00:00:03,000 --> 00:00:05,000\nChau\n",
+      "cues": [
+        [
+          1000,
+          3000,
+          "2024\nfue el año"
+        ],
+        [
+          3000,
+          5000,
+          "Chau"
+        ]
+      ],
+      "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n2024\nfue el año\n\n00:00:03.000 --> 00:00:05.000\nChau\n"
+    },
+    {
+      "nombre": "sin ningún cue: sin subtítulos para la TV",
+      "entrada": "WEBVTT\n\nNOTE nada todavía\n",
+      "cues": [],
+      "vtt": null
+    }
+  ]
+}
