@@ -1505,7 +1505,9 @@ html, body { margin: 0; padding: 0; background: #000; }
 /* Angosto (celular parado, el iframe chico del campus): hoja de abajo, a lo ancho,
    apoyada sobre la fila de controles (el bottom de arriba). Bajo (≤300 px de alto: un
    16:9 de celular parado mide ~210): ocupa todo, controles incluidos. Ahí no entra otra
-   cosa; el video sigue corriendo debajo hasta que se cierra con la X o tocando afuera. */
+   cosa. Si el panel tapa más del 70 % del video (el bajo y la hoja de abajo), el
+   componente lo pausa al abrir y lo retoma al cerrar (TAPA_MIN, src/glosario.js): lo
+   mide al abrir, así que cambiar estas medidas no pide tocar nada más. */
 @container ivgl (max-width: 560px) {
   .iv-glosario {
     top: auto;

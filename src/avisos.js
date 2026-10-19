@@ -143,6 +143,30 @@ export function cuentaRegresiva(ia, t, fin = Infinity) {
   return Math.max(1, Math.min(AVISO_S, Math.ceil(restan - 1e-6)));
 }
 
+/**
+ * Cómo sale un aviso ('tic', 'plop' o 'suave', el del glosario): si suena y si vibra.
+ *
+ * 🔴 El SILENCIO del video calla los sonidos y NO la vibración (decisión de Erick,
+ * 19-oct-2026): quien silenció el video (en una biblioteca, mirando con subtítulos) no
+ * quiere tic-tac, pero se sigue enterando de que viene algo con el celular en la mano.
+ * Al quitar el silencio vuelven. `silenciado` es lo que muestra el botón de volumen del
+ * reproductor (el estado `muted` del componente: el botón, la tecla M, la barra de
+ * volumen en 0, el arranque en silencio que fuerza el navegador y, transmitiendo, el
+ * silencio de la TV tal como lo refleja el reproductor; ver README).
+ * Esto se suma a "Sonidos de aviso" de Ajustes (`sonido`): apagado, no suenan nunca.
+ * El plop suave del glosario no vibra nunca (es un término nuevo, no algo que frena).
+ *
+ * @param {'tic'|'plop'|'suave'} que
+ * @param {object} p
+ * @param {boolean} [p.sonido] la preferencia "Sonidos de aviso"
+ * @param {boolean} [p.vibracion] la preferencia "Vibración"
+ * @param {boolean} [p.silenciado] el video está en silencio
+ * @returns {{suena: boolean, vibra: boolean}}
+ */
+export function comoAvisar(que, { sonido = true, vibracion = true, silenciado = false } = {}) {
+  return { suena: !!sonido && !silenciado, vibra: !!vibracion && que !== "suave" };
+}
+
 /** Una preferencia del alumno: sí salvo que esté guardado "0". Sin almacenamiento (modo
  *  privado, datos bloqueados), sí. */
 export function leerPreferencia(clave, almacen) {

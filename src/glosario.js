@@ -13,6 +13,9 @@ import { umbralPaso } from "./avisos.js";
 export const RECIEN_MS = 6000;
 // Cuánto dura el aviso "Nuevo en el glosario: …" con el panel cerrado.
 export const AVISO_MS = 4500;
+// Si el panel tapa más que esto del video, abrirlo lo PAUSA y cerrarlo lo retoma
+// (decisión de Erick, 19-oct-2026; ver pausarAlAbrir).
+export const TAPA_MIN = 0.7;
 
 const limpio = (s) => String(s == null ? "" : s).replace(/\s+/g, " ").trim();
 
@@ -97,4 +100,51 @@ export function entradas({ interactions, nombrados, completed }) {
       const texto = ia.type === "note" ? d.text : d.definition;
       return { id: ia.id, tipo: ia.type === "note" ? "nota" : "termino", nombre: nombreDe(ia), texto: typeof texto === "string" ? texto : "", time: ia.time };
     });
+}
+
+// ─── El panel que TAPA el video (decisión de Erick, 19-oct-2026) ─────────
+// En un reproductor bajo (el iframe del campus con el celular parado mide ~210 px de
+// alto; la pantalla completa con el celular parado, lo mismo: centra un 16:9) el panel
+// ocupa todo y el video seguía corriendo sin verse. Ahora, si lo tapa, abrirlo lo pausa
+// y cerrarlo lo retoma. En una pantalla ancha (el panel al costado, el video a la
+// vista) sigue sin pausar. El componente mide y hace lo que digan estas tres.
+
+/**
+ * Qué fracción del área del video (0 a 1) tapa el panel. Rectángulos `{ x, y, ancho,
+ * alto }` en las MISMAS coordenadas: el componente usa las del contenedor (offsetLeft y
+ * compañía), que no cambian con el giro de 90° ni con la animación de entrada del panel.
+ */
+export function cobertura(panel, video) {
+  const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  if (!panel || !video) return 0;
+  const va = n(video.ancho) * n(video.alto);
+  if (!(va > 0)) return 0;
+  const ancho = Math.min(n(panel.x) + n(panel.ancho), n(video.x) + n(video.ancho)) - Math.max(n(panel.x), n(video.x));
+  const alto = Math.min(n(panel.y) + n(panel.alto), n(video.y) + n(video.alto)) - Math.max(n(panel.y), n(video.y));
+  if (!(ancho > 0) || !(alto > 0)) return 0;
+  return Math.min(1, (ancho * alto) / va);
+}
+
+/**
+ * ¿Abrir el glosario pausa el video? Sólo si se estaba reproduciendo, si el panel tapa
+ * más de TAPA_MIN del video y si NO se transmite a la TV: ahí el video está en la TV y
+ * el celular es sólo el control (lo que se tapa es el cartel "Reproduciendo en…").
+ */
+export function pausarAlAbrir({ reproduciendo, transmitiendo, cobertura: tapa }) {
+  return !!reproduciendo && !transmitiendo && Number(tapa) > TAPA_MIN;
+}
+
+/**
+ * ¿Cerrar el glosario retoma el video? Sólo si la pausa vigente es la del glosario y
+ * nada más lo frenó o lo tomó en el medio: una pregunta abierta (la que cerró el panel),
+ * un error o la TV.
+ * `pausoElGlosario` lo lleva el componente: lo prende al pausar y lo apaga cualquier
+ * play que llegue en el medio (el alumno con el botón, los auriculares, la pantalla de
+ * bloqueo), aunque después lo vuelvan a pausar: esa pausa ya no es del glosario. Por
+ * eso no hace falta preguntar si el video está andando: con la marca prendida, a lo
+ * sumo la pausa del glosario todavía no llegó (abrir y cerrar enseguida), y retomarlo
+ * es justo lo que corresponde.
+ */
+export function reanudarAlCerrar({ pausoElGlosario, pregunta, error, transmitiendo }) {
+  return !!pausoElGlosario && !pregunta && !error && !transmitiendo;
 }

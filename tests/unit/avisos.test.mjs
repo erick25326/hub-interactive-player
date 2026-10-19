@@ -7,7 +7,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  frena, queSeViene, textoCuenta, ticsEntre, olvidarTics, cuentaRegresiva, umbralPaso,
+  frena, queSeViene, textoCuenta, ticsEntre, olvidarTics, cuentaRegresiva, umbralPaso, comoAvisar,
   leerPreferencia, guardarPreferencia, AVISO_S, VIBRA_TIC, VIBRA_FRENO, OLVIDO_S, CLAVE_SONIDO, CLAVE_VIBRACION,
 } from '../../src/avisos.js';
 import { SEEK_MIN } from '../../src/candado.js';
@@ -46,7 +46,9 @@ test('el reproductor usa los módulos de avisos, glosario y sonidos, sin copias 
   assert.match(jsx, /import \{[^}]*\bticsEntre\b[^}]*\} from "\.\/avisos\.js"/);
   assert.match(jsx, /import \{[^}]*\bterminosNuevos\b[^}]*\} from "\.\/glosario\.js"/);
   assert.match(jsx, /import \{[^}]*\bcrearSonidos\b[^}]*\} from "\.\/sonidos\.js"/);
-  for (const f of ['ticsEntre', 'olvidarTics', 'cuentaRegresiva', 'terminosNuevos', 'entradas', 'crearSonidos']) {
+  assert.match(jsx, /import \{[^}]*\bcomoAvisar\b[^}]*\} from "\.\/avisos\.js"/);
+  assert.match(jsx, /import \{[^}]*\bpausarAlAbrir\b[^}]*\breanudarAlCerrar\b[^}]*\} from "\.\/glosario\.js"/);
+  for (const f of ['ticsEntre', 'olvidarTics', 'cuentaRegresiva', 'terminosNuevos', 'entradas', 'crearSonidos', 'comoAvisar', 'cobertura', 'pausarAlAbrir', 'reanudarAlCerrar']) {
     assert.doesNotMatch(jsx, new RegExp(`function ${f}\\b|const ${f}\\s*=`), `${f} está definida otra vez en el JSX`);
   }
 });
@@ -199,6 +201,31 @@ describe('cuentaRegresiva: el número que se ve', () => {
     assert.equal(cuentaRegresiva(MC, 20), null);
     assert.equal(cuentaRegresiva(MC, 25), null);
     assert.equal(cuentaRegresiva(null, 18), null);
+  });
+});
+
+describe('comoAvisar: el silencio del video calla los sonidos, no la vibración (Erick, 19-oct-2026)', () => {
+  const ambos = (que, o) => { const c = comoAvisar(que, o); return [c.suena, c.vibra]; };
+  test('por defecto: tic y plop suenan y vibran; el plop suave del glosario suena y no vibra', () => {
+    assert.deepEqual(ambos('tic'), [true, true]);
+    assert.deepEqual(ambos('plop'), [true, true]);
+    assert.deepEqual(ambos('suave'), [true, false]);
+  });
+  test('con el video en silencio no suena ninguno, pero el tic y el plop siguen vibrando', () => {
+    assert.deepEqual(ambos('tic', { silenciado: true }), [false, true]);
+    assert.deepEqual(ambos('plop', { silenciado: true }), [false, true]);
+    assert.deepEqual(ambos('suave', { silenciado: true }), [false, false]);
+  });
+  test('al quitar el silencio vuelven', () => {
+    assert.deepEqual(ambos('tic', { silenciado: false }), [true, true]);
+  });
+  test('"Sonidos de aviso" apagado: no suenan nunca, con o sin silencio; la vibración es aparte', () => {
+    for (const silenciado of [false, true]) {
+      assert.deepEqual(ambos('tic', { sonido: false, silenciado }), [false, true]);
+      assert.deepEqual(ambos('suave', { sonido: false, silenciado }), [false, false]);
+    }
+    assert.deepEqual(ambos('plop', { vibracion: false }), [true, false]);
+    assert.deepEqual(ambos('plop', { sonido: false, vibracion: false, silenciado: true }), [false, false]);
   });
 });
 

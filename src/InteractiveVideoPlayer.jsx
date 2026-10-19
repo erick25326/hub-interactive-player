@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, useId, Fragment } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, Fragment } from "react";
 import Player from "@vimeo/player";
 import NativePlayer from "./nativePlayer.js";
 import { Renovador, recargarParaReintentar } from "./firma.js";
@@ -15,8 +15,8 @@ import { getConfig, hayVideo } from "./configuracion.js";
 // Los avisos de las interacciones que frenan (tic-tac de 3 s, cuenta regresiva, "plop"
 // y vibración) y el glosario interactivo de las etiquetas: las decisiones son puras y
 // viven aparte (tests/unit/avisos.test.mjs, glosario.test.mjs). Los sonidos, Web Audio.
-import { ticsEntre, olvidarTics, cuentaRegresiva, textoCuenta, queSeViene, VIBRA_TIC, VIBRA_FRENO, CLAVE_SONIDO, CLAVE_VIBRACION, leerPreferencia, guardarPreferencia } from "./avisos.js";
-import { terminosNuevos, entradas as entradasDelGlosario, hayGlosario, totalPosible, RECIEN_MS, AVISO_MS } from "./glosario.js";
+import { ticsEntre, olvidarTics, cuentaRegresiva, textoCuenta, queSeViene, comoAvisar, VIBRA_TIC, VIBRA_FRENO, CLAVE_SONIDO, CLAVE_VIBRACION, leerPreferencia, guardarPreferencia } from "./avisos.js";
+import { terminosNuevos, entradas as entradasDelGlosario, hayGlosario, totalPosible, cobertura, pausarAlAbrir, reanudarAlCerrar, RECIEN_MS, AVISO_MS } from "./glosario.js";
 import { crearSonidos, vibracionPosible } from "./sonidos.js";
 
 // parseVTT y textoDeCue (subtítulos VTT/SRT) viven en subtitulos.js.
@@ -510,12 +510,17 @@ function Reproductor() {
   const cuentaRef = useRef(null);
   const setCuenta = useCallback((c) => { cuentaRef.current = c; setCuentaEstado(c); }, []);
   const [avisoCuenta, setAvisoCuenta] = useState('');   // para el lector de pantalla, una vez por aviso
+  // 🔴 El video en silencio calla los SONIDOS de aviso, no la vibración (decisión de
+  // Erick, 19-oct-2026; ver comoAvisar): el silencio que cuenta es el que muestra el botón
+  // de volumen (`muted`), también transmitiendo (el de la TV, como lo refleja el ícono).
+  const silencioRef = useRef(muted); silencioRef.current = muted;
   // que: 'tic' (alto o bajo) | 'plop' (al frenar) | 'suave' (término nuevo: sin vibrar).
   const avisarRef = useRef(null);
   avisarRef.current = (que, alto) => {
     const s = sonidosRef.current;
-    if (sonidoOnRef.current) { if (que === 'tic') s.tic(alto); else if (que === 'plop') s.plop(); else s.plopSuave(); }
-    if (vibraOnRef.current && que !== 'suave') s.vibrar(que === 'tic' ? VIBRA_TIC : VIBRA_FRENO);
+    const c = comoAvisar(que, { sonido: sonidoOnRef.current, vibracion: vibraOnRef.current, silenciado: silencioRef.current });
+    if (c.suena) { if (que === 'tic') s.tic(alto); else if (que === 'plop') s.plop(); else s.plopSuave(); }
+    if (c.vibra) s.vibrar(que === 'tic' ? VIBRA_TIC : VIBRA_FRENO);
   };
 
   // ─── Glosario interactivo (src/glosario.js) ────────────────────────
@@ -539,6 +544,9 @@ function Reproductor() {
   const [expandidos, setExpandidos] = useState(() => new Set());
   const glosarioBtnRef = useRef(null);
   const glosarioPanelRef = useRef(null);
+  // true mientras la pausa vigente la puso el glosario al abrirse (tapaba el video):
+  // cerrarlo la retoma. Ver el efecto de "El panel que tapa el video".
+  const pausaGlosarioRef = useRef(false);
   const enfocarTerminoRef = useRef(null);
   const moverFocoGlosarioRef = useRef(false);
   const idGlosario = useId();
@@ -676,6 +684,10 @@ function Reproductor() {
       // video por detrás y salteaba interacciones.
       if(activeIARef.current){ playIntentRef.current=null; p.pause(); return; }
       terminoRef.current=false;
+      // Alguien lo puso a andar con el glosario abierto (el alumno, los auriculares, la
+      // pantalla de bloqueo): la pausa ya no es del glosario y cerrarlo no la retoma,
+      // aunque en el medio lo vuelvan a pausar (ver reanudarAlCerrar).
+      pausaGlosarioRef.current=false;
       setPlaying(true);
       // Moodle móvil: el gesto nunca llega al iframe de Vimeo (pointer-events:
       // none) y el navegador fuerza arranque muteado; el ícono decía "sonido
@@ -1386,11 +1398,13 @@ function Reproductor() {
   useEffect(()=>{ if(activeIA||videoError) setMenu(null); },[activeIA,videoError]);
 
   // Preferencias del alumno (Ajustes): se guardan en su navegador. Al prenderlas, una
-  // muestra (dentro del toque, que además desbloquea el sonido).
+  // muestra (dentro del toque, que además desbloquea el sonido). Con el video en
+  // silencio la muestra del sonido tampoco suena (ver comoAvisar): el toque igual lo
+  // desbloquea, así suena al quitar el silencio.
   const cambiarSonido=(v)=>{
     setSonidoOn(v); sonidoOnRef.current=v;
     guardarPreferencia(CLAVE_SONIDO,v,almacenLocal());
-    if(v){ sonidosRef.current.desbloquear(); sonidosRef.current.plopSuave(); }
+    if(v){ sonidosRef.current.desbloquear(); if(comoAvisar('suave',{sonido:true,silenciado:silencioRef.current}).suena) sonidosRef.current.plopSuave(); }
   };
   const cambiarVibracion=(v)=>{
     setVibraOn(v); vibraOnRef.current=v;
@@ -1455,6 +1469,9 @@ function Reproductor() {
       if(glosarioPanelRef.current?.contains(t)||glosarioBtnRef.current?.contains(t)) return;
       if(t?.closest?.('.iv-glosario-aviso')) return;
       if(t?.classList?.contains('iv-click-layer')) return;
+      // 🔴 El botón de reproducir decide él: si cerrar retomara el video que pausó el
+      // glosario, el clic que viene detrás lo encontraba andando y lo pausaba.
+      if(playBtnRef.current?.contains(t)) pausaGlosarioRef.current=false;
       setGlosarioAbierto(false);
     };
     document.addEventListener('pointerdown',h,true);
@@ -1539,6 +1556,37 @@ function Reproductor() {
       }).catch(()=>{});
     },700);
   },[]);
+
+  // ─── El panel que tapa el video (decisión de Erick, 19-oct-2026) ──────
+  // Si al abrirse el glosario tapa más del 70 % del video (el reproductor bajo: el iframe
+  // del campus o la pantalla completa con el celular parado), lo pausa; al cerrarse lo
+  // retoma, sólo si nada más lo frenó o lo tomó en el medio (src/glosario.js:
+  // pausarAlAbrir y reanudarAlCerrar). Transmitiendo a la TV, nunca: ahí el video está en
+  // la TV. Se mide al abrir, ANTES de pintar, en coordenadas del contenedor (offset*: no
+  // las mueve el giro de 90° ni la animación de entrada); el área del video es la del
+  // contenedor, que siempre es 16:9 (la pantalla completa también lo centra).
+  // 🔴 La pausa y la vuelta son las del botón (pause con el intent anulado, safePlay):
+  // para el candado, los avisos, el avance y la firma es una pausa más del alumno.
+  useLayoutEffect(()=>{
+    const p=playerRef.current;
+    const transmitiendo=!!tvRef.current||!!(p&&p.esTV);
+    if(glosarioAbierto){
+      const panel=glosarioPanelRef.current, capa=panel&&panel.parentElement;
+      const tapa=panel&&capa?cobertura(
+        {x:panel.offsetLeft,y:panel.offsetTop,ancho:panel.offsetWidth,alto:panel.offsetHeight},
+        {x:0,y:0,ancho:capa.clientWidth,alto:capa.clientHeight}):0;
+      if(p&&pausarAlAbrir({reproduciendo:playingRef.current,transmitiendo,cobertura:tapa})){
+        pausaGlosarioRef.current=true;
+        playIntentRef.current=null;
+        p.pause();
+      }
+      return;
+    }
+    const volver=reanudarAlCerrar({pausoElGlosario:pausaGlosarioRef.current,
+      pregunta:!!(activeIA||activeIARef.current),error:!!videoError,transmitiendo});
+    pausaGlosarioRef.current=false;
+    if(volver) safePlay();
+  },[glosarioAbierto]);
   const skip=(seconds)=>{
     const p=playerRef.current;if(!p||!ready)return;
     // Base del salto, SIN await (el roundtrip de getCurrentTime hacía que dos

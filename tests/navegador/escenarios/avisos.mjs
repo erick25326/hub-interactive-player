@@ -5,8 +5,9 @@
 // del VIDEO en que salió, cada vibración y la cuenta que se vio. Lo puro (qué tic
 // toca en cada paso) lo prueban las unitarias; acá, que el componente lo use bien con
 // ticks reales: sólo reproduciendo, en tiempo de video, nunca al llegar saltando, que
-// se repita al volver para atrás, que los ajustes del alumno lo apaguen y que siga en
-// el celular transmitiendo a la TV.
+// se repita al volver para atrás, que los ajustes del alumno lo apaguen, que el silencio
+// del video calle los sonidos y no la vibración, y que siga en el celular transmitiendo
+// a la TV.
 // Interacciones (?ias=glosario): nota7 (tics en 4, 5, 6), mc15 (12, 13, 14), hs22
 // (19, 20, 21), tf40; etiquetas en 2, 10, 18 y 32 (sin tic). Con ?ias=juntas: nota7 y
 // tf9 (a menos de 3 s) y una etiqueta en 9, el mismo segundo que el V/F.
@@ -21,8 +22,8 @@ export const Q = { motor: 'hls', ias: 'glosario', sonido: 'simulado' };
 export const sonidos = (p) => p.a('W.__sonidos');
 export const tics = (S) => S.osc.filter((o) => o.que === 'tic-alto' || o.que === 'tic-bajo');
 export const de = (S, que) => S.osc.filter((o) => o.que === que);
-const FRENO = JSON.stringify([60, 40, 60]);
-const patrones = (S) => S.vib.map((v) => JSON.stringify(v.patron));
+export const FRENO = JSON.stringify([60, 40, 60]);
+export const patrones = (S) => S.vib.map((v) => JSON.stringify(v.patron));
 
 // Responder con clics reales lo que no responde Pagina.responder().
 export async function responderMC(p) {
@@ -57,7 +58,7 @@ export async function clicBarra(p, seg) {
 
 // Los tres tics de una pendiente: alto-bajo-alto, cada uno al cruzar su marca (entre la
 // marca y un tick después: a 2× el tick es de ~0,5 s de video).
-function tresTics(lista, marcas, tolerancia) {
+export function tresTics(lista, marcas, tolerancia) {
   assert.deepEqual(lista.map((o) => o.que), ['tic-alto', 'tic-bajo', 'tic-alto'], `tic-tac: ${JSON.stringify(lista)}`);
   lista.forEach((o, i) => assert.ok(o.t != null && o.t >= marcas[i] - 0.05 && o.t <= marcas[i] + tolerancia,
     `el tic ${i + 1} tenía que sonar al cruzar ${marcas[i]} s de video: ${JSON.stringify(lista)}`));
@@ -238,6 +239,43 @@ export function registrar(entorno) {
       assert.deepEqual(S.contextos.map((c) => c.enGesto), [true], 'el toque que los prende crea el AudioContext');
       assert.equal(await p.a(`localStorage.getItem('iv_avisos_sonido')`), '1');
     });
+
+    paso(entorno, 'con el video en silencio los avisos no suenan pero vibran; al quitar el silencio vuelven (también la muestra de Ajustes)', async () => {
+      await p.abrir({ query: Q });
+      // El alumno silencia el video antes de empezar (el botón de volumen).
+      await p.clic('.iv-controls-row button[aria-label="Silenciar"]');
+      await p.debe(`!!D.querySelector('.iv-controls-row button[aria-label="Activar sonido"]')`, 2000, 'el botón no quedó en silencio');
+      // Prender "Sonidos de aviso" con el video en silencio no da la muestra (el toque
+      // igual crea el sonido, para cuando se quite el silencio).
+      await p.clic('.iv-ajustes-btn');
+      await p.clic('.iv-ajustes-fila', { texto: 'Sonidos de aviso' });
+      await p.clic('.iv-ajustes-fila', { texto: 'Sonidos de aviso' });
+      await p.clic('.iv-ajustes-cerrar');
+      let S = await sonidos(p);
+      assert.deepEqual([S.osc.length, S.contextos.length], [0, 1], `en silencio, sin muestra: ${JSON.stringify(S)}`);
+      await p.reproducir();
+      await p.debe(`A.tarjeta()?.id === 'nota7'`, 15000, 'no frenó en la nota de los 7');
+      await dormir(300);
+      S = await sonidos(p);
+      assert.equal(await p.a('A.video().muted'), true, 'el video sigue en silencio');
+      assert.deepEqual(S.osc, [], 'en silencio no se sintetiza nada: ni el tic-tac, ni el plop, ni el plop suave de Data Link (2 s)');
+      assert.deepEqual(patrones(S), ['40', '40', '40', FRENO], 'pero vibra igual: corto en cada tic y más largo al frenar');
+      assert.equal(await p.a(`D.querySelector('.iv-glosario-marca')?.textContent`), '1', 'Data Link igual se sumó al glosario');
+      assert.ok(S.cuentas.some((c) => c.txt === '3 Se viene una nota'), 'la cuenta regresiva se ve igual');
+      await p.responder();
+      // Al quitar el silencio vuelven: Frecuencia (10 s) y la pregunta de los 15.
+      await p.clic('.iv-controls-row button[aria-label="Activar sonido"]');
+      await p.debe(`!A.video().muted`, 2000, 'no se quitó el silencio');
+      const desde = await p.a('A.comp()');
+      assert.ok(desde < 9.8, `sin silencio antes de Frecuencia: ${desde}`);
+      await p.debe(`A.tarjeta()?.id === 'mc15'`, 15000, 'no frenó en la pregunta de los 15');
+      await dormir(300);
+      S = await sonidos(p);
+      assert.ok(de(S, 'suave').length === 1 && cerca(de(S, 'suave')[0].t, 10, 0.8), `vuelve el plop suave (Frecuencia, 10 s): ${JSON.stringify(S.osc)}`);
+      tresTics(tics(S), [12, 13, 14], 0.45);
+      assert.equal(de(S, 'plop').length, 1, 'y el plop al frenar');
+      assert.deepEqual(patrones(S), ['40', '40', '40', FRENO, '40', '40', '40', FRENO]);
+    }, { timeout: 60000 });
 
     paso(entorno, 'transmitiendo a la TV: los tics, el plop y la vibración salen en el celular, y el glosario se abre sobre el cartel de la TV', async () => {
       await abrirConTV(p, 'web', { query: { ...Q, lat: '120' }, progreso: { completed: [], currentTime: 0.3 }, esperarEn: 0.3 });

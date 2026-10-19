@@ -4,7 +4,7 @@
 // va). Lo que hace el componente con esto, tests/navegador/escenarios/glosario.mjs.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nombreDe, esTermino, esNota, hayGlosario, totalPosible, terminosNuevos, entradas, RECIEN_MS, AVISO_MS } from '../../src/glosario.js';
+import { nombreDe, esTermino, esNota, hayGlosario, totalPosible, terminosNuevos, entradas, cobertura, pausarAlAbrir, reanudarAlCerrar, RECIEN_MS, AVISO_MS, TAPA_MIN } from '../../src/glosario.js';
 
 const L = (id, time, text, definition = `Definición de ${text}.`) => ({ id, type: 'label', time, duration: 8, data: { text, definition, x: 5, y: 15 } });
 const LECCION = [
@@ -22,8 +22,8 @@ const LECCION = [
 ];
 const ids = (xs) => xs.map((x) => x.id);
 
-test('constantes: "recién" 6 s y el aviso con el panel cerrado 4,5 s', () => {
-  assert.deepEqual({ RECIEN_MS, AVISO_MS }, { RECIEN_MS: 6000, AVISO_MS: 4500 });
+test('constantes: "recién" 6 s, el aviso con el panel cerrado 4,5 s y el panel pausa si tapa más del 70 %', () => {
+  assert.deepEqual({ RECIEN_MS, AVISO_MS, TAPA_MIN }, { RECIEN_MS: 6000, AVISO_MS: 4500, TAPA_MIN: 0.7 });
 });
 
 describe('qué va al glosario', () => {
@@ -137,5 +137,67 @@ describe('entradas: lo que muestra, lo último arriba', () => {
   test('una definición que no es texto no rompe (llega vacía)', () => {
     const raro = [{ id: 'r', type: 'label', time: 1, data: { text: 'Raro', definition: { html: '<b>x</b>' } } }];
     assert.equal(entradas({ interactions: raro, nombrados: new Set(['r']), completed: new Set() })[0].texto, '');
+  });
+});
+
+// El panel que TAPA el video (decisión de Erick, 19-oct-2026). Los rectángulos son los
+// que da styles.css en cada caso (las coordenadas del contenedor, como las mide el
+// componente); que el panel de verdad mida eso lo prueba el nivel navegador
+// (escenarios/glosario.mjs, "el panel que tapa el video").
+const R = (x, y, ancho, alto) => ({ x, y, ancho, alto });
+describe('cobertura: cuánto del video tapa el panel', () => {
+  test('reproductor bajo (el iframe del campus o la pantalla completa con el celular parado, 375×211): todo', () => {
+    assert.equal(cobertura(R(0, 0, 375, 211), R(0, 0, 375, 211)), 1);
+  });
+  test('ancho: el lateral derecho deja ver el video (1280×720: 26 %; 900×506, el de las pruebas: 36 %)', () => {
+    assert.ok(Math.abs(cobertura(R(920, 0, 360, 664), R(0, 0, 1280, 720)) - 0.2594) < 0.001);
+    assert.ok(Math.abs(cobertura(R(540, 0, 360, 450), R(0, 0, 900, 506)) - 0.3557) < 0.001);
+  });
+  test('angosto pero no bajo (540×304): la hoja de abajo, 78 % de alto, tapa 78 %', () => {
+    assert.ok(Math.abs(cobertura(R(0, 304 - 56 - 237.12, 540, 237.12), R(0, 0, 540, 304)) - 0.78) < 1e-9);
+  });
+  test('sólo cuenta lo que cae adentro del video; sin cruce, 0; nunca más de 1', () => {
+    assert.equal(cobertura(R(-100, 0, 200, 100), R(0, 0, 200, 100)), 0.5);
+    assert.equal(cobertura(R(300, 0, 50, 50), R(0, 0, 200, 100)), 0);
+    assert.equal(cobertura(R(-10, -10, 999, 999), R(0, 0, 200, 100)), 1);
+    assert.equal(cobertura(R(200, 0, 50, 100), R(0, 0, 200, 100)), 0, 'pegado al borde no tapa nada');
+  });
+  test('datos rotos (sin panel, video sin tamaño, valores que no son números) dan 0 y no tiran', () => {
+    assert.equal(cobertura(null, R(0, 0, 10, 10)), 0);
+    assert.equal(cobertura(R(0, 0, 10, 10), undefined), 0);
+    assert.equal(cobertura(R(0, 0, 10, 10), R(0, 0, 0, 10)), 0);
+    assert.equal(cobertura({ x: 'a', y: NaN, ancho: 10, alto: 10 }, R(0, 0, 10, 10)), 1);
+  });
+});
+
+describe('pausarAlAbrir y reanudarAlCerrar: el glosario que tapa el video lo pausa y lo retoma', () => {
+  const abrir = (o) => pausarAlAbrir({ reproduciendo: true, transmitiendo: false, cobertura: 1, ...o });
+  const cerrar = (o) => reanudarAlCerrar({ pausoElGlosario: true, pregunta: false, error: false, transmitiendo: false, ...o });
+  test('reproduciendo y tapado (más del 70 %): pausa', () => {
+    assert.equal(abrir(), true);
+    assert.equal(abrir({ cobertura: 0.78 }), true);
+    assert.equal(abrir({ cobertura: 0.7001 }), true);
+  });
+  test('en una pantalla ancha (el video a la vista) no pausa, como hasta ahora; el 70 % justo, tampoco', () => {
+    assert.equal(abrir({ cobertura: 0.26 }), false);
+    assert.equal(abrir({ cobertura: TAPA_MIN }), false);
+    assert.equal(abrir({ cobertura: undefined }), false);
+  });
+  test('en pausa no hay nada que pausar (y cerrar no lo va a arrancar)', () => {
+    assert.equal(abrir({ reproduciendo: false }), false);
+  });
+  test('transmitiendo a la TV, nunca: el video está en la TV y el celular es el control', () => {
+    assert.equal(abrir({ transmitiendo: true }), false);
+  });
+  test('cerrar retoma lo que pausó el glosario', () => {
+    assert.equal(cerrar(), true);
+  });
+  test('si no lo pausó el glosario (no tapaba, estaba en pausa, o alguien le dio play en el medio), cerrar no lo toca', () => {
+    assert.equal(cerrar({ pausoElGlosario: false }), false);
+  });
+  test('si en el medio lo frenó una pregunta (la que cerró el panel), un error o la TV, no se retoma', () => {
+    assert.equal(cerrar({ pregunta: true }), false);
+    assert.equal(cerrar({ error: true }), false);
+    assert.equal(cerrar({ transmitiendo: true }), false);
   });
 });
