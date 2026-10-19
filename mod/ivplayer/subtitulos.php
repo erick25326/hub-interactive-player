@@ -72,6 +72,8 @@ if ($metodo === 'OPTIONS') {
     http_response_code(204);
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: GET, HEAD, OPTIONS');
+    // Los que Google pide permitir para que el receptor baje la pista.
+    header('Access-Control-Allow-Headers: Content-Type, Accept-Encoding, Range');
     header('Access-Control-Max-Age: 600');
     exit;
 }

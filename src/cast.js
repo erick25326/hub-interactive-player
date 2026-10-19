@@ -840,6 +840,18 @@ export class CastPlayer {
   // la pista en la media de la TV (adoptada de una carga sin ella), prenderlos es volver a
   // cargar con ella. Si no se sabe si la tiene (adoptada desde la app) y la TV rechaza el
   // pedido, es que no la tiene: lo mismo.
+  // Después de una carga: si lo que informa la TV no coincide con el botón, se corrige.
+  // 🔴 No alcanza con mirar si el botón se tocó durante la carga: react-native-google-cast
+  // 4.9.1 en Android no pasa activeTrackIds en loadMedia, así que la TV carga la pista
+  // APAGADA aunque se pidiera prendida, y quedaba el botón prendido sin subtítulos en
+  // ningún lado (el celular deja de dibujarlos cuando la TV tiene la pista). Si la TV no
+  // informa las pistas, se usa lo que llevó la carga.
+  _corregirPistas(m, k) {
+    if (!this._pistaEnTV) return;
+    const enTV = pistasDe(m).prendida;
+    if ((enTV != null ? enTV : k.subs) !== this._subsOn) this._editarPistas();
+  }
+
   _editarPistas() {
     const cc = sdk(), m = this._media;
     if (this._destruido || !this.subtitulosEnTV() || !cc || !m || this._muerta || this._carga) return;
@@ -1038,14 +1050,16 @@ export class CastPlayer {
         // La TV arrancó en otro lado (ignoró currentTime): llevarla.
         if (ya - k.h > TOPE_CARGA_MS || (estado === "PLAYING" || estado === "PAUSED")) {
           this._carga = null;
+          this._corregirPistas(m, k);
           this._pedirSalto(k.t);
         }
         return;
       }
       this._carga = null;
       this._fijo = null;
-      // El botón de subtítulos se tocó mientras cargaba: la carga salió con el de antes.
-      if (this._pistaEnTV && k.subs !== this._subsOn) this._editarPistas();
+      // El botón de subtítulos se tocó mientras cargaba, o la TV no prendió la pista que
+      // pedía la carga (ver _corregirPistas).
+      this._corregirPistas(m, k);
       // Una medida de la ida y vuelta antes de la primera pregunta (ver _medirRtt).
       if (!this._medidasRtt.length) { this._ultimoPedidoEstado = ahora(); this._enviar("estado"); }
       // Una velocidad elegida durante "Conectando…" no viajó en el LOAD.

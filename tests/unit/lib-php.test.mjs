@@ -293,7 +293,7 @@ test('subtítulos en la TV: subtitulos.php, player.php, firma.php, el secreto y 
     ivplayer_subtitulos_tv_parametros: '447a1ad5322a1267',
     ivplayer_subtitulos_tv_valida: '72bc21b2c27d0afd',
     ivplayer_subtitulos_tv_tope: 'b5b734f8a4722062',
-    ivplayer_subtitulos_cues: 'a8304960fddcc320',
+    ivplayer_subtitulos_cues: '3e97e4825923d8de',
     ivplayer_subtitulos_a_vtt: 'fcca70b60190614a',
     ivplayer_subtitulos_tv_secreto: '54fdf1f2702392f8',
     ivplayer_subtitulos_tv_url: '4b0adf06818af121',
@@ -330,7 +330,8 @@ test('subtítulos en la TV: subtitulos.php, player.php, firma.php, el secreto y 
   // player.php: subtitlesUrlTv en PLAYER_CONFIG, sólo con Bunny y subtítulos, con el
   // vencimiento de la firma del video.
   const player = leer('player.php');
-  assert.match(player, /if \(\$bunny !== null && \$subtitulos !== null && ivplayer_subtitulos_a_vtt\(\$subtitulos\) !== null\) \{/);
+  assert.match(player, /if \(\$bunny !== null && \$subtitulos !== null\) \{/);
+  assert.doesNotMatch(player, /ivplayer_subtitulos_a_vtt\(/, 'player.php no parsea los subtítulos (correría en cada carga)');
   assert.match(player, /ivplayer_subtitulos_tv_url\(\$cm->id, \$bunny\['expires'\] \?\? ivplayer_bunny_expires\(\$ahora, ivplayer_bunny_ttl\(\)\)\)/);
   assert.match(player, /\$extra\['subtitlesUrlTv'\] = \$subtitulostv;/);
   const iUrl = player.indexOf("$extra['subtitlesUrlTv']"), iCfg = player.indexOf('$config = json_encode($base + $extra');

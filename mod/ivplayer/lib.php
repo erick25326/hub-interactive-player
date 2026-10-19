@@ -1182,8 +1182,11 @@ function ivplayer_subtitulos_tv_tope(int $ttl): int {
  */
 function ivplayer_subtitulos_cues(string $texto): array {
     $blancos = '[\s\p{Zs}\x{FEFF}\x{2028}\x{2029}]';
+    // Recorte lineal, como el .trim() del celular: con '+$' sin anclar, una tira larga de
+    // blancos en el medio del renglón hacía trabajar a la regex en tiempo cuadrático.
     $recortar = function (string $s) use ($blancos): string {
-        return (string) preg_replace('/^' . $blancos . '+|' . $blancos . '+$/uD', '', $s);
+        $s = (string) preg_replace('/^' . $blancos . '++/u', '', $s);
+        return (string) preg_replace('/(?<=[^\s\p{Zs}\x{FEFF}\x{2028}\x{2029}])' . $blancos . '++$/uD', '', $s);
     };
     $tiempo = '/(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/';
     // Milisegundos exactos: "0." + 1 a 3 dígitos es una fracción decimal (",5" = 500 ms).

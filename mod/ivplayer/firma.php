@@ -155,7 +155,7 @@ $respuesta = [
 // igual, sin él: la TV conserva el que tenía hasta que venza.
 try {
     $subtitulos = ivplayer_subtitulos_texto($context);
-    if ($subtitulos !== null && ivplayer_subtitulos_a_vtt($subtitulos) !== null) {
+    if ($subtitulos !== null) {
         $subtitulostv = ivplayer_subtitulos_tv_url($cm->id, $video['expires']);
         if ($subtitulostv !== null) {
             $respuesta['subtitulosTv'] = $subtitulostv;

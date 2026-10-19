@@ -126,10 +126,11 @@ $subtitulos = ivplayer_subtitulos_texto($context);
 $extra = $subtitulos !== null ? ['subtitlesVtt' => $subtitulos] : [];
 // Subtítulos en la TV (Chromecast): con Bunny se puede transmitir, y la TV baja el VTT
 // ELLA sola, sin la cookie del campus. Se le da un enlace firmado a subtitulos.php con el
-// MISMO vencimiento que la firma del video (firma.php los renueva juntos), y sólo si hay
-// algún cue que mostrar. Sin el secreto del plugin (upgrade sin correr) no hay enlace y,
-// transmitiendo, el celular sigue dibujándolos como antes.
-if ($bunny !== null && $subtitulos !== null && ivplayer_subtitulos_a_vtt($subtitulos) !== null) {
+// MISMO vencimiento que la firma del video (firma.php los renueva juntos). Sin el secreto
+// del plugin (upgrade sin correr) no hay enlace y, transmitiendo, el celular sigue
+// dibujándolos como antes. 🔴 Acá NO se parsea el texto para ver si tiene cues: correría
+// en cada carga de la lección, y el que no tiene cues ya lo descarta el reproductor.
+if ($bunny !== null && $subtitulos !== null) {
     $subtitulostv = ivplayer_subtitulos_tv_url($cm->id, $bunny['expires'] ?? ivplayer_bunny_expires($ahora, ivplayer_bunny_ttl()));
     if ($subtitulostv !== null) {
         $extra['subtitlesUrlTv'] = $subtitulostv;
