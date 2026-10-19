@@ -5,7 +5,7 @@ import { Renovador, recargarParaReintentar } from "./firma.js";
 // La red de seguridad (Vimeo si el CDN de Bunny falla): la decisión es pura y vive aparte.
 import { decidirRespaldo, datosDelError, pedirRespaldo, urlDeRespaldo, yaEsRespaldo, GUARDAR_AVANCE_MS } from "./respaldo.js";
 import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, mismoVideo, CastPlayer, castPosible, infoApp, pareceApp } from "./cast.js";
-import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGuardarAvanceYa, moodleGetSavedProgress, moodleReportAnswer } from "./scorm.js";
+import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGuardarAvanceYa, moodleGetSavedProgress, moodleReportAnswer, isScormAvailable } from "./scorm.js";
 // El candado de preguntas y el parser de subtítulos son puros y viven aparte para
 // poder probarlos sin navegador (tests/unit). Acá sólo se llaman.
 import { debeFrenar, tiempoAGuardar, esTickPropio, pendienteARetomar } from "./candado.js";
@@ -18,6 +18,8 @@ import { getConfig, hayVideo } from "./configuracion.js";
 import { ticsEntre, olvidarTics, cuentaRegresiva, textoCuenta, queSeViene, comoAvisar, VIBRA_TIC, VIBRA_FRENO, CLAVE_SONIDO, CLAVE_VIBRACION, leerPreferencia, guardarPreferencia } from "./avisos.js";
 import { terminosNuevos, entradas as entradasDelGlosario, hayGlosario, totalPosible, cobertura, pausarAlAbrir, pasoATapar, reanudarAlCerrar, RECIEN_MS, AVISO_MS } from "./glosario.js";
 import { crearSonidos, vibracionPosible } from "./sonidos.js";
+// La tarjeta de fin del video (la próxima lección del campus y "Volver a ver"): lo puro.
+import { leerBarraDelTema, destinoDeFin, leccionCompletada, textosDeFin } from "./finVideo.js";
 
 // parseVTT y textoDeCue (subtítulos VTT/SRT) viven en subtitulos.js.
 
@@ -40,6 +42,8 @@ const InfoIcon = () => <svg aria-hidden="true" focusable="false" width="16" heig
 // Engranaje de Ajustes (velocidad y calidad, como YouTube): reemplaza al botón "1x".
 const GearIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>;
 const CloseIcon = () => <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>;
+// Volver a ver (tarjeta de fin).
+const ReplayIcon = () => <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>;
 // Transmitir a la TV: el mismo ícono para Chromecast y AirPlay (un solo botón).
 const CastIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"/></svg>;
 const CastOnIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm18-7H5v1.63c3.96 1.28 7.09 4.41 8.37 8.37H19V7zM1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>;
@@ -457,6 +461,19 @@ function Reproductor() {
   const [anunciarTotal, setAnunciarTotal] = useState(false);
   const [skipFeedback, setSkipFeedback] = useState(null);
   const [videoEnded, setVideoEnded] = useState(false);
+  // ─── Tarjeta de fin (src/finVideo.js) ──────────────────────────────
+  // null o { completada, destino } (destino: la próxima lección de la barra del tema, o
+  // null). La pide alTerminar con finPendienteRef + senalFin, y la abre un efecto que
+  // corre DESPUÉS del de disparo: así una pregunta del final se muestra primero y la
+  // tarjeta aparece al responderla (ver "La tarjeta de fin" más abajo).
+  const [tarjetaFin, setTarjetaFinEstado] = useState(null);
+  const tarjetaFinRef = useRef(null);
+  const setTarjetaFin = useCallback((v) => { tarjetaFinRef.current = v; setTarjetaFinEstado(v); }, []);
+  const finPendienteRef = useRef(false);
+  const [senalFin, setSenalFin] = useState(0);
+  const finPrincipalRef = useRef(null);
+  const [avisoFin, setAvisoFin] = useState('');   // para el lector de pantalla, si el foco no se pudo mover
+  const idFin = useId();
   const [buffering, setBuffering] = useState(false);
   // Error que no se puede recuperar (token vencido, sin conexión, formato). Con
   // Vimeo lo mostraba su propio iframe; con el <video> propio, si no lo dibujamos
@@ -687,6 +704,9 @@ function Reproductor() {
       // video por detrás y salteaba interacciones.
       if(activeIARef.current){ playIntentRef.current=null; p.pause(); return; }
       terminoRef.current=false;
+      // Volvió a reproducir (Volver a ver, el play después de cerrar la tarjeta, o uno de
+      // afuera: auriculares, la pantalla de bloqueo): la tarjeta de fin se va.
+      soltarFinRef.current();
       // Alguien lo puso a andar con el glosario abierto (el alumno, los auriculares, la
       // pantalla de bloqueo): la pausa ya no es del glosario y cerrarlo no la retoma,
       // aunque en el medio lo vuelvan a pausar (ver reanudarAlCerrar).
@@ -758,34 +778,34 @@ function Reproductor() {
   // pause de una pregunta cae justo en el fin, Vimeo a veces deja el medio
   // terminado SIN emitir 'ended', y un play() ahí arrancaba desde 0 sin
   // completar la actividad.
+  // 🔴 Desde la tarjeta de fin (1.4.0) el video se QUEDA en el final: no vuelve a 0 ni
+  // repite solo con "Repetir video" (loop). Se frena en la tarjeta, y "Volver a ver" (o el
+  // play después de cerrarla) arranca de nuevo desde 0 (ver volverAEmpezar). Lo que se
+  // guarda como avance sigue siendo 0, como cuando volvía a 0 (ver tiempoDelAvance).
   const alTerminarRef=useRef(()=>{});
   alTerminarRef.current=()=>{
-    if(terminoRef.current) return; // ya terminó (un 'ended' tardío no rebobina dos veces)
-    // Sin intent, el watchdog de safePlay no relanza el video que acaba de
-    // volver a 0; terminoRef evita que cerrar una pregunta del final lo arranque.
+    if(terminoRef.current) return; // ya terminó (un 'ended' tardío no lo procesa dos veces)
+    // Sin intent, el watchdog de safePlay no relanza el video terminado; terminoRef
+    // evita que cerrar una pregunta del final lo arranque.
     terminoRef.current=true;
     // 🔴 Evaluar una vez contra el fin (lo mismo que hace dismiss): si 'ended' llega
     // antes de que el efecto de disparo vea el último segundo, la pregunta del final
     // se perdía. Pasa transmitiendo: la TV avisa que terminó (el último segundo y
-    // 'ended' en la misma tarea), el setCurrentTime(0) de abajo informa el 0 en una
-    // microtarea, React junta los dos en un solo render y el efecto sólo veía el 0.
-    // Con el celular bloqueado (timers alineados al segundo) o una TV que termina un
-    // poco antes de la duración que informa, el FINISHED le gana al freno: se perdía
-    // en 7 de 11 corridas. Con una pregunta ya abierta no hace falta.
+    // 'ended' en la misma tarea) y React los junta en un solo render. Con el celular
+    // bloqueado (timers alineados al segundo) o una TV que termina un poco antes de la
+    // duración que informa, el FINISHED le gana al freno: se perdía en 7 de 11
+    // corridas. Con una pregunta ya abierta no hace falta.
     if(!activeIARef.current) evaluarEnFinRef.current=true;
     playIntentRef.current=null;
     setPlaying(false);
     setVideoEnded(true);
-    const p=playerRef.current; if(!p) return;
-    // Con una pregunta abierta el bucle espera a que la respondan (dismiss).
-    if(config.loop&&!activeIARef.current){
-      // Si mientras rebobinaba se abrió otra interacción del final, no correr
-      // el bucle debajo de ella: lo reanuda dismiss al cerrarla.
-      p.setCurrentTime(0).then(()=>{ if(!activeIARef.current) p.play().catch(()=>{}); });
-    } else {
-      // Reset to beginning so play button works after video ends
-      p.setCurrentTime(0);
-    }
+    // La barra, en el final (el último tick puede haber quedado un poco antes). Y la
+    // tarjeta: la abre el efecto de "La tarjeta de fin", después del de disparo (senalFin
+    // hace que los dos corran aunque el tiempo no cambie).
+    const fin=finRef.current<Infinity?finRef.current:Math.max(currentTimeRef.current,duration||0);
+    if(fin>0){ currentTimeRef.current=fin; setCurrent(fin); }
+    finPendienteRef.current=true;
+    setSenalFin(n=>n+1);
   };
 
   // Tiempo del tick anterior, para disparar por CRUCE y no solo por proximidad:
@@ -794,15 +814,11 @@ function Reproductor() {
   // interacción no disparaba nunca. La decisión vive en debeFrenar().
   const prevTimeRef=useRef(0);
   const finRef=useRef(Infinity); // duración real del medio, del timeupdate
-  // Al cerrar una pregunta con el video ya terminado (y rebobinado a 0), evaluar
-  // una vez contra el fin: dos interacciones del último tramo vencen con el mismo
-  // tick final y el efecto muestra de a una (break), así que la segunda sólo
-  // aparece si se la mira desde el fin y no desde el 0.
+  // Al cerrar una pregunta con el video ya terminado, evaluar una vez contra el fin:
+  // dos interacciones del último tramo vencen con el mismo tick final y el efecto
+  // muestra de a una (break), así que la segunda sólo aparece si se la mira desde el
+  // fin (y no desde donde haya quedado el estado, que con la TV puede ser otro segundo).
   const evaluarEnFinRef=useRef(false);
-  // En bucle, el play al cerrar una pregunta del final lo da este efecto y no
-  // dismiss: así sólo sale si la pasada contra el fin no abre otra tarjeta (a 2×,
-  // un play desde dismiss quedaba en vuelo y el video corría debajo de ella).
-  const bucleAlCerrarRef=useRef(false);
   useEffect(()=>{ activeIARef.current=activeIA; },[activeIA]);
   // Foco a la interacción que aparece, así el teclado y el lector de pantalla
   // quedan EN la pregunta y no en un botón que ya no se ve. preventScroll: sin eso
@@ -832,8 +848,6 @@ function Reproductor() {
     // el pause lento, más de 0,8 s después), una segunda pregunta pegada a la
     // primera se salteaba al cerrarla.
     prevTimeRef.current=t;
-    const reanudarBucle=bucleAlCerrarRef.current;
-    bucleAlCerrarRef.current=false;
     // Al frenar: "plop" y vibración (los dos los puede apagar el alumno). También si se
     // llegó saltando: el aviso previo es el que no suena (ver ticsEntre).
     const mostrar=(ia)=>{ triggered.current.add(ia.id); playIntentRef.current=null; playerRef.current?.pause(); activeIARef.current=ia; setActiveIA(ia); avisarRef.current('plop'); };
@@ -879,8 +893,24 @@ function Reproductor() {
         if(currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||8)){ mostrar(ia); return; }
       } else if(debeFrenar(ia.time,prev,t,finRef.current)){ mostrar(ia); return; }
     }
-    if(reanudarBucle) safePlay();
-  },[currentTime,ready,completed,interactions,activeIA]);
+    // senalFin: alTerminar pide la pasada contra el fin aunque el tiempo no haya cambiado
+    // (el video ya no vuelve a 0 al terminar: ver alTerminar).
+  },[currentTime,ready,completed,interactions,activeIA,senalFin]);
+
+  // ─── La tarjeta de fin (src/finVideo.js) ──────────────────────────────
+  // Va DESPUÉS del efecto de disparo, a propósito: si el video terminó con una pregunta
+  // del final pendiente (o una pasada contra el fin encuentra otra del mismo tramo), el
+  // de disparo ya la mostró (mostrar pone activeIARef en el acto) y la tarjeta espera a
+  // que la respondan; al cerrarla (activeIA cambia) vuelve a mirar. No tapa nunca una
+  // pregunta. Si en el medio se volvió a reproducir o se saltó (terminoRef en false), no
+  // se abre.
+  useEffect(()=>{
+    if(!finPendienteRef.current) return;
+    if(!terminoRef.current){ finPendienteRef.current=false; return; }
+    if(activeIA||activeIARef.current) return;
+    finPendienteRef.current=false;
+    abrirTarjetaFinRef.current();
+  },[currentTime,activeIA,senalFin]);
 
   // Avisos y glosario, con el mismo tiempo que mira el candado (el del componente: el
   // del <video>, el de Vimeo o el de la TV). Va DESPUÉS del efecto de disparo y no lo
@@ -1148,6 +1178,12 @@ function Reproductor() {
         if(e.key==='Escape'){ e.preventDefault(); cerrarGlosarioRef.current(true); }
         return;
       }
+      // La tarjeta de fin: Escape la cierra (el video queda en el final) y el resto de las
+      // teclas son de sus botones (Tab, Enter, espacio).
+      if(tarjetaFinRef.current){
+        if(e.key==='Escape'){ e.preventDefault(); cerrarTarjetaFinRef.current(true); }
+        return;
+      }
       if(activeIA) return;
       const el=e.target, tag=el&&el.tagName;
       // Escribiendo, o en un control que usa esas teclas (el volumen, un slider).
@@ -1214,24 +1250,31 @@ function Reproductor() {
     setAvanceListo(true);
   },[ready]);
 
+  // El segundo del video que cuenta para el avance. Terminado (hasta el próximo play o
+  // salto), 0: el video se queda en el final para la tarjeta de fin, pero lo que se
+  // guardaba al terminar era 0 (volvía al principio) y la próxima vez la lección arranca
+  // de nuevo, como antes. Con una pregunta abierta manda la pregunta (tiempoAGuardar).
+  const tiempoDelAvance=(t)=>terminoRef.current?0:t;
+
   // Save progress to localStorage + Moodle + SCORM (throttled)
   useEffect(()=>{
     if(!ready||videoError) return;   // con el video caído, el tiempo no es confiable
     if(Date.now()-lastSaveRef.current<5000) return;
     lastSaveRef.current=Date.now();
-    const tGuardar=tiempoAGuardar(currentTime,activeIA,finRef.current,interactions,completed);
+    const tVideo=tiempoDelAvance(currentTime);
+    const tGuardar=tiempoAGuardar(tVideo,activeIA,finRef.current,interactions,completed);
     const snapshot={completed:[...completed],currentTime:tGuardar,updatedAt:Date.now()};
     try{
       localStorage.setItem(`iv_progress_${vimeoData.id}`,JSON.stringify(snapshot));
     }catch(e){}
     moodleSaveProgress({completed:snapshot.completed,currentTime:tGuardar});
-    scormSetTime(currentTime);
+    scormSetTime(tVideo);
   },[completed,currentTime,ready,vimeoData.id,videoError,activeIA]);
 
   // Final progress save when leaving the page (sendBeacon survives unload)
   useEffect(()=>{
     if(!ready||videoError) return;
-    const onUnload=()=>moodleSaveProgress({completed:[...completed],currentTime:tiempoAGuardar(currentTime,activeIA,finRef.current,interactions,completed)},true);
+    const onUnload=()=>moodleSaveProgress({completed:[...completed],currentTime:tiempoAGuardar(tiempoDelAvance(currentTime),activeIA,finRef.current,interactions,completed)},true);
     window.addEventListener("pagehide",onUnload);
     return()=>window.removeEventListener("pagehide",onUnload);
   },[ready,completed,currentTime,videoError,activeIA]);
@@ -1257,7 +1300,7 @@ function Reproductor() {
     if(!causa) return false;
     respaldoIntentadoRef.current=true;
     setRespaldando(true);
-    const avance=avanceListo?{completed:[...completed],currentTime:tiempoAGuardar(currentTimeRef.current,activeIA,finRef.current,interactions,completed)}:null;
+    const avance=avanceListo?{completed:[...completed],currentTime:tiempoAGuardar(tiempoDelAvance(currentTimeRef.current),activeIA,finRef.current,interactions,completed)}:null;
     // Con tope: si el guardado tarda, queda en la cola (la carga siguiente lo manda).
     const guardado=avance?Promise.race([moodleGuardarAvanceYa(avance).catch(()=>false),new Promise(r=>setTimeout(()=>r(false),GUARDAR_AVANCE_MS))]):Promise.resolve(true);
     const aviso=pedirRespaldo({url:ctx.respaldoUrl,cmid:ctx.cmid,sesskey:ctx.sesskey,...datosDelError(e,causa)});
@@ -1354,7 +1397,7 @@ function Reproductor() {
     if(menuRef.current){ cerrarMenu(true); return; }
     // Con una pregunta abierta, no: el menú quedaba encima de la tarjeta (con
     // teclado se llegaba al engranaje; ahora los controles están inert, ver abajo).
-    if(activeIARef.current||videoError) return;
+    if(activeIARef.current||tarjetaFinRef.current||videoError) return;
     refrescarCalidadesRef.current();
     // Reproductor angosto (≤340 px, o ≤372 con el botón de girar: el mismo corte de
     // los container query ivc): el botón de la TV no entra en la fila sin recortar el
@@ -1423,7 +1466,7 @@ function Reproductor() {
   // término a mostrar abierto (el del aviso "Nuevo en el glosario").
   const listaGlosario=useMemo(()=>conGlosario?entradasDelGlosario({interactions,nombrados,completed}):[],[conGlosario,interactions,nombrados,completed]);
   const abrirGlosario=(enfocar)=>{
-    if(activeIARef.current||videoError) return;
+    if(activeIARef.current||tarjetaFinRef.current||videoError) return;
     if(menuRef.current) setMenu(null);
     clearTimeout(avisoGlosarioTimer.current);
     setAvisoGlosario(null);
@@ -1495,7 +1538,8 @@ function Reproductor() {
     if(playing){playIntentRef.current=null;pausaGlosarioRef.current=false;p.pause();return;}
     // El play es EL gesto: ahí se crea (o se reanuda) el sonido de los avisos.
     sonidosRef.current.desbloquear({audio:sonidoOnRef.current});
-    safePlay();
+    // Terminado, el video quedó en el final (la tarjeta de fin): play es volver a empezar.
+    if(terminoRef.current) volverAEmpezar(); else safePlay();
     // Reintentar desmuteo dentro del MISMO gesto del usuario: si el navegador
     // forzó arranque muteado (iframe anidado en Moodle), este es el único
     // momento con activación válida para levantar el silencio.
@@ -1601,8 +1645,9 @@ function Reproductor() {
       pausarSiTapa(tapa);
       return;
     }
+    // La tarjeta de fin cuenta como una pregunta: lo cerró ella y el video terminó.
     const volver=reanudarAlCerrar({pausoElGlosario:pausaGlosarioRef.current,
-      pregunta:!!(activeIA||activeIARef.current),error:!!videoError,transmitiendo:transmitiendoAhora()});
+      pregunta:!!(activeIA||activeIARef.current||tarjetaFinRef.current),error:!!videoError,transmitiendo:transmitiendoAhora()});
     pausaGlosarioRef.current=false;
     if(volver) safePlay();
   },[glosarioAbierto]);
@@ -1625,6 +1670,7 @@ function Reproductor() {
   },[glosarioAbierto]);
   const skip=(seconds)=>{
     const p=playerRef.current;if(!p||!ready)return;
+    soltarFinRef.current();   // ±10 s de la pantalla de bloqueo con la tarjeta de fin abierta
     // Base del salto, SIN await (el roundtrip de getCurrentTime hacía que dos
     // taps rápidos de ±10s calcularan ambos desde el tiempo viejo y colapsaran
     // en un solo salto): el destino del seek pendiente si lo hay (así dos taps
@@ -1649,6 +1695,8 @@ function Reproductor() {
   seekExternoRef.current=(t,{sinPlay=false}={})=>{
     const p=playerRef.current;
     if(!p||!ready||activeIARef.current||!Number.isFinite(t)) return;
+    // Con la tarjeta de fin abierta, ir a una línea de la transcripción es volver al video.
+    soltarFinRef.current();
     const now=seekTargetRef.current!=null?seekTargetRef.current:currentTimeRef.current;
     // Nunca dentro del último medio segundo: un salto al final terminaba el video
     // con el <video> nativo y Vimeo lo perdía en silencio. Fin real si ya se conoce.
@@ -1814,6 +1862,9 @@ function Reproductor() {
     let t0=seekTargetRef.current!=null?seekTargetRef.current:(local.tiempo?local.tiempo():currentTimeRef.current);
     if(!Number.isFinite(t0)) t0=currentTimeRef.current;
     if(activeIARef.current) t0=tiempoAGuardar(t0,activeIARef.current,finRef.current);
+    // Con el video terminado (quedó en el final para la tarjeta de fin), la TV carga el
+    // principio, en pausa: lo mismo que cuando el celular volvía a 0 al terminar.
+    else if(terminoRef.current&&!adoptar) t0=0;
     // Subtítulos en la TV: la pista con el VTT firmado (subtitlesUrlTv) y el estado del
     // botón; la TV los dibuja y el botón los prende y apaga ahí (setSubtitulos). Una sesión
     // adoptada trae los suyos (onSubtitulos). Sin cues propios (Vimeo, o sin archivo) no hay.
@@ -1875,10 +1926,14 @@ function Reproductor() {
     if(errorLocalRef.current){ const e=errorLocalRef.current; errorLocalRef.current=null; setPlaying(false); setVideoError(e); return; }
     const fin=finRef.current<Infinity?finRef.current:(duration>0?duration:Infinity);
     const tt=Math.max(0,Math.min(t,fin-0.05));
+    // El video ya había terminado en la TV (la tarjeta de fin, abierta o cerrada): sigue
+    // terminado en el celular, y su play vuelve a empezar (seekTo lo daría por visto).
+    const termino=terminoRef.current;
     marcarSaltoPropio(tt,3000);
     currentTimeRef.current=tt;
     setCurrent(tt);
     seekTo(tt);
+    if(termino) terminoRef.current=true;
     if(seguia&&!activeIARef.current&&!terminoRef.current) safePlay();
     else setPlaying(false);
     if(motivo==='error') avisarTVRef.current('La TV no pudo reproducir el video. Sigue en esta pantalla.');
@@ -2329,10 +2384,9 @@ function Reproductor() {
       // (Reiniciar vacía triggered: una que quedó abierta al reiniciar no cuenta.)
       if(!terminoRef.current&&Math.max(currentTimeRef.current,triggered.current.has(ia.id)?Math.min(ia.time,finRef.current):0)>=finRef.current-0.3) alTerminarRef.current();
       else if(!terminoRef.current) safePlay();
-      // Una pregunta del último tramo puede seguir abierta cuando el video ya
-      // terminó y volvió a 0: cerrarla no lo arranca (salvo en bucle, que lo
-      // esperaba) y se revisa contra el fin si quedó otra del mismo tramo.
-      else if(config.loop) bucleAlCerrarRef.current=true;
+      // Una pregunta del último tramo puede seguir abierta cuando el video ya terminó:
+      // cerrarla no lo arranca (tampoco con "Repetir video") y se revisa contra el fin si
+      // quedó otra del mismo tramo. Si no queda ninguna, aparece la tarjeta de fin.
       if(terminoRef.current) evaluarEnFinRef.current=true;
       // Report individual interaction to SCORM + Moodle gradebook
       if(result&&(ia.type==="multiple-choice"||ia.type==="true-false")){
@@ -2347,7 +2401,98 @@ function Reproductor() {
     }
   };
 
+  // ─── Tarjeta de fin: abrir, cerrar, volver a ver, ir a la próxima ──────────
+  // Abre la tarjeta (la llama el efecto de "La tarjeta de fin"). El destino se lee de la
+  // barra del tema en la página de arriba EN ESTE MOMENTO (ver finVideo.js).
+  const abrirTarjetaFinRef=useRef(()=>{});
+  abrirTarjetaFinRef.current=()=>{
+    const ctx=window.MOODLE_CONTEXT||null;
+    const completada=leccionCompletada({ interactions, completed,
+      registra:!!(ctx&&ctx.completeUrl)||isScormAvailable(), yaCompletada:!!(ctx&&ctx.alreadyCompleted) });
+    const destino=destinoDeFin(leerBarraDelTema(window));
+    const t={ completada, destino };
+    // La tarjeta tapa todo, como una pregunta: el menú y el glosario se cierran debajo
+    // (antes de soltar el glosario, la marca: así cerrarlo no retoma nada).
+    setTarjetaFin(t);
+    setMenu(null);
+    setGlosarioAbierto(false);
+    clearTimeout(avisoGlosarioTimer.current); setAvisoGlosario(null);
+  };
+  // Cierra la tarjeta (X o Escape): el video queda en el final, terminado. El foco vuelve
+  // al botón de reproducir si estaba en la tarjeta (o si se pide, con Escape). Lo mueve el
+  // efecto de abajo, después del render: hasta entonces los controles siguen `inert` y
+  // un focus() ahí no hace nada.
+  const devolverFocoFinRef=useRef(false);
+  const focoEnTarjetaFin=()=>{ const a=document.activeElement; return !!a&&!!a.closest?.('.iv-fin'); };
+  const cerrarTarjetaFin=(devolverFoco)=>{
+    devolverFocoFinRef.current=!!devolverFoco||focoEnTarjetaFin();
+    setTarjetaFin(null);
+    setAvisoFin('');
+  };
+  const cerrarTarjetaFinRef=useRef(cerrarTarjetaFin);
+  cerrarTarjetaFinRef.current=cerrarTarjetaFin;
+  // Se va sola cuando el video vuelve a andar o se salta a otro lado (Volver a ver, play,
+  // la transcripción, Reiniciar…), y ya no se abre si estaba por abrirse.
+  const soltarFinRef=useRef(()=>{});
+  soltarFinRef.current=()=>{
+    finPendienteRef.current=false;
+    if(tarjetaFinRef.current) cerrarTarjetaFin(false);
+  };
+  // Desde el principio y reproduciendo: "Volver a ver", y el play con el video terminado
+  // (la tarjeta cerrada con Escape o la X). Es lo que antes hacía alTerminar al llegar al
+  // final (volver a 0), más el play: un salto PROPIO a 0 (seekTo: la guardia no lo toca y
+  // pone terminoRef en false) y safePlay, como un clic en la transcripción. Dentro del
+  // toque: el play vale como gesto.
+  const volverAEmpezar=()=>{
+    const p=playerRef.current; if(!p||!ready) return;
+    soltarFinRef.current();
+    currentTimeRef.current=0; setCurrent(0);
+    seekTo(0);
+    safePlay();
+  };
+  // El foco, que estaba en la tarjeta, pasa al botón de reproducir (que ya dice Pausar).
+  const volverAVer=()=>{
+    sonidosRef.current.desbloquear({audio:sonidoOnRef.current});
+    volverAEmpezar();
+  };
+  // "Siguiente lección" / "Volver al curso": navega la página de ARRIBA (la lección,
+  // view.php, del mismo origen) dentro del mismo toque. Antes sale de la pantalla completa:
+  // la del iframe, la de la página de arriba (la nativa de view.php) o la simulada (se la
+  // pide a la madre, como el botón). Navegar igual la cerraría, pero en el WebView de
+  // hub-app una pantalla completa que queda abierta mientras la página se va no es algo
+  // que convenga dejar librado al sistema.
+  const irAlDestino=()=>{
+    const d=tarjetaFinRef.current&&tarjetaFinRef.current.destino;
+    if(!d) return;
+    const salir=(doc)=>{
+      try{
+        if(doc.fullscreenElement&&doc.exitFullscreen){ const r=doc.exitFullscreen(); if(r&&r.catch) r.catch(()=>{}); return true; }
+        if(doc.webkitFullscreenElement&&doc.webkitExitFullscreen){ doc.webkitExitFullscreen(); return true; }
+      }catch(e){}
+      return false;
+    };
+    let arriba=null;
+    try{ arriba=window.top; void arriba.document; }catch(e){ arriba=null; }
+    if(!(arriba&&arriba!==window&&salir(arriba.document))) salir(document);
+    if(fakeFS&&window.parent!==window){ try{ window.parent.postMessage({type:'ivplayer-fullscreen',action:'exit'},'*'); }catch(e){} }
+    try{ (arriba||window).location.assign(d.url); }catch(e){}
+  };
+  // Foco al botón principal al aparecer (o a "Volver a ver", si es el único), como las
+  // preguntas: sólo si el reproductor tiene el foco (no se le roba a quien escribe en la
+  // página de arriba, la búsqueda de la transcripción); si no, se avisa.
+  useEffect(()=>{
+    if(!tarjetaFin){
+      if(devolverFocoFinRef.current){ devolverFocoFinRef.current=false; try{ playBtnRef.current?.focus({preventScroll:true}); }catch(e){} }
+      return;
+    }
+    let movido=false;
+    try{ const b=finPrincipalRef.current; if(b&&document.hasFocus()){ b.focus({preventScroll:true}); movido=document.activeElement===b; } }catch(e){}
+    const tx=textosDeFin(tarjetaFin);
+    setAvisoFin(movido?'':`${tx.titulo}.${tx.siguiente?` Siguiente: ${tx.siguiente}.`:''}`);
+  },[tarjetaFin]);
+
   const resetProgress=()=>{
+    soltarFinRef.current();
     localStorage.removeItem(`iv_progress_${vimeoData.id}`);
     setCompleted(new Set());
     triggered.current=new Set();
@@ -2374,6 +2519,8 @@ function Reproductor() {
   const hasCues=cues&&cues.length>0;
   const isEmbedded=window!==window.parent;
   const completableInteractions=interactions.filter(ia=>ia.type!=="label");
+  // Lo que dice la tarjeta de fin (null: cerrada).
+  const txFin=tarjetaFin?textosDeFin(tarjetaFin):null;
 
   return (
     <div ref={wrapperRef} className={`iv-wrapper ${fakeFS||isFS?"fake-fs":""} ${girado?"girado":""} ${isEmbedded?"embedded":""}`}>
@@ -2397,14 +2544,14 @@ function Reproductor() {
           <span className="iv-tv-capa-titulo">{tv.estado==='conectando'?'Conectando con la TV…':`Reproduciendo en ${tv.nombre||'la TV'}`}</span>
           {tv.estado!=='conectando'&&<span className="iv-tv-capa-sub">Las preguntas aparecen en esta pantalla.</span>}
         </div>}
-        {ready&&!activeIA&&!respaldando&&<div className="iv-click-layer" onClick={handleClickLayer} onTouchStart={resetCtrl} onTouchEnd={handleTouchEnd}/>}
+        {ready&&!activeIA&&!tarjetaFin&&!respaldando&&<div className="iv-click-layer" onClick={handleClickLayer} onTouchStart={resetCtrl} onTouchEnd={handleTouchEnd}/>}
         {skipFeedback&&<div className={`iv-skip-feedback ${skipFeedback}`} aria-hidden="true">{skipFeedback==='left'?'⟲ 10s':'10s ⟳'}</div>}
-        {ready&&buffering&&!activeIA&&!videoError&&!respaldando&&<div className="iv-buffering"><div className="iv-spinner"/></div>}
+        {ready&&buffering&&!activeIA&&!tarjetaFin&&!videoError&&!respaldando&&<div className="iv-buffering"><div className="iv-spinner"/></div>}
         {/* También mientras la red de seguridad pasa a Vimeo: para el alumno, es el video que carga. */}
         {(!ready||respaldando)&&!videoError&&<div className="iv-loading"><div className="iv-spinner"/><span>Cargando video...</span></div>}
         {/* Transmitiendo, sin el botón grande: taparía el cartel de la TV, y la fila de
             controles ya queda visible con el video en pausa. */}
-        {ready&&!playing&&!activeIA&&!videoError&&!tv&&!respaldando&&<button className="iv-big-play" onClick={togglePlay} aria-label="Reproducir video"><PlayIcon/></button>}
+        {ready&&!playing&&!activeIA&&!tarjetaFin&&!videoError&&!tv&&!respaldando&&<button className="iv-big-play" onClick={togglePlay} aria-label="Reproducir video"><PlayIcon/></button>}
         {/* Avisos para el lector de pantalla (una interacción que aparece sin poder
             llevarle el foco). Existe siempre: una región que aparece junto con su
             texto muchas veces no se anuncia. */}
@@ -2423,7 +2570,7 @@ function Reproductor() {
         {/* "Nuevo en el glosario: …" con el panel cerrado: tocarlo abre el panel en ese
             término. La región existe siempre (aria-live); el botón, sólo con aviso. */}
         {conGlosario&&<div className={`iv-glosario-aviso-zona ${restanCuenta!=null?'con-cuenta':''}`} role="status" aria-live="polite">
-          {avisoGlosario&&!activeIA&&!glosarioAbierto&&<button className="iv-glosario-aviso" onClick={()=>abrirGlosario(avisoGlosario.id)}>
+          {avisoGlosario&&!activeIA&&!tarjetaFin&&!glosarioAbierto&&<button className="iv-glosario-aviso" onClick={()=>abrirGlosario(avisoGlosario.id)}>
             <GlosarioIcon/><span>Nuevo en el glosario: <strong>{avisoGlosario.nombre}</strong></span>
           </button>}
         </div>}
@@ -2442,22 +2589,44 @@ function Reproductor() {
             dibuja: los muestra la TV, y acá irían encima del cartel "Reproduciendo en…",
             duplicados y con el reloj estimado de la TV. Sin pista en la TV (SCORM, demo,
             sitio sin el secreto, app sin 'subtitulos', AirPlay), como antes: acá. */}
-        {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA&&!(tv&&tv.subtitulos)} sobreControles={showCtrl||!playing||scrubPct!=null}/>}
+        {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA&&!tarjetaFin&&!(tv&&tv.subtitulos)} sobreControles={showCtrl||!playing||scrubPct!=null}/>}
 
         {/* Etiquetas en pantalla: sólo en el modo "En pantalla" (el de antes). En el de
             glosario se suman al panel (ver más abajo). */}
-        {ready&&!activeIA&&!modoGlosario&&<LabelOverlay interactions={interactions} currentTime={currentTime} playerRef={playerRef}/>}
+        {ready&&!activeIA&&!tarjetaFin&&!modoGlosario&&<LabelOverlay interactions={interactions} currentTime={currentTime} playerRef={playerRef}/>}
 
         {activeIA?.type==="note"&&<NoteOverlay data={activeIA.data} onDismiss={dismiss}/>}
         {activeIA?.type==="multiple-choice"&&<MCOverlay data={activeIA.data} onDismiss={dismiss}/>}
         {activeIA?.type==="true-false"&&<TFOverlay data={activeIA.data} onDismiss={dismiss}/>}
         {activeIA?.type==="hotspot"&&<HotspotOverlay data={activeIA.data} onDismiss={dismiss}/>}
 
+        {/* Tarjeta de fin (ver "La tarjeta de fin"): encima del video, también del cartel
+            de la TV (transmitiendo, el celular es el que la muestra). Nunca junto con una
+            pregunta. Sin barra del tema arriba, sólo "Volver a ver". */}
+        {txFin&&!activeIA&&<div className="iv-fin-capa"><div className="iv-overlay-backdrop iv-fin-fondo">
+          <div className={`iv-card iv-fin ${tarjetaFin.completada?'completada':''}`} role="dialog" aria-modal="true"
+            aria-labelledby={`${idFin}-titulo`} aria-describedby={txFin.siguiente?`${idFin}-siguiente`:undefined}>
+            <button className="iv-fin-cerrar" onClick={()=>cerrarTarjetaFin(true)} aria-label="Cerrar"><CloseIcon/></button>
+            <p id={`${idFin}-titulo`} className="iv-fin-titulo">{tarjetaFin.completada&&<CheckIcon/>}<span>{txFin.titulo}</span></p>
+            {txFin.siguiente&&<p id={`${idFin}-siguiente`} className="iv-fin-siguiente">Siguiente: <strong>{txFin.siguiente}</strong></p>}
+            <div className="iv-fin-botones">
+              {txFin.principal&&<button ref={finPrincipalRef} className="iv-btn-primary iv-fin-ir" onClick={irAlDestino}>
+                {txFin.principal}{!tarjetaFin.destino.ultima&&<span aria-hidden="true"> →</span>}
+              </button>}
+              <button ref={txFin.principal?null:finPrincipalRef} className={`iv-fin-ver ${txFin.principal?'':'unico'}`} onClick={volverAVer}>
+                <ReplayIcon/><span>Volver a ver</span>
+              </button>
+            </div>
+          </div>
+        </div></div>}
+        <div className="iv-sr" role="status" aria-live="polite">{avisoFin}</div>
+
         {/* 🔴 inert con una pregunta abierta: la tarjeta tapa los controles para el
             dedo, pero con Tab se llegaba a reproducir, a ±10 s y a Ajustes detrás de
             ella. Así el foco queda en la pregunta. (Safari < 15.5 ignora inert: ahí
-            sigue valiendo el freno de 'play' con la pregunta abierta.) */}
-        <div className={`iv-controls ${showCtrl||!playing||activeIA||scrubPct!=null||menu||glosarioAbierto?"visible":""}`} inert={activeIA?true:undefined}>
+            sigue valiendo el freno de 'play' con la pregunta abierta.) Lo mismo con la
+            tarjeta de fin. */}
+        <div className={`iv-controls ${showCtrl||!playing||activeIA||scrubPct!=null||menu||glosarioAbierto?"visible":""}`} inert={activeIA||tarjetaFin?true:undefined}>
           {/* La barra es también un slider de teclado (ver onBarraKey). El total se
               agrega a lo que se lee sólo al enfocarla, como en el ejemplo de la APG,
               para no repetirlo en cada segundo. */}

@@ -126,8 +126,9 @@ export function crearSimulador(op) {
     efecto();
   }
 
-  // Réplica del efecto de disparo de InteractiveVideoPlayer.jsx (sin el bucle de
-  // video ni la evaluación contra el fin, que no se simulan acá).
+  // Réplica del efecto de disparo de InteractiveVideoPlayer.jsx (sin la evaluación contra
+  // el fin ni la tarjeta de fin, que no se simulan acá; el bucle del video —"Repetir
+  // video"— ya no existe: desde la 1.4.0 se frena en la tarjeta de fin).
   function efecto() {
     const prev = C.prev;
     if (C.activa) return;

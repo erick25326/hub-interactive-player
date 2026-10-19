@@ -1532,8 +1532,121 @@ html, body { margin: 0; padding: 0; background: #000; }
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* ─── TARJETA DE FIN ───────────────────────────────────────────
+   Al terminar el video (ver "La tarjeta de fin" en el componente): "Lección completada",
+   la próxima lección, "Siguiente lección" y "Volver a ver". Sobre el fondo de las
+   preguntas (.iv-overlay-backdrop, adentro), que tapa el video y los controles. La capa
+   es un contenedor de TAMAÑO (ivfin; una consulta no puede tocar al contenedor mismo,
+   por eso el fondo va adentro): en el iframe del campus con el celular parado el
+   reproductor mide 375 × 211 (320 × 180 en los chicos) y la tarjeta tiene que entrar
+   entera, con los dos botones tocables, sin scroll. */
+.iv-fin-capa {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  container: ivfin / size;
+}
+.iv-fin {
+  position: relative;
+  max-width: 420px;
+  padding: 20px 22px;
+  border-top: 4px solid #0162F5;
+}
+.iv-fin.completada { border-top-color: #84F4BE; }
+.iv-fin-cerrar {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #64748B;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.iv-fin-cerrar:hover { background: #F1F5F9; color: #062E60; }
+.iv-fin-titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 34px 6px 0;
+  font-family: 'Changa', sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #062E60;
+}
+/* El tilde de "completada", en un círculo menta (no es un emoji: es el SVG de siempre). */
+.iv-fin-titulo svg {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: #84F4BE;
+  color: #062E60;
+}
+.iv-fin-siguiente {
+  margin: 0 0 14px;
+  font-size: 14px;
+  line-height: 1.35;
+  color: #475569;
+  /* Un nombre largo de lección no empuja los botones fuera de la tarjeta. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.iv-fin-siguiente strong { color: #062E60; font-weight: 600; }
+.iv-fin-titulo + .iv-fin-botones { margin-top: 14px; }
+.iv-fin-botones { display: flex; flex-wrap: wrap; gap: 8px; }
+.iv-fin-ir { width: auto; flex: 1 1 auto; padding: 11px 16px; }
+.iv-fin-ver {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 2px solid #E2E8F0;
+  background: #fff;
+  color: #062E60;
+  font-weight: 600;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.iv-fin-ver:hover { border-color: #94A3B8; }
+/* Sin la barra del campus es el único botón: el principal. */
+.iv-fin-ver.unico { flex: 1 1 auto; background: #0162F5; border-color: #0162F5; color: #fff; }
+.iv-fin-ver.unico:hover { background: #0050D0; border-color: #0050D0; }
+/* Reproductor bajo (el iframe del campus con el celular parado): menos aire. Los dos
+   botones siguen siendo de 36 px o más de alto. */
+@container ivfin (max-height: 300px) {
+  .iv-fin-fondo { padding: 8px; }
+  /* Sin el tope del 90 % de las preguntas: a 320 × 180 es lo que la hacía scrollear. */
+  .iv-fin { padding: 12px 14px; border-radius: 12px; max-height: 100%; }
+  .iv-fin-cerrar { top: 2px; right: 2px; }
+  .iv-fin-titulo { font-size: 16px; margin-bottom: 4px; }
+  .iv-fin-titulo svg { width: 20px; height: 20px; }
+  .iv-fin-siguiente { font-size: 13px; margin-bottom: 8px; -webkit-line-clamp: 1; }
+  .iv-fin-titulo + .iv-fin-botones { margin-top: 8px; }
+  .iv-fin-botones { gap: 6px; }
+  .iv-fin-ir { padding: 9px 12px; font-size: 13px; }
+  .iv-fin-ver { padding: 7px 12px; font-size: 13px; }
+}
+
 /* Movimiento reducido: sin latidos ni animaciones de entrada en lo nuevo. */
 @media (prefers-reduced-motion: reduce) {
   .iv-cuenta, .iv-cuenta-num, .iv-glosario-marca.late, .iv-glosario-aviso, .iv-glosario { animation: none; }
+  .iv-fin-fondo, .iv-fin { animation: none; }
+  .iv-fin-ver, .iv-btn-primary.iv-fin-ir { transition: none; }
   .iv-glosario-termino { transition: none; }
 }

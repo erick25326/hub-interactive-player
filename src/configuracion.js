@@ -24,7 +24,9 @@ export const DEFAULT_CONFIG = {
   // muestra el video y las preguntas salen en el celular). Un ID de 8 hexadecimales
   // = receptor propio registrado en la consola de Cast (ver cast.js y el README).
   castAppId: null,
-  loop: false,              // true = repetir video al terminar
+  // "Repetir video". Desde la tarjeta de fin (1.4.0) ya no vuelve a empezar solo: se frena
+  // en la tarjeta y "Volver a ver" lo arranca de nuevo, como sin loop (ver alTerminar).
+  loop: false,
   // Las etiquetas (label): 'glosario' (desde la 1.4.0, por defecto) las suma a un
   // glosario interactivo a medida que se nombran; 'pantalla' las muestra como pines
   // sobre el video, como antes (respaldo por actividad, ajuste "Etiquetas" de
