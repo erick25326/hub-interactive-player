@@ -591,6 +591,12 @@ export default class NativePlayer {
     });
     v.addEventListener("play", () => {
       this._finEmitido = false;
+      // 🔴 Un play que no pasó por play() (auriculares, la pantalla de bloqueo) con el video
+      // TERMINADO: desde la tarjeta de fin el componente ya no lo vuelve a 0, así que hls.js
+      // sigue detenido desde 'ended' y el <video>, que salta solo al principio, se quedaba
+      // esperando datos para siempre. Se retoma la carga acá (play() ya lo hizo, si fue él).
+      // Transmitiendo (_enEspera) no: ese play lo vuelve a pausar el componente.
+      if (this.hls && this._detenido && !this._enEspera) { this._detenido = false; this.hls.startLoad(v.currentTime); }
       // Recién al reproducir se llena el buffer de verdad (ver BUFFER_INICIAL).
       if (this.hls) { this.hls.config.maxBufferLength = BUFFER_REPRODUCIENDO; this.hls.config.maxMaxBufferLength = BUFFER_REPRODUCIENDO; }
       if (!this._cambio && !this._rescate) this._emit("play", datos());
