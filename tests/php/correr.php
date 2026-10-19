@@ -75,6 +75,8 @@ $funciones = [
     'ivplayer_respaldo_vimeo',
     'ivplayer_respaldo_forzar',
     'ivplayer_respaldo_datos',
+    'ivplayer_modo_etiquetas',
+    'ivplayer_config_base',
 ];
 
 $rutalib = dirname(__DIR__, 2) . '/mod/ivplayer/lib.php';
@@ -685,6 +687,102 @@ if (!preg_match('/^function ivplayer_respaldo_registrar\(.*?^\}/ms', $src, $mreg
         [true, true, true, true]);
 }
 seccion('red de seguridad: registro del salto (ivplayer_respaldo_registrar, sin la clase y con ella)');
+
+// ─── Etiquetas: glosario interactivo o en pantalla (1.4.0) ──────────────────
+// player.php pasa el modo de la actividad en PLAYER_CONFIG.etiquetas (ivplayer_config_base).
+// Lo guardado en la columna: sólo 'pantalla' vuelve a los pines; NULL (el upgrade sin
+// correr, un backup viejo), vacío o cualquier otra cosa es el glosario, el de por defecto.
+chequear('etiquetas: "pantalla" vuelve a los pines', ivplayer_modo_etiquetas('pantalla'), 'pantalla');
+chequear('etiquetas: "glosario"', ivplayer_modo_etiquetas('glosario'), 'glosario');
+chequear('etiquetas: con espacios alrededor, igual', ivplayer_modo_etiquetas(" pantalla\n"), 'pantalla');
+chequear('etiquetas: NULL, vacío, otra cosa, otra mayúscula o no texto → el glosario',
+    [ivplayer_modo_etiquetas(null), ivplayer_modo_etiquetas(''), ivplayer_modo_etiquetas('pines'), ivplayer_modo_etiquetas('Pantalla'),
+        ivplayer_modo_etiquetas(['pantalla']), ivplayer_modo_etiquetas(1), ivplayer_modo_etiquetas(false)],
+    ['glosario', 'glosario', 'glosario', 'glosario', 'glosario', 'glosario', 'glosario']);
+
+$videobunny = ['vimeoId' => '', 'vimeoHash' => null, 'videoUrl' => 'https://vz-ejemplo.b-cdn.net/11111111-2222-4333-8444-555555555555/playlist.m3u8', 'poster' => null];
+$ivetq = (object) ['name' => 'Lección de prueba', 'videoloop' => '0', 'etiquetas' => 'pantalla',
+    'interactions' => '[{"id":"e2","type":"label","time":2,"data":{"text":"Data Link","definition":"Def."}}]'];
+$cfg = ivplayer_config_base($ivetq, $videobunny);
+chequear('config: el modo de la actividad va en PLAYER_CONFIG.etiquetas', $cfg['etiquetas'], 'pantalla');
+chequear('config: las mismas claves de antes más etiquetas, en ese orden',
+    array_keys($cfg), ['title', 'vimeoId', 'vimeoHash', 'videoUrl', 'poster', 'loop', 'interactions', 'etiquetas']);
+chequear('config: título, bucle e interacciones como antes',
+    [$cfg['title'], $cfg['loop'], $cfg['interactions'][0]['id'] ?? null], ['Lección de prueba', false, 'e2']);
+$sincolumna = (object) ['name' => 'X', 'videoloop' => 1, 'interactions' => ''];
+chequear('config: sin la columna (código nuevo, upgrade sin correr): el glosario, sin avisos de PHP',
+    [ivplayer_config_base($sincolumna, ['vimeoId' => '111111111', 'vimeoHash' => null])['etiquetas'], ivplayer_config_base($sincolumna, [])['loop']], ['glosario', true]);
+chequear('config: interacciones vacías o rotas → []',
+    [ivplayer_config_base((object) ['name' => 'X', 'interactions' => null], [])['interactions'], ivplayer_config_base((object) ['name' => 'X', 'interactions' => '{roto'], [])['interactions']], [[], []]);
+$jsonflags = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
+chequear('config: en el JSON de player.php sale "etiquetas":"pantalla"', strpos(json_encode($cfg, $jsonflags), '"etiquetas":"pantalla"') !== false, true);
+// player.php la usa a ella para armar la config (y no arma la suya).
+$srcplayer = str_replace("\r\n", "\n", (string) file_get_contents($raizplugin . '/player.php'));
+chequear('player.php arma la config con ivplayer_config_base($ivplayer, $video), una vez',
+    substr_count($srcplayer, '$base = ivplayer_config_base($ivplayer, $video);'), 1);
+chequear('player.php no vuelve a armar la config a mano', preg_match("/'interactions' => json_decode/", $srcplayer), 0);
+seccion('etiquetas: ivplayer_modo_etiquetas e ivplayer_config_base (lo que va en PLAYER_CONFIG)');
+
+// El paso del upgrade (db/upgrade.php) con lo mínimo de XMLDB, y que la columna sea la
+// misma que la de una instalación nueva (install.xml) y viaje en el backup.
+if (!defined('MOODLE_INTERNAL')) {
+    define('MOODLE_INTERNAL', true);
+}
+foreach (['XMLDB_TYPE_INTEGER' => 'int', 'XMLDB_TYPE_CHAR' => 'char', 'XMLDB_TYPE_TEXT' => 'text', 'XMLDB_NOTNULL' => true,
+        'XMLDB_SEQUENCE' => true, 'XMLDB_KEY_PRIMARY' => 'primary', 'XMLDB_KEY_FOREIGN' => 'foreign', 'XMLDB_KEY_UNIQUE' => 'unique'] as $k => $v) {
+    if (!defined($k)) {
+        define($k, $v);
+    }
+}
+eval('
+class xmldb_table { public $name; public function __construct($n) { $this->name = $n; } public function add_field(...$a) {} public function add_key(...$a) {} }
+class xmldb_field { public $datos; public function __construct(...$a) { $this->datos = $a; } }
+class ivp_dbman_prueba {
+    public $existen = []; public $agregados = [];
+    public function field_exists($t, $f) { return in_array($t->name . "." . $f->datos[0], $this->existen, true); }
+    public function add_field($t, $f) { $this->agregados[] = [$t->name, $f->datos]; $this->existen[] = $t->name . "." . $f->datos[0]; }
+    public function table_exists($t) { return true; }
+    public function create_table($t) {}
+}
+function upgrade_mod_savepoint($ok, $version, $modulo) { $GLOBALS["ivp_savepoints"][] = [$ok, $version, $modulo]; }
+');
+$DB = new class {
+    public $dbman;
+    public function get_manager() {
+        return $this->dbman;
+    }
+};
+require $raizplugin . '/db/upgrade.php';
+$upgrade = function (int $desde, array $existen = []) use ($DB) {
+    $DB->dbman = new ivp_dbman_prueba();
+    $DB->dbman->existen = $existen;
+    $GLOBALS['ivp_savepoints'] = [];
+    $r = xmldb_ivplayer_upgrade($desde);
+    return [$r, $DB->dbman->agregados, $GLOBALS['ivp_savepoints']];
+};
+$campo = ['etiquetas', 'char', '16', null, true, null, 'glosario', 'videoloop'];
+chequear('upgrade desde 2026101902: agrega etiquetas (char 16, no nula, por defecto glosario, después de videoloop) y marca 2026101903',
+    $upgrade(2026101902), [true, [['ivplayer', $campo]], [[true, 2026101903, 'ivplayer']]]);
+chequear('upgrade con la columna ya creada (se cortó a la mitad): no la duplica y marca igual',
+    $upgrade(2026101902, ['ivplayer.etiquetas']), [true, [], [[true, 2026101903, 'ivplayer']]]);
+chequear('upgrade desde 2026101903: nada', $upgrade(2026101903), [true, [], []]);
+$srcversion = (string) file_get_contents($raizplugin . '/version.php');
+$mv = [];
+preg_match('/\$plugin->version = (\d+);/', $srcversion, $mv);
+preg_match_all('/upgrade_mod_savepoint\(true, (\d+), \'ivplayer\'\)/', (string) file_get_contents($raizplugin . '/db/upgrade.php'), $ms);
+chequear('version.php es la del último paso del upgrade (2026101903) y la release sigue 1.4.0',
+    [(int) ($mv[1] ?? 0), max(array_map('intval', $ms[1])), preg_match("/\\\$plugin->release = '1\\.4\\.0';/", $srcversion)], [2026101903, 2026101903, 1]);
+$xml = str_replace("\r\n", "\n", (string) file_get_contents($raizplugin . '/db/install.xml'));
+chequear('install.xml crea la misma columna (instalación nueva = sitio actualizado)',
+    preg_match('/<FIELD NAME="etiquetas" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="glosario"[ \/]/', $xml), 1);
+chequear('install.xml: etiquetas va después de videoloop, como en el upgrade',
+    strpos($xml, 'NAME="etiquetas"') > strpos($xml, 'NAME="videoloop"') && strpos($xml, 'NAME="etiquetas"') < strpos($xml, 'NAME="interactions"'), true);
+$bk = (string) file_get_contents($raizplugin . '/backup/moodle2/backup_ivplayer_stepslib.php');
+chequear('el backup lleva etiquetas', preg_match("/'videoloop', 'etiquetas', 'interactions'/", $bk), 1);
+$rs = (string) file_get_contents($raizplugin . '/backup/moodle2/restore_ivplayer_stepslib.php');
+chequear('el restore lo normaliza con ivplayer_modo_etiquetas (y carga lib.php)',
+    [preg_match('/\$data->etiquetas = ivplayer_modo_etiquetas\(\$data->etiquetas\);/', $rs), preg_match("/require_once\\(__DIR__ \\. '\\/\\.\\.\\/\\.\\.\\/lib\\.php'\\);/", $rs)], [1, 1]);
+seccion('etiquetas: el paso del upgrade, install.xml, version.php y el backup');
 
 echo PHP_EOL . "$ok ok, $mal mal" . PHP_EOL;
 exit($mal ? 1 : 0);

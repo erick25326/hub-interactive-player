@@ -93,3 +93,15 @@ $string['privacy:metadata:ivplayer_answers:interactionid'] = 'La interacción re
 $string['privacy:metadata:ivplayer_answers:answer'] = 'La respuesta que dio el usuario.';
 $string['privacy:metadata:ivplayer_answers:correct'] = 'Si la respuesta fue correcta.';
 $string['privacy:metadata:ivplayer_answers:timemodified'] = 'Cuándo se actualizó la respuesta por última vez.';
+
+// Etiquetas: glosario interactivo o en pantalla (1.4.0).
+$string['etiquetas'] = 'Etiquetas';
+$string['etiquetas_glosario'] = 'Glosario interactivo (nuevo, por defecto)';
+$string['etiquetas_pantalla'] = 'En pantalla (como antes)';
+$string['etiquetas_help'] = 'Cómo se muestran las etiquetas (los términos con su definición) de esta actividad.
+
+Glosario interactivo: cada término se suma a un glosario en el momento en que se nombra en el video, con un sonido suave, y el video sigue. El alumno lo abre con el botón "Glosario" de la barra y toca cada término para leer la definición cuando quiera. Las notas, después de verlas, también quedan ahí.
+
+En pantalla: como hasta ahora, cada etiqueta aparece unos segundos como un botón sobre el video. Queda de respaldo por si una lección lo necesita.
+
+En los dos modos, las preguntas, las notas y los puntos para tocar avisan 3 segundos antes con un tic-tac y frenan el video con un sonido. Cada alumno puede apagar los sonidos y la vibración en Ajustes (el engranaje del reproductor).';

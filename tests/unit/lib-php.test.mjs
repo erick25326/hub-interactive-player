@@ -219,3 +219,59 @@ test('la red de seguridad: player.php, respaldo.php, el ajuste apagado y el even
   const version = Number((leer('version.php').match(/\$plugin->version = (\d+);/) || [])[1]);
   assert.ok(version >= 2026101902, `la versión del plugin tiene que subir con la clase nueva del evento: ${version}`);
 });
+
+// Las etiquetas (1.4.0): glosario interactivo (por defecto) o en pantalla, por actividad.
+// El valor y el paso del upgrade los prueba correr.php (PHP de verdad, con XMLDB de
+// mentira; en CI o en el servidor). Acá, sin PHP: que las dos funciones no cambien sin
+// pasar por correr.php y que las puntas estén enchufadas. Si se suelta una, la actividad
+// guarda un modo que el reproductor no recibe, o una instalación nueva queda distinta
+// de un sitio actualizado, o el modo se pierde al duplicar o restaurar la actividad.
+test('el modo de las etiquetas: formulario, columna, upgrade, backup y PLAYER_CONFIG, enchufados', async () => {
+  const fs = await import('node:fs');
+  const leer = (rel) => fs.readFileSync(new URL('../../mod/ivplayer/' + rel, import.meta.url), 'utf8').split('\r\n').join('\n');
+  const lib = leerLib();
+  const huellas = {
+    ivplayer_modo_etiquetas: '9a3a29d3c2dd9370',
+    ivplayer_config_base: '29067e5c84491b65',
+  };
+  for (const [nombre, esperada] of Object.entries(huellas)) {
+    const f = funcionPhp(lib, nombre);
+    assert.ok(f, `${nombre} ya no está en lib.php`);
+    assert.equal(huella(f), esperada,
+      `${nombre} cambió en lib.php: corré npm run test:php (o el workflow "Pruebas") y, si da bien, poné la huella nueva (${huella(f)})`);
+  }
+  assert.match(funcionPhp(lib, 'ivplayer_config_base'), /'etiquetas' => ivplayer_modo_etiquetas\(\$ivplayer->etiquetas \?\? null\)/);
+  // add/update guardan sólo uno de los dos valores.
+  assert.match(funcionPhp(lib, 'ivplayer_add_instance'), /\$data->etiquetas = ivplayer_modo_etiquetas\(\$data->etiquetas \?\? null\);/);
+  assert.match(funcionPhp(lib, 'ivplayer_update_instance'), /if \(property_exists\(\$data, 'etiquetas'\)\) \{\s*\$data->etiquetas = ivplayer_modo_etiquetas\(\$data->etiquetas\);/);
+
+  // player.php: el modo va en PLAYER_CONFIG (no en MOODLE_CONTEXT: es de la actividad).
+  const player = leer('player.php');
+  assert.match(player, /\$base = ivplayer_config_base\(\$ivplayer, \$video\);/);
+  const iBase = player.indexOf('$base = ivplayer_config_base('), iConfig = player.indexOf('$config = json_encode(');
+  assert.ok(iBase > 0 && iConfig > iBase, 'la config se arma con ivplayer_config_base antes del json_encode de PLAYER_CONFIG');
+
+  // El formulario: un menú con los dos modos, el glosario por defecto, con su ayuda.
+  const form = leer('mod_form.php');
+  assert.match(form, /\$mform->addElement\('select', 'etiquetas', get_string\('etiquetas', 'ivplayer'\), \[\s*'glosario' => get_string\('etiquetas_glosario', 'ivplayer'\),\s*'pantalla' => get_string\('etiquetas_pantalla', 'ivplayer'\),\s*\]\);/);
+  assert.match(form, /\$mform->setDefault\('etiquetas', 'glosario'\);/);
+  assert.match(form, /\$mform->addHelpButton\('etiquetas', 'etiquetas', 'ivplayer'\);/);
+  for (const idioma of ['es', 'en']) {
+    const lang = leer(`lang/${idioma}/ivplayer.php`);
+    for (const clave of ['etiquetas', 'etiquetas_help', 'etiquetas_glosario', 'etiquetas_pantalla']) {
+      assert.ok(lang.includes(`$string['${clave}'] = '`), `falta el texto ${clave} en lang/${idioma}`);
+    }
+  }
+
+  // La columna: la misma en install.xml y en el paso del upgrade, con la versión nueva.
+  assert.match(leer('db/install.xml'), /<FIELD NAME="etiquetas" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="glosario"/);
+  const upgrade = leer('db/upgrade.php');
+  assert.match(upgrade, /if \(\$oldversion < 2026101903\) \{[\s\S]*?new xmldb_field\('etiquetas', XMLDB_TYPE_CHAR, '16', null, XMLDB_NOTNULL, null, 'glosario', 'videoloop'\);[\s\S]*?upgrade_mod_savepoint\(true, 2026101903, 'ivplayer'\);/);
+  const version = leer('version.php');
+  assert.equal(Number((version.match(/\$plugin->version = (\d+);/) || [])[1]), 2026101903);
+  assert.match(version, /\$plugin->release = '1\.4\.0';/);
+
+  // Backup y restore: el modo viaja con la actividad.
+  assert.match(leer('backup/moodle2/backup_ivplayer_stepslib.php'), /'videoloop', 'etiquetas', 'interactions'/);
+  assert.match(leer('backup/moodle2/restore_ivplayer_stepslib.php'), /\$data->etiquetas = ivplayer_modo_etiquetas\(\$data->etiquetas\);/);
+});

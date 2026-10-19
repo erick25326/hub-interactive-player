@@ -43,6 +43,8 @@ function ivplayer_add_instance($data, $mform = null) {
     $data->vimeoid = $parsed['id'];
     $data->vimeohash = $parsed['hash'];
     $data->videourl = ivplayer_bunny_guid_a_guardar($data->videourl ?? '');
+    // Sin el campo (una actividad que no viene del formulario), el de por defecto.
+    $data->etiquetas = ivplayer_modo_etiquetas($data->etiquetas ?? null);
 
     $data->id = $DB->insert_record('ivplayer', $data);
 
@@ -65,6 +67,10 @@ function ivplayer_update_instance($data, $mform = null) {
     // se toca: borrarle el video a una actividad por omisión sería peor.
     if (property_exists($data, 'videourl')) {
         $data->videourl = ivplayer_bunny_guid_a_guardar($data->videourl);
+    }
+    // Igual con el modo de las etiquetas: sólo si viene, y sólo uno de los dos valores.
+    if (property_exists($data, 'etiquetas')) {
+        $data->etiquetas = ivplayer_modo_etiquetas($data->etiquetas);
     }
 
     $result = $DB->update_record('ivplayer', $data);
@@ -822,6 +828,52 @@ function ivplayer_reproductor_soporta_bunny(string $html): bool {
  */
 function ivplayer_app_cast_publicada($guardado): bool {
     return !is_array($guardado) && !is_object($guardado) && (string) $guardado === '1';
+}
+
+/* ─── Etiquetas: glosario interactivo o en pantalla (1.4.0) ──── */
+//
+// Las etiquetas (los términos con su definición) se muestran de dos maneras, por
+// actividad (columna etiquetas, ajuste "Etiquetas" del formulario): 'glosario', el nuevo
+// y el de por defecto (cada término se suma a un glosario en el momento en que se nombra,
+// src/glosario.js), o 'pantalla', los pines sobre el video como hasta ahora (respaldo).
+// Va a PLAYER_CONFIG.etiquetas. Los avisos de las que frenan (tic-tac, "plop") valen en
+// los dos modos. Uso: README ("Glosario interactivo y avisos de las interacciones").
+
+/**
+ * El modo de las etiquetas de una actividad: 'pantalla' (como antes) o 'glosario'.
+ *
+ * Pura a propósito (tests/php/correr.php la prueba sin Moodle). Recibe lo guardado en la
+ * columna: NULL (el código se actualizó y el upgrade todavía no corrió, o un backup de
+ * antes de la 1.4.0), vacío o cualquier otra cosa cuentan como el de por defecto. Sólo
+ * 'pantalla' vuelve a los pines.
+ *
+ * @param mixed $guardado La columna etiquetas de la tabla ivplayer.
+ * @return string 'glosario' o 'pantalla'.
+ */
+function ivplayer_modo_etiquetas($guardado): string {
+    return (is_string($guardado) && trim($guardado) === 'pantalla') ? 'pantalla' : 'glosario';
+}
+
+/**
+ * Lo que va en window.PLAYER_CONFIG de una lección, salvo los subtítulos: el título, el
+ * video ya elegido, el bucle, las interacciones y el modo de las etiquetas. Lo arma
+ * player.php.
+ *
+ * Pura a propósito (tests/php/correr.php): recibe el registro de la actividad y el video
+ * que eligió player.php (Bunny firmado o Vimeo), y no mira ningún ajuste del sitio.
+ *
+ * @param stdClass $ivplayer Registro de la tabla ivplayer.
+ * @param array $video Lo de player.php: vimeoId/vimeoHash, o videoUrl/poster.
+ * @return array
+ */
+function ivplayer_config_base(stdClass $ivplayer, array $video): array {
+    $interactions = !empty($ivplayer->interactions) ? $ivplayer->interactions : '[]';
+    return array_merge(['title' => $ivplayer->name], $video, [
+        'loop' => !empty($ivplayer->videoloop),
+        'interactions' => json_decode($interactions, true) ?: [],
+        // `?? null`: con el código nuevo y el upgrade sin correr la columna no existe.
+        'etiquetas' => ivplayer_modo_etiquetas($ivplayer->etiquetas ?? null),
+    ]);
 }
 
 /* ─── Red de seguridad: Vimeo si el CDN de Bunny falla (plan Bunny 0.4) ── */

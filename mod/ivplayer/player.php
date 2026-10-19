@@ -116,11 +116,9 @@ if ($video === null) {
 // JSON_UNESCAPED_SLASHES las barras como \/: el navegador los vuelve a armar al
 // parsear, así que la URL llega intacta.
 $jsonflags = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
-$interactions = !empty($ivplayer->interactions) ? $ivplayer->interactions : '[]';
-$base = array_merge(['title' => $ivplayer->name], $video, [
-    'loop' => !empty($ivplayer->videoloop),
-    'interactions' => json_decode($interactions, true) ?: [],
-]);
+// Título, video, bucle, interacciones y el modo de las etiquetas (glosario interactivo o
+// en pantalla, el ajuste de la actividad): ivplayer_config_base, pura (la prueba correr.php).
+$base = ivplayer_config_base($ivplayer, $video);
 // Subtítulos: el VTT/SRT de "Editar transcripción" de esta lección. Con Bunny es la
 // única fuente; con Vimeo, si el video trae su propia pista la dibuja Vimeo y éstos
 // quedan sin usar (ver hasVimeoSubs en el reproductor).

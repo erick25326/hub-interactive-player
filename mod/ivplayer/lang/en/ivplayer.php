@@ -93,3 +93,15 @@ $string['privacy:metadata:ivplayer_answers:interactionid'] = 'The interaction th
 $string['privacy:metadata:ivplayer_answers:answer'] = 'The answer the user gave.';
 $string['privacy:metadata:ivplayer_answers:correct'] = 'Whether the answer was correct.';
 $string['privacy:metadata:ivplayer_answers:timemodified'] = 'When the answer was last updated.';
+
+// Labels: interactive glossary or on screen (1.4.0).
+$string['etiquetas'] = 'Labels';
+$string['etiquetas_glosario'] = 'Interactive glossary (new, default)';
+$string['etiquetas_pantalla'] = 'On screen (as before)';
+$string['etiquetas_help'] = 'How this activity shows its labels (terms with their definition).
+
+Interactive glossary: each term is added to a glossary as soon as it is mentioned in the video, with a soft sound, and the video keeps playing. Students open it with the "Glosario" (glossary) button in the player bar and tap a term to read its definition whenever they want. Notes are kept there too after they are seen.
+
+On screen: as before, each label shows up for a few seconds as a button over the video. It stays as a fallback in case a lesson needs it.
+
+In both modes, questions, notes and hotspots give a 3-second tick-tock warning and stop the video with a sound. Each student can turn the sounds and the vibration off in the player settings (the gear).';

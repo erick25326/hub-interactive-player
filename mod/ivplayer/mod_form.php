@@ -235,6 +235,17 @@ class mod_ivplayer_mod_form extends moodleform_mod {
         // El bloque con el video de Bunny firmado va ANTES del script, que lo lee al cargar.
         $mform->addElement('html', ivplayer_configurador_fuente_html($this->video_para_configurador()) . $editorhtml);
 
+        // Cómo se ven las etiquetas (1.4.0): el glosario interactivo (el nuevo, por
+        // defecto) o en pantalla, como antes (respaldo por actividad). Lo pasa player.php
+        // en PLAYER_CONFIG.etiquetas (ivplayer_config_base).
+        $mform->addElement('select', 'etiquetas', get_string('etiquetas', 'ivplayer'), [
+            'glosario' => get_string('etiquetas_glosario', 'ivplayer'),
+            'pantalla' => get_string('etiquetas_pantalla', 'ivplayer'),
+        ]);
+        $mform->setType('etiquetas', PARAM_ALPHA);
+        $mform->setDefault('etiquetas', 'glosario');
+        $mform->addHelpButton('etiquetas', 'etiquetas', 'ivplayer');
+
         // Standard elements (grading section: max grade, category, pass grade).
         $this->standard_grading_coursemodule_elements();
         $this->standard_coursemodule_elements();
@@ -298,6 +309,11 @@ class mod_ivplayer_mod_form extends moodleform_mod {
         }
         // El de Bunny se muestra como se guardó: el GUID solo. No se rearma ninguna URL
         // porque el host es un ajuste del sitio y la firma vence.
+        // Las etiquetas: uno de los dos valores del menú (lo guardado fuera de ellos, y
+        // NULL antes del upgrade, es el glosario, como en player.php).
+        if (array_key_exists('etiquetas', $defaultvalues)) {
+            $defaultvalues['etiquetas'] = ivplayer_modo_etiquetas($defaultvalues['etiquetas']);
+        }
     }
 
     /**

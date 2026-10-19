@@ -91,5 +91,20 @@ function xmldb_ivplayer_upgrade($oldversion) {
         upgrade_mod_savepoint(true, 2026101000, 'ivplayer');
     }
 
+    if ($oldversion < 2026101903) {
+        // Modo de las etiquetas (1.4.0): 'glosario' (el glosario interactivo, el nuevo por
+        // defecto) o 'pantalla' (los pines sobre el video, como hasta ahora: el respaldo,
+        // por actividad). Las actividades que ya existen quedan con el de por defecto, el
+        // glosario. Lo lee player.php (ivplayer_config_base). Mismo campo que install.xml:
+        // tests/php/correr.php los compara.
+        $table = new xmldb_table('ivplayer');
+        $field = new xmldb_field('etiquetas', XMLDB_TYPE_CHAR, '16', null, XMLDB_NOTNULL, null, 'glosario', 'videoloop');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 2026101903, 'ivplayer');
+    }
+
     return true;
 }
