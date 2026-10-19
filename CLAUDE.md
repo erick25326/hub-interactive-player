@@ -21,7 +21,8 @@ A standalone interactive video player that replaces H5P for Hub Education's Mood
 - `src/sondeo.js` — HLS nativo: antes del error, le pregunta al CDN qué pasó (el
   `<video>` no da el código HTTP). Ver "Red de seguridad".
 - `src/avisos.js` / `src/glosario.js` — los avisos de lo que frena (tic-tac, cuenta,
-  preferencias del alumno) y el glosario de las etiquetas, puros; `src/sonidos.js`, los
+  preferencias del alumno, el silencio del video) y el glosario de las etiquetas (también
+  cuándo el panel pausa y retoma el video), puros; `src/sonidos.js`, los
   sonidos (Web Audio) y la vibración. Ver "Glosario interactivo y avisos".
 - `src/styles.css` — All styles with `.iv-` prefix namespace
 - `src/main.jsx` — React entry point
@@ -646,16 +647,52 @@ los sonidos (Web Audio, sin archivos): `src/sonidos.js`.
   cruzar no suena; Reiniciar lo vacía. Las notas entran por `completed` (también las de
   una sesión anterior, que vienen en el avance), sin sonido ni aviso.
 - 🔴 **El panel cierra con una pregunta o un error** (como el menú de Ajustes) y, como el
-  menú, un toque en la capa de toques SÓLO lo cierra (no pausa). Abrirlo no pausa.
+  menú, un toque en la capa de toques SÓLO lo cierra (no pausa). Abrirlo no pausa,
+  salvo que tape el video (ver el punto siguiente).
   Ajustes y glosario se excluyen. Va adentro del contenedor (pantalla completa, iframe,
   hub-app) con una capa `container-type: size` (`ivgl`) para medir ancho y alto.
   🔴 **Termina en `bottom: 56px`, sobre la fila de controles** (como `.iv-ajustes`): de
   borde a borde tapaba Glosario, TV, Ajustes y Pantalla completa (también la salida de
   la pantalla completa). Excepción: el reproductor bajo (≤300 px de alto) lo ocupa todo,
-  controles incluidos, con el video andando debajo (decisión abierta de Erick: pausar al
-  abrir o dejarlo así). Tocar un control con el panel abierto hace lo suyo y lo cierra
+  controles incluidos. Tocar un control con el panel abierto hace lo suyo y lo cierra
   (el `pointerdown` de afuera). Con el panel abierto, un término nuevo va a
   `.iv-glosario-anuncio` (`aria-live`) porque el aviso visible no se muestra.
+- 🔴 **El panel que TAPA el video lo pausa al abrir y lo retoma al cerrar** (Erick,
+  19-oct-2026): más de `TAPA_MIN` (70 %) del contenedor, sólo reproduciendo y nunca
+  transmitiendo (Chromecast o AirPlay: `transmitiendo` es el mismo de la red de
+  seguridad). Un `useLayoutEffect` sobre `glosarioAbierto` mide al abrir con `offset*`
+  del panel contra `clientWidth/Height` de su capa (no los mueven ni el giro de 90° ni
+  la animación de entrada de 24 px) y lleva la marca `pausaGlosarioRef`; las decisiones
+  son puras (`cobertura`, `pausarAlAbrir`, `reanudarAlCerrar` en glosario.js). Casos: bajo
+  (100 %), hoja de abajo angosta (78 %), lateral (26 % a 1280, 36 % a 900: no pausa).
+  🔴 La pausa y la vuelta son las del BOTÓN (`playIntentRef=null` + `pause()`;
+  `safePlay()`), no un camino propio: candado, avisos, avance y firma la ven como una
+  pausa del alumno. 🔴 La marca la apaga **el manejador de 'play'** (alguien lo puso a
+  andar en el medio: auriculares, pantalla de bloqueo; si después lo pausan, esa pausa
+  no es del glosario) y **el `pointerdown` de afuera sobre el botón de reproducir**:
+  si no, cerrar lo retomaba y el clic que viene detrás lo encontraba andando y lo
+  pausaba. Sólo se ve con un clic LENTO en el BORDE del botón (`clicLento` de
+  glosario.mjs): sobre el ícono, el ícono cambia (Reproducir → Pausar) entre el
+  mousedown y el mouseup y Chrome no da el clic, así que la prueba pasaba con el error.
+  `reanudarAlCerrar` no pregunta si está andando: con la marca prendida, a lo sumo la
+  pausa todavía no llegó (abrir y cerrar enseguida) y retomar es lo correcto. Se decide
+  al abrir: girar el celular con el panel abierto no lo vuelve a evaluar. Mutantes
+  verificados (oct-2026): sin el apagado del pointerdown, sin el de 'play', sin
+  `pregunta` y sin `transmitiendo`, cada uno lo agarra una prueba de glosario.mjs.
+  Equivalente: apagar la marca en `togglePlay` (con el panel abierto nada llega a él
+  sin pasar antes por ese pointerdown; se sacó).
+- 🔴 **El silencio del video calla los SONIDOS de aviso, no la vibración** (Erick,
+  19-oct-2026): `comoAvisar` (avisos.js) con `silencioRef` = el estado `muted`, o sea el
+  ícono del botón de volumen (botón, tecla M, barra en 0, lo que lee el manejador de
+  'play' del motor). 🔴 También el arranque en silencio que fuerza el navegador (Vimeo
+  en la app de Moodle): se evaluó dejarlo afuera (la propuesta anterior) y se descartó,
+  un ícono tachado con tic-tac sonando parece una falla. Transmitiendo, el de la TV como
+  lo refleja el ícono (al conectar y en cada play); `CastPlayer` no avisa los cambios de
+  volumen de la TV, así que uno del control remoto entre dos play no cuenta hasta el
+  próximo (queda el del control del celular). La muestra de "Sonidos de aviso" en
+  Ajustes también calla en silencio (el toque igual desbloquea). El `AudioContext` se
+  sigue creando en el play aunque el video esté en silencio: así suena apenas se quita,
+  sin un desbloqueo nuevo en `toggleMute`.
 - 🔴 **La fila de controles con el botón del glosario**: a 360 px con el de girar (o con
   el de la TV sin pantalla completa) el de SALIR de pantalla completa quedaba 10 px
   afuera. `.con-glosario` esconde la duración total hasta 400 px (styles.css);
