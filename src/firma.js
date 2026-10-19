@@ -167,14 +167,19 @@ export function crearReloj(restanteMs, { mono = () => performance.now(), pared =
   };
 }
 
-// Qué dijo firma.php. Devuelve { ok: true, playlist, poster, expires, ahora } o
+// Qué dijo firma.php. Devuelve { ok: true, playlist, poster, expires, ahora, subtitulosTv } o
 // { ok: false, motivo } con motivo:
 //   'sesion' → se cerró la sesión del campus (o el sesskey ya no vale): hay que recargar.
 //   'red'    → no hubo respuesta usable (sin señal, el servidor caído): se reintenta.
 //   'otro'   → no se puede renovar (la actividad ya no usa Bunny, sin permiso).
 export function interpretarRespuesta(estado, json) {
   if (json && json.ok === true && typeof json.playlist === 'string') {
-    return { ok: true, playlist: json.playlist, poster: typeof json.poster === 'string' ? json.poster : null, expires: Number(json.expires), ahora: Number(json.ahora) };
+    // subtitulosTv: el enlace firmado de subtitulos.php con el vencimiento nuevo (sólo si la
+    // lección tiene subtítulos), para la pista de la TV (cast.js).
+    return {
+      ok: true, playlist: json.playlist, poster: typeof json.poster === 'string' ? json.poster : null, expires: Number(json.expires), ahora: Number(json.ahora),
+      subtitulosTv: typeof json.subtitulosTv === 'string' && json.subtitulosTv ? json.subtitulosTv : null,
+    };
   }
   if (json && json.motivo === 'sesion') return { ok: false, motivo: 'sesion' };
   // Si algo se escapó al manejador propio de firma.php, Moodle contesta con su JSON de
@@ -242,6 +247,9 @@ export class Renovador {
     this._ventana = ventana;
     this._documento = documento;
     this._poster = poster || null;
+    // El enlace de los subtítulos para la TV que trajo la última renovación (firma.php), o
+    // null: hasta la primera, el de la config (subtitlesUrlTv), que tiene CastPlayer.
+    this._subtitulosTv = null;
     this._enVuelo = null;
     this._fallo = null;            // { motivo, mono, pared }: el último pedido que no anduvo
     this._insistencia = null;      // renovarYa en curso: { promesa, timer, despertar, cancelar }
@@ -280,6 +288,8 @@ export class Renovador {
   alUsar() { this._revisar(true); }
   actual() { return this._firma; }
   poster() { return this._poster; }
+  // El enlace de subtitulos.php de la última renovación, o null (ver arriba).
+  subtitulosTv() { return this._subtitulosTv; }
   reescribir(url) { return this.activa() ? reescribir(url, this._firma) : url; }
   restanteMs() { return this._reloj ? this._reloj.restanteMs() : Infinity; }
   // Cuánto le queda a OTRA firma del mismo video (la de la fuente que tiene cargada el
@@ -364,7 +374,7 @@ export class Renovador {
       const ahora = Number.isFinite(r.ahora) && r.ahora > 0 ? r.ahora : this._pared() / 1000;
       const restante = (f.expires - ahora) * 1000;
       if (!(restante > 0)) throw 'otro';
-      this._aplicar(f, restante, r.poster, true);
+      this._aplicar(f, restante, r.poster, true, r.subtitulosTv);
       return f;
     }).catch((motivo) => {
       const m = motivo === 'sesion' || motivo === 'red' ? motivo : 'otro';
@@ -400,9 +410,12 @@ export class Renovador {
   }
 
   // --- Interno ---------------------------------------------------------------------
-  _aplicar(f, restanteMs, poster, avisar) {
+  _aplicar(f, restanteMs, poster, avisar, subtitulosTv = null) {
     this._firma = f;
     if (poster) this._poster = poster;
+    // Una renovación sin enlace (la lección se quedó sin subtítulos) deja el anterior: la
+    // TV tiene el VTT que bajó al cargar y no lo vuelve a pedir hasta otra carga.
+    if (subtitulosTv) this._subtitulosTv = subtitulosTv;
     this._reloj = crearReloj(restanteMs, { mono: this._mono, pared: this._pared });
     this._margenes = margenes(restanteMs);
     this._fallo = null;

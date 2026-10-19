@@ -26,6 +26,10 @@
 // pregunta desde los avisos de la TV (no desde el latido), y el componente pide
 // Screen Wake Lock mientras se transmite.
 //
+// Subtítulos en la TV (1.4.0): con subtitlesUrlTv (el VTT firmado de subtitulos.php, que
+// arma player.php) la carga lleva una pista de texto y la TV los dibuja; el botón de
+// subtítulos los prende y apaga ahí (EDIT_TRACKS_INFO). Ver "Subtítulos en la TV" abajo.
+//
 // Modo app (hub-app, 1.4.0): adentro del WebView de la app no hay Cast Web SDK. Si hay
 // puente (puenteApp.js), castPosible/cuandoHayaTV/cargarCast saludan a la app y, si
 // contesta con 'cast', instalan un SDK imitado (castNativo.js) en vez de bajar el de
@@ -279,6 +283,61 @@ export function mismoVideo(a, b) {
   return limpio(a) === limpio(b);
 }
 
+// --- Subtítulos en la TV (1.4.0) ----------------------------------------------
+// La TV baja el VTT ella sola (como el video), de subtitulos.php: un enlace firmado que
+// vence con la firma del video (subtitlesUrlTv; firma.php trae uno nuevo con cada
+// renovación, y la recarga de la TV lo lleva). Una sola pista, siempre con este id.
+export const PISTA_SUBTITULOS = 1;
+
+// ¿El SDK sabe de pistas de texto? El de Google, siempre. El imitado de la app
+// (castNativo.js), sólo si la app declaró 'subtitulos': una app que no las conoce cargaría
+// el video sin la pista y los subtítulos no se verían en ningún lado (el celular deja de
+// dibujarlos mientras la TV los tiene).
+export function pistasPosibles(cc) {
+  return !!(cc && cc.media && typeof cc.media.Track === "function" && typeof cc.media.EditTracksInfoRequest === "function"
+    && typeof cc.media.TextTrackStyle === "function");
+}
+
+// La pista para el LOAD (chrome.cast.media.Track, TEXT / SUBTITLES, VTT).
+export function pistaSubtitulos(cc, url) {
+  const m = cc.media;
+  const p = new m.Track(PISTA_SUBTITULOS, m.TrackType.TEXT);
+  p.trackContentId = url;
+  p.trackContentType = "text/vtt";
+  p.subtype = m.TextTrackType.SUBTITLES;
+  p.name = "Español";
+  p.language = "es";
+  return p;
+}
+
+// Cómo se ven en la TV: se leen de lejos. Letra un 30 % más grande que la del receptor,
+// blanca, sobre negro al 70 % (RRGGBBAA), sin borde ni ventana: como los del celular.
+export function estiloSubtitulos(cc) {
+  const m = cc.media;
+  const e = new m.TextTrackStyle();
+  e.fontScale = 1.3;
+  e.foregroundColor = "#FFFFFFFF";
+  e.backgroundColor = "#000000B3";
+  e.edgeType = (m.TextTrackEdgeType && m.TextTrackEdgeType.NONE) || "NONE";
+  e.fontGenericFamily = (m.TextTrackFontGenericFamily && m.TextTrackFontGenericFamily.SANS_SERIF) || "SANS_SERIF";
+  e.windowType = (m.TextTrackWindowType && m.TextTrackWindowType.NONE) || "NONE";
+  return e;
+}
+
+// activeTrackIds según el botón: [1] prendidos, [] apagados.
+export const idsSubtitulos = (on) => (on ? [PISTA_SUBTITULOS] : []);
+
+// Lo que dice una media de la TV de nuestra pista: si la tiene (las pistas que informa el
+// SDK de Google; el de la app no las manda: null, no se sabe) y si está prendida
+// (activeTrackIds, los dos; null si no lo informa).
+export function pistasDe(m) {
+  const ids = m && Array.isArray(m.activeTrackIds) ? m.activeTrackIds : null;
+  const pistas = m && m.media && Array.isArray(m.media.tracks) ? m.media.tracks : null;
+  const prendida = ids ? ids.includes(PISTA_SUBTITULOS) : null;
+  const tiene = pistas ? pistas.some((p) => p && p.trackId === PISTA_SUBTITULOS) : (prendida ? true : null);
+  return { tiene, prendida };
+}
+
 // Envuelve un comando de chrome.cast.media.Media (callbacks) con su propio tope.
 function comando(fn, tope = TOPE_COMANDO_MS) {
   return new Promise((resolve, reject) => {
@@ -296,7 +355,8 @@ export class CastPlayer {
   // <video>, hasta que la TV informe la suya), adoptar (sesión reanudada que ya
   // tiene ESTE video cargado: no se vuelve a cargar), firma (el Renovador de
   // firma.js, o null), onListo() y onFin(motivo, { t, seguia }) cuando la TV deja de
-  // ser la que reproduce.
+  // ser la que reproduce. Subtítulos: subtitulos (subtitlesUrlTv, o null), subtitulosActivos
+  // (el botón al conectar) y onSubtitulos(on) cuando manda la TV (una sesión adoptada).
   constructor(session, opts = {}) {
     this.esTV = true;
     this.session = session;
@@ -318,6 +378,14 @@ export class CastPlayer {
     }
     this._onListo = opts.onListo || (() => {});
     this._onFin = opts.onFin || (() => {});
+    // Subtítulos en la TV. _pistaEnTV: la media de la TV tiene nuestra pista (true), no
+    // (false) o no se sabe (null: adoptada desde la app, que no informa las pistas).
+    this._subsUrl = typeof opts.subtitulos === "string" && opts.subtitulos ? opts.subtitulos : null;
+    this._subsOn = !!opts.subtitulosActivos;
+    this._onSubtitulos = opts.onSubtitulos || (() => {});
+    this._pistaEnTV = false;
+    this._recargarPorPista = false;
+    this._pistasPedido = 0;
     this._duracion = opts.duracion > 0 ? opts.duracion : 0;
     this._velocidad = opts.velocidad || 1;
     // Estado LÓGICO: lo último que pidió el componente, o lo que hizo la TV sola
@@ -367,7 +435,13 @@ export class CastPlayer {
       this._fijo = null;
       const m = session.getMediaSession && session.getMediaSession();
       if (m) { this._enganchar(m); this._anotarFirmaDe(m); }
-      queueMicrotask(() => { if (!this._destruido) { this._onListo(); this._actualizar(true, true); this._quizasRecargar(); } });
+      // Los subtítulos, como los tiene la TV (activeTrackIds del estado): el botón del
+      // celular pasa a decir eso, no lo que decía al recargar la página.
+      const p = pistasDe(m);
+      this._pistaEnTV = p.tiene;
+      const subsTV = this.subtitulosEnTV() && p.prendida != null ? p.prendida : null;
+      if (subsTV != null) this._subsOn = subsTV;
+      queueMicrotask(() => { if (!this._destruido) { this._onListo(); if (subsTV != null) this._onSubtitulos(subsTV); this._actualizar(true, true); this._quizasRecargar(); } });
     } else {
       this._cargar(this._fijo, !this._pausado);
     }
@@ -532,14 +606,30 @@ export class CastPlayer {
     return Promise.resolve(x);
   }
 
-  // Los subtítulos los sigue dibujando el componente en el celular; la calidad la
-  // elige la TV (ABR del receptor, sin API para fijarla): no hay nada que ofrecer.
+  // Las pistas de Vimeo no existen acá (los subtítulos de la TV son la pista propia, ver
+  // setSubtitulos); la calidad la elige la TV (ABR del receptor, sin API para fijarla): no
+  // hay nada que ofrecer.
   getTextTracks() { return Promise.resolve([]); }
   enableTextTrack() { return Promise.resolve(); }
   disableTextTrack() { return Promise.resolve(); }
   getQualities() { return Promise.resolve([]); }
   getQuality() { return Promise.resolve("auto"); }
   setQuality() { return Promise.resolve("auto"); }
+
+  // ¿Los subtítulos van en la TV? Con el enlace (subtitlesUrlTv) y un SDK que sepa de
+  // pistas. Si no (SCORM, demo, sitio sin el secreto, app sin 'subtitulos'), los sigue
+  // dibujando el celular.
+  subtitulosEnTV() { return !!this._subsUrl && pistasPosibles(sdk()); }
+
+  // El botón de subtítulos, transmitiendo: los prende o los apaga EN LA TV, sin recargar
+  // (EDIT_TRACKS_INFO). Cargando, lo aplica la carga (si ya salió con el estado de antes,
+  // _actualizar lo corrige al terminar). Cada recarga (renovación de la firma, el video
+  // terminado y vuelto a empezar) lleva el estado vigente.
+  setSubtitulos(on) {
+    this._subsOn = !!on;
+    this._editarPistas();
+    return Promise.resolve(this._subsOn);
+  }
 
   // Próxima pregunta pendiente (segundos) o null. La pausa sale un ida y vuelta
   // ANTES (anticipo medido, menos MARGEN_FRENO) para que la TV frene justo después
@@ -618,6 +708,16 @@ export class CastPlayer {
       info.hlsSegmentFormat = cc.media.HlsSegmentFormat.TS;
       info.hlsVideoSegmentFormat = cc.media.HlsVideoSegmentFormat.MPEG2_TS;
     }
+    // Subtítulos: la pista con el enlace vigente (el de la última renovación, si la hubo) y
+    // el estado del botón. La TV los baja ella sola.
+    const subs = this._urlSubtitulos();
+    this._pistaEnTV = !!subs;
+    this._recargarPorPista = false;
+    this._carga.subs = this._subsOn;
+    if (subs) {
+      info.tracks = [pistaSubtitulos(cc, subs)];
+      info.textTrackStyle = estiloSubtitulos(cc);
+    }
     const md = new cc.media.GenericMediaMetadata();
     md.title = this.titulo;
     const poster = (this._firma && this._firma.poster()) || this.poster;
@@ -629,6 +729,7 @@ export class CastPlayer {
     req.currentTime = t;
     req.autoplay = !!reproducir;
     if (this._velocidad !== 1) req.playbackRate = this._velocidad;
+    if (subs) req.activeTrackIds = idsSubtitulos(this._subsOn);
     let p;
     try { p = this.session.loadMedia(req); } catch (e) { p = Promise.reject(e); }
     // 🔴 La PRIMERA vez la TV tiene que abrir su aplicación, y en una TV real (prueba de
@@ -689,7 +790,14 @@ export class CastPlayer {
     // Durante la carga: si es nuestro video, engancharlo ya (el LOAD puede no confirmar
     // nunca en la primera conexión; ver _cargar). Si es otro, esperar a nuestra carga.
     if (this._carga) { if (mismoVideo(id, this.src)) this._engancharNuestra(); return; }
-    if (mismoVideo(id, this.src)) { this._enganchar(m); this._anotarFirmaDe(m); this._actualizar(true); }
+    if (mismoVideo(id, this.src)) {
+      this._enganchar(m); this._anotarFirmaDe(m);
+      // La cargó otra pestaña: con sus subtítulos. Manda el botón de ésta.
+      const p = pistasDe(m);
+      this._pistaEnTV = p.tiene;
+      if (p.prendida != null && p.prendida !== this._subsOn) this._editarPistas();
+      this._actualizar(true);
+    }
     else this._terminarTransmision("reemplazado");
   }
 
@@ -707,13 +815,47 @@ export class CastPlayer {
   // cuadro. Reproduciendo, recién cuando a la firma de la TV le falta poco, o en la
   // próxima pausa. Nunca con un salto, una pausa sin confirmar o otra carga en vuelo:
   // los resuelve _actualizar y después se vuelve a mirar (lo llama el latido).
+  // También carga la pista de subtítulos en una media que no la tiene (ver _editarPistas):
+  // con los mismos cuidados, pero enseguida, también reproduciendo (lo pidió el alumno).
   _quizasRecargar() {
-    const f = this._firma;
-    if (!f || this._destruido || this._finalizado || this._muerta || this._expiresCargado == null) return;
-    if (this._expiresCargado === f.actual().expires) return;
+    if (this._destruido || this._finalizado || this._muerta) return;
     if (this._carga || this._salto || this._ancla != null || this._reanudar || !this._media) return;
+    if (this._recargarPorPista && this._subsOn && this.subtitulosEnTV()) { this._cargar(this._estimar(), !this._pausado); return; }
+    const f = this._firma;
+    if (!f || this._expiresCargado == null) return;
+    if (this._expiresCargado === f.actual().expires) return;
     if (!this._pausado && !f.urgenteDe(this._expiresCargado)) return;
     this._cargar(this._estimar(), !this._pausado);
+  }
+
+  // El enlace de los subtítulos para la carga: el de la última renovación (firma.php trae
+  // uno nuevo con cada firma) o el de la config. null si no van en la TV.
+  _urlSubtitulos() {
+    if (!this.subtitulosEnTV()) return null;
+    const f = this._firma;
+    return (f && typeof f.subtitulosTv === "function" && f.subtitulosTv()) || this._subsUrl;
+  }
+
+  // Prende o apaga la pista en la TV según el botón (EDIT_TRACKS_INFO, con su tope). Sin
+  // la pista en la media de la TV (adoptada de una carga sin ella), prenderlos es volver a
+  // cargar con ella. Si no se sabe si la tiene (adoptada desde la app) y la TV rechaza el
+  // pedido, es que no la tiene: lo mismo.
+  _editarPistas() {
+    const cc = sdk(), m = this._media;
+    if (this._destruido || !this.subtitulosEnTV() || !cc || !m || this._muerta || this._carga) return;
+    if (this._pistaEnTV === false) {
+      if (this._subsOn) { this._recargarPorPista = true; this._quizasRecargar(); }
+      return;
+    }
+    const pedido = ++this._pistasPedido;
+    const ids = idsSubtitulos(this._subsOn);
+    comando((ok, mal) => m.editTracksInfo(new cc.media.EditTracksInfoRequest(ids), ok, mal)).then(() => {
+      if (pedido === this._pistasPedido && this._media === m && ids.length) this._pistaEnTV = true;
+    }, () => {
+      if (this._destruido || pedido !== this._pistasPedido || this._media !== m || this._pistaEnTV !== null) return;
+      this._pistaEnTV = false;
+      if (this._subsOn) { this._recargarPorPista = true; this._quizasRecargar(); }
+    });
   }
 
   // Ida y vuelta medida con lo que la TV contesta sin hacer nada más: pausa y
@@ -902,6 +1044,8 @@ export class CastPlayer {
       }
       this._carga = null;
       this._fijo = null;
+      // El botón de subtítulos se tocó mientras cargaba: la carga salió con el de antes.
+      if (this._pistaEnTV && k.subs !== this._subsOn) this._editarPistas();
       // Una medida de la ida y vuelta antes de la primera pregunta (ver _medirRtt).
       if (!this._medidasRtt.length) { this._ultimoPedidoEstado = ahora(); this._enviar("estado"); }
       // Una velocidad elegida durante "Conectando…" no viajó en el LOAD.

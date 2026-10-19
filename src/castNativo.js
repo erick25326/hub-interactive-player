@@ -27,6 +27,13 @@
 //   i. Latido cada 2 s mientras hay sesión, con el msid del Media que tiene oyentes (el
 //      único que agrega oyentes es CastPlayer: el que los tiene es el que maneja esta
 //      página), o null.
+// Subtítulos en la TV (1.4.0, adenda de las pistas): sólo si la app declara 'subtitulos'
+// en las capacidades. Ahí este SDK tiene Track, TextTrackStyle y EditTracksInfoRequest
+// (con ellos CastPlayer decide que los subtítulos van en la TV), `cargar` lleva
+// media.tracks, media.textTrackStyle y activeTrackIds, editTracksInfo sale como el
+// comando `pistas` {msid, ids}, y el `media` puede traer activeTrackIds (cuenta para
+// "idéntico"). Sin 'subtitulos' (una app anterior) nada de eso existe y el celular sigue
+// dibujando los subtítulos: si no, no se verían en ningún lado.
 // El silencio es el del EQUIPO (session.setMute, el mismo que lee isMute): el volumen de
 // la TV no se toca nunca (ver CastPlayer.setVolume).
 import * as puenteReal from "./puenteApp.js";
@@ -55,6 +62,10 @@ class SeekRequest { constructor() { this.currentTime = null; this.resumeState = 
 class PlayRequest {}
 class PauseRequest {}
 class GetStatusRequest {}
+// Las de las pistas de texto (sólo con 'subtitulos', ver arriba).
+class Track { constructor(trackId, trackType) { this.trackId = trackId; this.type = trackType; this.trackContentId = null; this.trackContentType = null; this.subtype = null; this.name = null; this.language = null; this.customData = null; } }
+class TextTrackStyle { constructor() { this.foregroundColor = null; this.backgroundColor = null; this.edgeType = null; this.edgeColor = null; this.windowType = null; this.windowColor = null; this.windowRoundedCornerRadius = null; this.fontScale = null; this.fontFamily = null; this.fontGenericFamily = null; this.fontStyle = null; this.customData = null; } }
+class EditTracksInfoRequest { constructor(activeTrackIds, textTrackStyle) { this.activeTrackIds = activeTrackIds || null; this.textTrackStyle = textTrackStyle || null; } }
 
 const valor = (o, k) => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined);
 // ¿`x` es uno de los valores de la tabla `T` (PlayerState, CastState…)? 🔴 Con `T[x]`
@@ -63,6 +74,8 @@ const valor = (o, k) => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : und
 const de = (T, x) => typeof x === "string" && Object.prototype.hasOwnProperty.call(T, x);
 const num = (x, def = null) => (typeof x === "number" && Number.isFinite(x) ? x : def);
 const texto = (x) => (typeof x === "string" ? x : null);
+// Ids de pistas: un arreglo de enteros, o null (no vino o vino mal).
+const ids = (x) => (Array.isArray(x) && x.every((n) => Number.isInteger(n)) ? x.slice() : null);
 // El código que se le pasa al SDK: el de la app, o 'timeout' si venció el tope.
 const codigoDe = (e) => (e && typeof e.codigo === "string" ? e.codigo : typeof e === "string" ? e : "error");
 
@@ -82,9 +95,12 @@ export function leerMedia(d) {
     duracion: num(valor(d, "duracion")),
     contentId: texto(valor(d, "contentId")),
     contentUrl: texto(valor(d, "contentUrl")),
+    activeTrackIds: ids(valor(d, "activeTrackIds")),
   };
 }
-const claveMedia = (m) => `${m.msid}|${m.estado}|${m.motivo}|${m.t}|${m.rate}`;
+// Las pistas prendidas también cuentan: con la TV en pausa, prender los subtítulos cambia
+// sólo eso, y no es un estado repetido.
+const claveMedia = (m) => `${m.msid}|${m.estado}|${m.motivo}|${m.t}|${m.rate}|${m.activeTrackIds ? m.activeTrackIds.join(",") : ""}`;
 
 // Arma el SDK imitado sobre `puente` (enviar, escuchar, latir, dejarDeLatir: los de
 // puenteApp.js, o uno en memoria en las pruebas) a partir del hola-ok normalizado.
@@ -95,6 +111,7 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
   // se mandan: se rechazan acá y CastPlayer sigue (la velocidad la confirma el estado de
   // la TV; el silencio queda como está).
   const caps = new Set(Array.isArray(hola && hola.capacidades) ? hola.capacidades : []);
+  const conPistas = caps.has("subtitulos");
   const diag = { repetidos: 0, eventos: 0, receptorPedido: null };
   let estadoCast = de(CastState, cast0.estado) ? cast0.estado : CastState.NO_DEVICES_AVAILABLE;
   let sesion = null;          // la Sesion actual (el mismo objeto para el mismo id)
@@ -108,6 +125,9 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
       this._oy = [];
       this.mediaSessionId = m.msid;
       this.media = { contentId: m.contentId || m.contentUrl, contentUrl: m.contentUrl || m.contentId, duration: m.duracion };
+      // Las pistas prendidas, si la app las informa (undefined: no se sabe). Las pistas que
+      // tiene la media no viajan: CastPlayer las da por desconocidas (ver pistasDe).
+      this.activeTrackIds = undefined;
       this._clave = null;
       this._poner(m);
     }
@@ -118,10 +138,13 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
       this.playbackRate = m.rate;
       if (m.duracion > 0) this.media.duration = m.duracion;
       if (m.contentId || m.contentUrl) { this.media.contentId = m.contentId || m.contentUrl; this.media.contentUrl = m.contentUrl || m.contentId; }
+      if (m.activeTrackIds) this.activeTrackIds = m.activeTrackIds;
       this._clave = claveMedia(m);
     }
-    // Un estado nuevo de ESTE msid. Idéntico al anterior: nada (ni oyentes ni hora).
+    // Un estado nuevo de ESTE msid. Idéntico al anterior: nada (ni oyentes ni hora). Uno
+    // sin activeTrackIds conserva las que se sabían (no es un cambio).
     _aplicar(m) {
+      if (!m.activeTrackIds && this.activeTrackIds) m = { ...m, activeTrackIds: this.activeTrackIds };
       if (claveMedia(m) === this._clave) {
         diag.repetidos++;
         if (m.duracion > 0) this.media.duration = m.duracion;
@@ -155,6 +178,13 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
       // opción y la app lo toma como reproducir. CastPlayer siempre lo manda.
       if (req.resumeState === "PLAYBACK_START" || req.resumeState === "PLAYBACK_PAUSE") datos.reanudar = req.resumeState;
       this._cmd("saltar", datos, ok, mal);
+    }
+    // Prender o apagar subtítulos (EDIT_TRACKS_INFO): el comando `pistas`, con los ids que
+    // quedan prendidos ([] los apaga). Sólo con 'subtitulos' (sin él, CastPlayer no llega acá).
+    editTracksInfo(req, ok, mal) {
+      const lista = ids(req && req.activeTrackIds);
+      if (!conPistas || !lista) { try { if (typeof mal === "function") mal({ code: conPistas ? "invalid_parameter" : "not_implemented" }); } catch (e) {} return; }
+      this._cmd("pistas", { ids: lista }, ok, mal);
     }
   }
 
@@ -201,6 +231,15 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
         autoplay: req.autoplay !== false,
         rate: num(req.playbackRate, 1) || 1,
       };
+      // Subtítulos: la pista (con el enlace firmado de subtitulos.php), cómo se ven y cuáles
+      // van prendidas. Sólo si la app los conoce y vino alguna: si no, el `cargar` de siempre.
+      const pistas = conPistas && Array.isArray(info.tracks) ? info.tracks.map(pistaParaApp).filter(Boolean) : [];
+      if (pistas.length) {
+        datos.media.tracks = pistas;
+        const estilo = estiloParaApp(info.textTrackStyle);
+        if (estilo) datos.media.textTrackStyle = estilo;
+        datos.activeTrackIds = ids(req.activeTrackIds) || [];
+      }
       return puente.enviar("cargar", datos, { tope: TOPE_CARGAR_MS }).then(() => undefined, (e) => Promise.reject(codigoDe(e)));
     }
     // Del protocolo de media sólo la velocidad (es lo único que cast.js manda a mano).
@@ -212,6 +251,21 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
     }
     endSession(stop) { ctx.endCurrentSession(stop); }
   }
+
+  // Una pista del Web SDK como viaja por el protocolo: sólo los campos que conoce la app, con
+  // sus tipos. Sin id entero o sin enlace, no va.
+  const pistaParaApp = (p) => {
+    if (!p || !Number.isInteger(p.trackId) || !texto(p.trackContentId)) return null;
+    return { trackId: p.trackId, type: texto(p.type), subtype: texto(p.subtype), trackContentId: p.trackContentId,
+      trackContentType: texto(p.trackContentType), language: texto(p.language), name: texto(p.name) };
+  };
+  const estiloParaApp = (e) => {
+    if (!e || typeof e !== "object") return null;
+    const r = {};
+    for (const k of ["foregroundColor", "backgroundColor", "edgeType", "fontGenericFamily", "windowType"]) if (texto(e[k])) r[k] = e[k];
+    if (num(e.fontScale) != null && e.fontScale > 0) r.fontScale = e.fontScale;
+    return Object.keys(r).length ? r : null;
+  };
 
   // El msid que maneja el CastPlayer de esta página: el del Media con oyentes.
   const msidActivo = () => {
@@ -349,6 +403,18 @@ export function crearCastNativo(hola, puente = puenteReal, { anotar = () => {} }
       HlsVideoSegmentFormat: { MPEG2_TS: "mpeg2_ts", FMP4: "fmp4" },
     },
   };
+  // Las pistas de texto, con los valores del Web SDK, sólo si la app las conoce (ver arriba).
+  if (conPistas) {
+    Object.assign(chromeCast.media, {
+      Track, TextTrackStyle, EditTracksInfoRequest,
+      TrackType: { TEXT: "TEXT", AUDIO: "AUDIO", VIDEO: "VIDEO" },
+      TextTrackType: { SUBTITLES: "SUBTITLES", CAPTIONS: "CAPTIONS", DESCRIPTIONS: "DESCRIPTIONS", CHAPTERS: "CHAPTERS", METADATA: "METADATA" },
+      TextTrackEdgeType: { NONE: "NONE", OUTLINE: "OUTLINE", DROP_SHADOW: "DROP_SHADOW", RAISED: "RAISED", DEPRESSED: "DEPRESSED" },
+      TextTrackFontGenericFamily: { SANS_SERIF: "SANS_SERIF", MONOSPACED_SANS_SERIF: "MONOSPACED_SANS_SERIF", SERIF: "SERIF", MONOSPACED_SERIF: "MONOSPACED_SERIF", CASUAL: "CASUAL", CURSIVE: "CURSIVE", SMALL_CAPITALS: "SMALL_CAPITALS" },
+      TextTrackFontStyle: { NORMAL: "NORMAL", BOLD: "BOLD", BOLD_ITALIC: "BOLD_ITALIC", ITALIC: "ITALIC" },
+      TextTrackWindowType: { NONE: "NONE", NORMAL: "NORMAL", ROUNDED_CORNERS: "ROUNDED_CORNERS" },
+    });
+  }
   const framework = {
     VERSION: "hub-app-ivcast-1",
     CastContext: { getInstance: () => ctx },

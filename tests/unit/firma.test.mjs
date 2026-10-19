@@ -168,7 +168,11 @@ describe('márgenes y reloj', () => {
 describe('qué dijo firma.php', () => {
   test('ok, sesión cerrada, sin red, sin permiso', () => {
     const ok = interpretarRespuesta(200, { ok: true, playlist: nueva.playlist, poster: nueva.poster, expires: E2, ahora: E1 });
-    assert.deepEqual(ok, { ok: true, playlist: nueva.playlist, poster: nueva.poster, expires: E2, ahora: E1 });
+    assert.deepEqual(ok, { ok: true, playlist: nueva.playlist, poster: nueva.poster, expires: E2, ahora: E1, subtitulosTv: null });
+    // Con subtítulos, firma.php trae el enlace de subtitulos.php para la TV (1.4.0).
+    const subs = 'https://campus.ejemplo.test/mod/ivplayer/subtitulos.php?id=7&e=' + E2 + '&s=abc';
+    assert.equal(interpretarRespuesta(200, { ok: true, playlist: nueva.playlist, expires: E2, ahora: E1, subtitulosTv: subs }).subtitulosTv, subs);
+    assert.equal(interpretarRespuesta(200, { ok: true, playlist: nueva.playlist, expires: E2, ahora: E1, subtitulosTv: 7 }).subtitulosTv, null, 'sólo un texto');
     assert.equal(interpretarRespuesta(401, { ok: false, motivo: 'sesion' }).motivo, 'sesion');
     assert.equal(interpretarRespuesta(401, null).motivo, 'sesion');
     // El JSON de error de Moodle (AJAX_SCRIPT) por login o sesskey.
@@ -334,6 +338,7 @@ describe('Renovador', () => {
     assert.deepEqual(avisos, [E2]);
     assert.equal(r.actual().expires, E2);
     assert.equal(r.poster(), nueva.poster);
+    assert.equal(r.subtitulosTv(), null, 'sin subtítulos en la respuesta, no hay enlace (CastPlayer usa el de la config)');
     assert.equal(r.reescribir(rel('360p/video9.ts', rel('360p/video.m3u8', vieja.playlist))), rel('360p/video9.ts', rel('360p/video.m3u8', nueva.playlist)));
     // Lo que le queda a la vieja (la fuente que todavía tiene el <video> o la TV).
     assert.equal(r.restanteDe(E1), RENOVAR_ANTES_MS);
@@ -563,5 +568,29 @@ describe('Renovador', () => {
     await assert.rejects(p);
     assert.equal(r.actual().expires, E1);
     assert.equal(x.programado(), null);
+  });
+});
+
+// Subtítulos en la TV (1.4.0): firma.php trae, con cada firma, el enlace de subtitulos.php
+// con el vencimiento nuevo. El Renovador lo guarda para la próxima recarga de la TV
+// (CastPlayer._urlSubtitulos); una respuesta sin enlace no borra el que había.
+describe('Renovador: el enlace de los subtítulos para la TV', () => {
+  test('cada renovación trae el suyo; una sin enlace deja el anterior', async () => {
+    const E3 = E2 + 3600;
+    const subs = (e) => `https://campus.ejemplo.test/mod/ivplayer/subtitulos.php?id=7&e=${e}&s=s${e}`;
+    const conSubs = (expires, ahora, s) => { const r = respuestaOk(expires, ahora); r.cuerpo.subtitulosTv = s; return r; };
+    const x = entorno({ respuestas: [conSubs(E2, E1 - 600, subs(E2)), respuestaOk(E3, E2 - 600)] });
+    const r = x.crear();
+    assert.equal(r.subtitulosTv(), null, 'antes de la primera renovación, el de la config (lo tiene CastPlayer)');
+    let t = x.programado();
+    x.avanzar(t.ms);
+    await x.correr(t);
+    assert.equal(r.actual().expires, E2);
+    assert.equal(r.subtitulosTv(), subs(E2));
+    t = x.programado();
+    x.avanzar(t.ms);
+    await x.correr(t);
+    assert.equal(r.actual().expires, E3);
+    assert.equal(r.subtitulosTv(), subs(E2), 'sin enlace en la respuesta: queda el que había');
   });
 });

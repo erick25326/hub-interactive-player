@@ -8,7 +8,9 @@
 // que NO llama a los oyentes (le renovaría la hora al estimador del freno), la sesión del
 // hola-ok antes de que cargarCast resuelva, el msid del latido, y el mapeo de cada
 // llamada del SDK al comando del protocolo. Al final, CastPlayer de verdad a través del
-// shim (lo mismo que cast-player.test.mjs, con la TV del lado "nativo").
+// shim (lo mismo que cast-player.test.mjs, con la TV del lado "nativo"), y los subtítulos
+// en la TV (1.4.0): la capacidad 'subtitulos', las pistas del `cargar`, el comando
+// `pistas`, `activeTrackIds` en el `media` y CastPlayer con la pista por el shim.
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -423,4 +425,150 @@ test('CastPlayer por el shim: la carga (renovación o conexión) es un cargar co
   await tick();
   assert.equal(listo, 1);
   assert.equal(puente.latidos.msid(), 1);
+});
+
+// ─── Subtítulos en la TV (1.4.0, adenda de las pistas) ──────────────────────
+const { pistaSubtitulos, estiloSubtitulos, pistasPosibles, PISTA_SUBTITULOS } = await import('../../src/cast.js');
+const SUBS = 'https://campus.ejemplo.test/mod/ivplayer/subtitulos.php?id=7&e=1767225600&s=abc';
+const holaConSubs = (cast = {}) => ({ ...holaOk(cast), capacidades: ['cast', 'velocidad', 'silencio', 'subtitulos'] });
+
+test('sin "subtitulos" en las capacidades (una app anterior): el SDK no sabe de pistas y el cargar sale como siempre', async () => {
+  const { puente, ctx, cc } = armar();
+  assert.equal(pistasPosibles(cc), false, 'sin Track: CastPlayer deja los subtítulos en el celular');
+  assert.equal(cc.media.Track, undefined);
+  sesionIniciada(puente);
+  const info = new cc.media.MediaInfo(SRC, 'application/x-mpegurl');
+  info.tracks = [{ trackId: 1, type: 'TEXT', trackContentId: SUBS }];
+  const req = new cc.media.LoadRequest(info);
+  req.activeTrackIds = [1];
+  ctx.getCurrentSession().loadMedia(req);
+  const datos = puente.ultimo('cargar').datos;
+  assert.ok(!('tracks' in datos.media) && !('textTrackStyle' in datos.media) && !('activeTrackIds' in datos), JSON.stringify(datos));
+  puente.evento(media({ msid: 1, estado: 'PLAYING', t: 0 }));
+  const r = [];
+  ctx.getCurrentSession().getMediaSession().editTracksInfo({ activeTrackIds: [1] }, () => r.push('ok'), (e) => r.push(e.code));
+  assert.deepEqual(r, ['not_implemented']);
+  assert.equal(puente.ultimo('pistas'), undefined, 'a una app que no las conoce no se le manda pistas');
+});
+
+test('con "subtitulos": cargar lleva media.tracks, media.textTrackStyle y activeTrackIds; editTracksInfo sale como pistas {msid, ids}', async () => {
+  const puente = puenteFalso();
+  const sdk = crearCastNativo(holaConSubs(), puente);
+  const cc = sdk.chrome.cast;
+  assert.equal(pistasPosibles(cc), true);
+  const ctx = sdk.cast.framework.CastContext.getInstance();
+  sesionIniciada(puente);
+  const info = new cc.media.MediaInfo(SRC, 'application/x-mpegurl');
+  info.contentUrl = SRC;
+  info.tracks = [pistaSubtitulos(cc, SUBS), { trackId: 'dos', trackContentId: SUBS }, { trackId: 3 }];
+  info.textTrackStyle = estiloSubtitulos(cc);
+  const req = new cc.media.LoadRequest(info);
+  req.currentTime = 4;
+  req.activeTrackIds = [PISTA_SUBTITULOS];
+  ctx.getCurrentSession().loadMedia(req);
+  const datos = puente.ultimo('cargar').datos;
+  assert.deepEqual(datos.media.tracks, [{ trackId: 1, type: 'TEXT', subtype: 'SUBTITLES', trackContentId: SUBS, trackContentType: 'text/vtt', language: 'es', name: 'Español' }],
+    'sólo las pistas con id entero y enlace, con los campos que conoce la app');
+  assert.deepEqual(datos.media.textTrackStyle, { foregroundColor: '#FFFFFFFF', backgroundColor: '#000000B3', edgeType: 'NONE', fontGenericFamily: 'SANS_SERIF', windowType: 'NONE', fontScale: 1.3 });
+  assert.deepEqual(datos.activeTrackIds, [1]);
+  puente.evento(media({ msid: 4, estado: 'PLAYING', t: 4 }));
+  const m = ctx.getCurrentSession().getMediaSession();
+  const r = [];
+  m.editTracksInfo(new cc.media.EditTracksInfoRequest([]), () => r.push('ok'), (e) => r.push('mal ' + e.code));
+  const e = puente.ultimo('pistas');
+  assert.deepEqual([e.datos, e.tope], [{ msid: 4, ids: [] }, 10000]);
+  e.resolver({});
+  m.editTracksInfo(new cc.media.EditTracksInfoRequest([1]), () => r.push('ok'), (x) => r.push('mal ' + x.code));
+  puente.ultimo('pistas').rechazar({ codigo: 'invalid_parameter' });
+  m.editTracksInfo({ activeTrackIds: ['1'] }, () => r.push('ok'), (x) => r.push('mal ' + x.code));
+  await tick();
+  // El tercero (ids que no son enteros) contesta en el acto; los otros, con la app.
+  assert.deepEqual(r, ['mal invalid_parameter', 'ok', 'mal invalid_parameter']);
+  assert.equal(puente.enviados.filter((x) => x.tipo === 'pistas').length, 2, 'ids que no son enteros no salen');
+});
+
+test('el media con activeTrackIds: prender los subtítulos en pausa NO es un estado repetido, y uno sin el campo conserva lo que se sabía', () => {
+  const puente = puenteFalso();
+  const sdk = crearCastNativo(holaConSubs(), puente);
+  const ctx = sdk.cast.framework.CastContext.getInstance();
+  sesionIniciada(puente);
+  puente.evento(media({ msid: 1, estado: 'PAUSED', t: 25, activeTrackIds: [] }));
+  const m = ctx.getCurrentSession().getMediaSession();
+  const vistos = [];
+  m.addUpdateListener(() => vistos.push((m.activeTrackIds || []).join()));
+  puente.evento(media({ msid: 1, estado: 'PAUSED', t: 25, activeTrackIds: [1] }));
+  assert.deepEqual(vistos, ['1'], 'sólo cambiaron las pistas: igual llega');
+  puente.evento(media({ msid: 1, estado: 'PAUSED', t: 25 }));
+  puente.evento(media({ msid: 1, estado: 'PAUSED', t: 25, activeTrackIds: [1] }));
+  assert.deepEqual(vistos, ['1'], 'sin el campo (o igual) es el mismo estado: no se le renueva la hora al estimador');
+  assert.deepEqual(m.activeTrackIds, [1]);
+  assert.equal(sdk._diag.repetidos, 2);
+  assert.equal(leerMedia({ msid: 1, estado: 'PLAYING', activeTrackIds: [1, 'x'] }).activeTrackIds, null, 'mal formado: no se sabe');
+});
+
+// CastPlayer de verdad a través del shim con 'subtitulos'.
+function conShimSubs(prueba, cast = {}) {
+  prueba.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const puente = puenteFalso();
+  instalarCastNativo(holaConSubs({ estado: 'CONNECTED', ...cast }), puente, window);
+  if (!cast.sesion) puente.evento({ tipo: 'sesion', estado: 'SESSION_STARTED', sesion: { id: 's', nombre: 'TV' } });
+  const sesion = window.cast.framework.CastContext.getInstance().getCurrentSession();
+  return { puente, sesion };
+}
+
+test('CastPlayer por el shim: la carga lleva la pista prendida, el botón manda pistas, y un toque durante la carga se corrige al terminar', async (t) => {
+  const { puente, sesion } = conShimSubs(t);
+  jugador = new CastPlayer(sesion, { src: SRC, inicio: 18, reproducir: true, duracion: 78, subtitulos: SUBS, subtitulosActivos: true });
+  assert.equal(jugador.subtitulosEnTV(), true);
+  const c = puente.ultimo('cargar');
+  assert.equal(c.datos.media.tracks[0].trackContentId, SUBS);
+  assert.deepEqual(c.datos.activeTrackIds, [1]);
+  assert.equal(c.datos.media.textTrackStyle.fontScale, 1.3);
+  // El alumno los apaga mientras la TV carga: todavía no sale nada.
+  await jugador.setSubtitulos(false);
+  assert.equal(puente.ultimo('pistas'), undefined, 'cargando, no se le habla a la media vieja');
+  puente.evento(media({ msid: 1, estado: 'BUFFERING', t: 18, activeTrackIds: [1] }));
+  puente.evento(media({ msid: 1, estado: 'PLAYING', t: 18.05, activeTrackIds: [1] }));
+  c.resolver({ msid: 1 });
+  await tick();
+  assert.deepEqual(puente.ultimo('pistas') && puente.ultimo('pistas').datos, { msid: 1, ids: [] }, 'al terminar la carga, el estado del botón');
+  puente.ultimo('pistas').resolver({});
+  await jugador.setSubtitulos(true);
+  assert.deepEqual(puente.ultimo('pistas').datos, { msid: 1, ids: [1] });
+  assert.equal(puente.enviados.filter((x) => x.tipo === 'cargar').length, 1, 'prender o apagar no recarga');
+});
+
+test('CastPlayer por el shim: una sesión adoptada con los subtítulos prendidos en la TV pone el botón en prendido', async (t) => {
+  const { puente, sesion } = conShimSubs(t, { sesion: { id: 's', nombre: 'TV', media: { msid: 3, contentId: SRC, contentUrl: SRC, duracion: 78, estado: 'PAUSED', motivo: null, t: 40, rate: 1, activeTrackIds: [1] } } });
+  const avisos = [];
+  jugador = new CastPlayer(sesion, { src: SRC, adoptar: true, duracion: 78, subtitulos: SUBS, subtitulosActivos: false, onSubtitulos: (on) => avisos.push(on) });
+  await new Promise((r) => queueMicrotask(r));
+  assert.deepEqual(avisos, [true], 'manda la TV: el botón dice prendidos');
+  await jugador.setSubtitulos(false);
+  assert.deepEqual(puente.ultimo('pistas').datos, { msid: 3, ids: [] }, 'prendida = la tiene: se apaga sin recargar');
+  assert.equal(puente.ultimo('cargar'), undefined);
+});
+
+test('CastPlayer por el shim: adoptada sin saber si tiene la pista, si la TV rechaza prenderla se carga con ella en el mismo segundo', async (t) => {
+  const { puente, sesion } = conShimSubs(t, { sesion: { id: 's', nombre: 'TV', media: { msid: 3, contentId: SRC, contentUrl: SRC, duracion: 78, estado: 'PAUSED', motivo: null, t: 40, rate: 1 } } });
+  const avisos = [];
+  jugador = new CastPlayer(sesion, { src: SRC, adoptar: true, duracion: 78, subtitulos: SUBS, subtitulosActivos: false, onSubtitulos: (on) => avisos.push(on) });
+  await new Promise((r) => queueMicrotask(r));
+  assert.deepEqual(avisos, [], 'sin activeTrackIds no se sabe: el botón queda como estaba');
+  await jugador.setSubtitulos(true);
+  puente.ultimo('pistas').rechazar({ codigo: 'invalid_parameter' });
+  await tick();
+  const c = puente.ultimo('cargar');
+  assert.ok(c, 'no tiene la pista: se carga con ella');
+  assert.deepEqual([c.datos.t, c.datos.autoplay, c.datos.activeTrackIds, c.datos.media.tracks[0].trackContentId], [40, false, [1], SUBS]);
+});
+
+test('CastPlayer por el shim: la carga usa el enlace de la última renovación (firma.php), no el de la config', async (t) => {
+  const { puente, sesion } = conShimSubs(t);
+  const NUEVO = SUBS.replace('s=abc', 's=nuevo');
+  const firma = { activa: () => true, actual: () => ({ expires: 1767229200 }), reescribir: (u) => u, poster: () => null, subtitulosTv: () => NUEVO, urgenteDe: () => false, on() {}, off() {} };
+  jugador = new CastPlayer(sesion, { src: SRC, inicio: 10, reproducir: true, duracion: 78, firma, subtitulos: SUBS, subtitulosActivos: false });
+  const c = puente.ultimo('cargar');
+  assert.equal(c.datos.media.tracks[0].trackContentId, NUEVO);
+  assert.deepEqual(c.datos.activeTrackIds, [], 'apagados: la pista va igual (para prenderla sin recargar), sin activar');
 });

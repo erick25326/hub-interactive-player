@@ -386,7 +386,9 @@ export default function InteractiveVideoPlayer() {
 
 function Reproductor() {
   const config = getConfig();
-  const { title, vimeoId, vimeoHash, videoUrl, poster, videoMotor, subtitlesUrl, subtitlesCues, subtitlesVtt, subtitlesOn, interactions, castAppId, etiquetas } = config;
+  // subtitlesUrlTv: el VTT firmado de subtitulos.php para la TV (player.php, sólo con Bunny
+  // y subtítulos). Ver "Subtítulos en la TV" en cast.js.
+  const { title, vimeoId, vimeoHash, videoUrl, poster, videoMotor, subtitlesUrl, subtitlesCues, subtitlesVtt, subtitlesUrlTv, subtitlesOn, interactions, castAppId, etiquetas } = config;
   // Video propio (HLS/MP4) en vez de Vimeo. También se acepta pegado en vimeoId,
   // para poder probar sin tocar el formulario de Moodle.
   const nativeSrc = videoUrl
@@ -470,7 +472,8 @@ function Reproductor() {
   // todavía está en 0 y sin respondidas, y guardarlo pisaría el del alumno.
   const [avanceListo, setAvanceListo] = useState(false);
   // Transmisión a la TV (sólo con video propio). `tv`: null o { tipo: 'cast' |
-  // 'airplay', estado: 'conectando' | 'conectado', nombre } (AirPlay no da nombre).
+  // 'airplay', estado: 'conectando' | 'conectado', nombre, subtitulos } (AirPlay no da
+  // nombre; subtitulos: con Chromecast, si los subtítulos van en la TV).
   // `tvDisp`: si hay una TV a la vista, para mostrar el botón sólo entonces.
   const [tv, setTv] = useState(null);
   const tvRef = useRef(null);
@@ -1811,9 +1814,15 @@ function Reproductor() {
     let t0=seekTargetRef.current!=null?seekTargetRef.current:(local.tiempo?local.tiempo():currentTimeRef.current);
     if(!Number.isFinite(t0)) t0=currentTimeRef.current;
     if(activeIARef.current) t0=tiempoAGuardar(t0,activeIARef.current,finRef.current);
+    // Subtítulos en la TV: la pista con el VTT firmado (subtitlesUrlTv) y el estado del
+    // botón; la TV los dibuja y el botón los prende y apaga ahí (setSubtitulos). Una sesión
+    // adoptada trae los suyos (onSubtitulos). Sin cues propios (Vimeo, o sin archivo) no hay.
+    const subsTv=typeof subtitlesUrlTv==='string'&&subtitlesUrlTv&&cuesRef.current&&cuesRef.current.length?subtitlesUrlTv:null;
     const ad=new CastPlayer(sesion,{
       src:nativeSrc, titulo:title, poster, inicio:t0, reproducir:seguia, velocidad:speed,
       duracion:finRef.current<Infinity?finRef.current:duration, adoptar, firma:firmaRef.current,
+      subtitulos:subsTv, subtitulosActivos:subsOnRef.current,
+      onSubtitulos:(on)=>{ if(playerRef.current===ad) setSubsOn(!!on); },
       onListo:()=>{ if(playerRef.current===ad) setTv(x=>x&&x.tipo==='cast'?{...x,estado:'conectado'}:x); },
       onFin:(motivo,est)=>{ if(playerRef.current===ad) volverALocalRef.current(motivo,est); },
     });
@@ -1837,7 +1846,7 @@ function Reproductor() {
     try{ local.pause(); }catch(e){}
     if(local.detenerCarga) local.detenerCarga();
     setBuffering(false);
-    setTv({tipo:'cast',estado:adoptar?'conectado':'conectando',nombre:nombreDelEquipo(sesion)});
+    setTv({tipo:'cast',estado:adoptar?'conectado':'conectando',nombre:nombreDelEquipo(sesion),subtitulos:ad.subtitulosEnTV()});
     setMenu(null);
     refrescarCalidadesRef.current();   // la calidad la elige la TV: el menú no la ofrece
   };
@@ -2232,6 +2241,9 @@ function Reproductor() {
   const toggleSubs=()=>{
     const next=!subsOn;
     setSubsOn(next);
+    // Transmitiendo con Chromecast y los subtítulos en la TV: se prenden o apagan ALLÁ.
+    const ad=playerRef.current;
+    if(ad&&ad.esTV&&ad.setSubtitulos) ad.setSubtitulos(next);
     if(hasVimeoSubs){
       const p=playerRef.current;
       if(!next) p?.disableTextTrack().catch(()=>{});
@@ -2426,7 +2438,11 @@ function Reproductor() {
           <button className="iv-btn-primary" onClick={()=>recargarParaReintentar(videoError)}>Reintentar</button>
         </div>}
 
-        {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA} sobreControles={showCtrl||!playing||scrubPct!=null}/>}
+        {/* 🔴 Con los subtítulos en la TV (Chromecast con subtitlesUrlTv) el celular NO los
+            dibuja: los muestra la TV, y acá irían encima del cartel "Reproduciendo en…",
+            duplicados y con el reloj estimado de la TV. Sin pista en la TV (SCORM, demo,
+            sitio sin el secreto, app sin 'subtitulos', AirPlay), como antes: acá. */}
+        {!hasVimeoSubs&&<SubtitleDisplay cues={cues} currentTime={currentTime} visible={subsOn&&!activeIA&&!(tv&&tv.subtitulos)} sobreControles={showCtrl||!playing||scrubPct!=null}/>}
 
         {/* Etiquetas en pantalla: sólo en el modo "En pantalla" (el de antes). En el de
             glosario se suman al panel (ver más abajo). */}

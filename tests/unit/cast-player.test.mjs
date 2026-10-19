@@ -82,3 +82,52 @@ test('una corrección chica de la TV (deriva) no se toma como salto de afuera', 
   // En pausa igual se informa dónde quedó, para que el componente muestre el cuadro real.
   assert.deepEqual(eventos, [{ ev: 'timeupdate', t: 40.4 }]);
 });
+
+// ─── Subtítulos en la TV (1.4.0): lo puro ───────────────────────────────────
+// La pista, el estilo y la lectura de lo que dice una media de la TV. El recorrido entero
+// (LOAD, EDIT_TRACKS_INFO, adoptar, recargar con la pista) está en cast-nativo.test.mjs
+// (CastPlayer por el shim) y en escenarios/tv-subtitulos.mjs (navegador).
+const { pistaSubtitulos, estiloSubtitulos, idsSubtitulos, pistasDe, pistasPosibles, PISTA_SUBTITULOS } = await import('../../src/cast.js');
+
+// Un chrome.cast mínimo con las clases del Web SDK y SIN los enumerados del estilo.
+const ccMinimo = () => {
+  class Track { constructor(id, tipo) { this.trackId = id; this.type = tipo; } }
+  class TextTrackStyle {}
+  class EditTracksInfoRequest { constructor(ids) { this.activeTrackIds = ids; } }
+  return { media: { Track, TextTrackStyle, EditTracksInfoRequest, TrackType: { TEXT: 'TEXT' }, TextTrackType: { SUBTITLES: 'SUBTITLES' } } };
+};
+
+test('la pista de subtítulos para el LOAD: TEXT, SUBTITLES, el VTT firmado, en español, siempre con el id 1', () => {
+  const cc = ccMinimo();
+  const p = pistaSubtitulos(cc, 'https://campus.ejemplo.test/mod/ivplayer/subtitulos.php?id=7&e=1&s=x');
+  assert.ok(p instanceof cc.media.Track);
+  assert.deepEqual({ ...p }, { trackId: PISTA_SUBTITULOS, type: 'TEXT', trackContentId: 'https://campus.ejemplo.test/mod/ivplayer/subtitulos.php?id=7&e=1&s=x', trackContentType: 'text/vtt', subtype: 'SUBTITLES', name: 'Español', language: 'es' });
+  assert.deepEqual([idsSubtitulos(true), idsSubtitulos(false)], [[1], []]);
+});
+
+test('el estilo en la TV: letra más grande, blanca sobre negro semitransparente (también sin los enumerados del SDK)', () => {
+  const e = estiloSubtitulos(ccMinimo());
+  assert.ok(e.fontScale > 1);
+  assert.deepEqual([e.foregroundColor, e.backgroundColor, e.edgeType, e.fontGenericFamily, e.windowType], ['#FFFFFFFF', '#000000B3', 'NONE', 'SANS_SERIF', 'NONE']);
+});
+
+test('¿el SDK sabe de pistas? Sin Track, EditTracksInfoRequest o TextTrackStyle, no (los subtítulos quedan en el celular)', () => {
+  assert.equal(pistasPosibles(ccMinimo()), true);
+  for (const falta of ['Track', 'EditTracksInfoRequest', 'TextTrackStyle']) {
+    const cc = ccMinimo();
+    delete cc.media[falta];
+    assert.equal(pistasPosibles(cc), false, falta);
+  }
+  assert.equal(pistasPosibles(null), false);
+});
+
+test('lo que dice una media de la TV de nuestra pista: si la tiene y si está prendida', () => {
+  const conPista = { media: { tracks: [{ trackId: 1, type: 'TEXT' }] } };
+  assert.deepEqual(pistasDe({ ...conPista, activeTrackIds: [1] }), { tiene: true, prendida: true });
+  assert.deepEqual(pistasDe({ ...conPista, activeTrackIds: [] }), { tiene: true, prendida: false });
+  assert.deepEqual(pistasDe({ media: { tracks: [{ trackId: 2 }] }, activeTrackIds: [2] }), { tiene: false, prendida: false }, 'otra pista no es la nuestra');
+  assert.deepEqual(pistasDe({ media: { tracks: null }, activeTrackIds: [] }), { tiene: null, prendida: false }, 'sin pistas informadas (la app): no se sabe');
+  assert.deepEqual(pistasDe({ media: {}, activeTrackIds: [1] }), { tiene: true, prendida: true }, 'prendida es que la tiene');
+  assert.deepEqual(pistasDe({ media: {} }), { tiene: null, prendida: null });
+  assert.deepEqual(pistasDe(null), { tiene: null, prendida: null });
+});
