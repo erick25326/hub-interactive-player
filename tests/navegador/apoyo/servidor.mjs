@@ -14,13 +14,20 @@
 //                   token prendida: valida el token (que lo haya emitido este servidor,
 //                   para ESTE directorio y con ESTE vencimiento) y el vencimiento, con 403
 //                   (y CORS abierto, como Bunny) si no vale. Ver ?firma=.
-//   /firma          el firma.php de mentira: POST cmid + sesskey → una firma nueva.
+//   /firma          el firma.php de mentira: POST cmid + sesskey → una firma nueva (con
+//                   subs=1, también subtitulosTv: el enlace de los subtítulos renovado).
+//   /subtitulos?id&e&s
+//                   el subtitulos.php de mentira: el VTT de prueba para la TV, sin sesión y
+//                   con CORS abierto, si el enlace lo emitió este servidor y no venció (si
+//                   no, 403). La firma de verdad (HMAC) la prueba correr.php; acá importa
+//                   que la TV reciba un enlace vigente, también después de renovar.
 //   /configurador.html
 //                   el configurador de interacciones ARMADO como el que se publica en
 //                   GitHub Pages (scripts/armar-configurador.mjs), con ESTE reproductor
 //                   compilado adentro para la vista previa.
 // Query de /player.html: motor=hls|nativo|auto · progreso=<json del avance> ·
-// subs=vtt · ias=glosario (INTERACCIONES_GLOSARIO: etiquetas, nota, pregunta, punto
+// subs=vtt (con subtitlesUrlTv, el enlace firmado para la TV, salvo subsTv=0: como el
+// SCORM, la demo o un sitio sin el secreto) · ias=glosario (INTERACCIONES_GLOSARIO: etiquetas, nota, pregunta, punto
 // para tocar) · ias=juntas (INTERACCIONES_JUNTAS: dos que frenan a menos de 3 s, y una
 // etiqueta en el mismo segundo que la segunda) · etiquetas=glosario|pantalla (el modo de la actividad) · sonido=simulado
 // (Web Audio y vibración de mentira que anotan todo: simulados/sonido-simulado.js) ·
@@ -109,13 +116,15 @@ export const INTERACCIONES_JUNTAS = [
   { ...INTERACCIONES_GLOSARIO.find((ia) => ia.id === 'frecuencia'), time: 9 },
 ];
 // Subtítulos sintéticos (los de los cursos son contenido pago y no van en el repo). El
-// segundo cue cruza la nota de los 8 s: con la tarjeta abierta no se tiene que ver.
+// segundo cue cruza la nota de los 8 s: con la tarjeta abierta no se tiene que ver. El
+// tercero, largo, es el de la vuelta de la TV al celular (tv-subtitulos.mjs).
 export const VTT_PRUEBA = [
   'WEBVTT', '',
   '00:00:01.000 --> 00:00:05.000', 'Primer subtítulo de prueba', '',
   '00:00:06.000 --> 00:00:10.500', 'Este cruza la nota de los 8 segundos', '',
+  '00:00:12.000 --> 00:00:22.000', 'Tercer subtítulo de prueba', '',
 ].join('\n');
-export const CUES_PRUEBA = [[1, 5, 'Primer subtítulo de prueba'], [6, 10.5, 'Este cruza la nota de los 8 segundos']];
+export const CUES_PRUEBA = [[1, 5, 'Primer subtítulo de prueba'], [6, 10.5, 'Este cruza la nota de los 8 segundos'], [12, 22, 'Tercer subtítulo de prueba']];
 
 const leerAqui = (...p) => fs.readFileSync(path.join(AQUI, ...p), 'utf8');
 const AYUDANTE = leerAqui('ayudante-pagina.js');
@@ -184,6 +193,14 @@ export async function crearServidor({ html, video }) {
   // de mentira, el avance guardado, cuántas cargas fueron del "Vimeo de mentira" y la falla
   // de los segmentos firmados que una prueba prende a mitad de camino.
   const respaldo = { pedidos: [], progresos: [], avance: null, cargasVimeo: 0, fallaSegmentos: null };
+  // Los enlaces de subtítulos para la TV que emitió este servidor (s → e) y cada pedido
+  // que le llegó a /subtitulos (con lo que se contestó).
+  const subs = { emitidas: new Map(), pedidos: [], n: 0 };
+  function emitirSubs(expires, origen) {
+    const s = `sub-prueba-${++subs.n}`;
+    subs.emitidas.set(s, expires);
+    return `${origen}/subtitulos?${new URLSearchParams({ id: String(CMID_PRUEBA), e: String(expires), s })}`;
+  }
   const cdnCaido = `http://127.0.0.1:${await puertoCerrado()}`;
   const segundos = () => Date.now() / 1000;
   function emitirFirma(ttl, origen, pag) {
@@ -266,6 +283,7 @@ export async function crearServidor({ html, video }) {
       if (q.get('rota') === 'alta') firma.rotas.add(pag);
       const modo = ['falla', 'falla-hasta-403', 'red-tras-403', 'lenta', 'permiso'].includes(q.get('renovar')) ? q.get('renovar') : 'ok';
       const f = new URLSearchParams({ ttl: String(Number(q.get('renovada')) > 0 ? Number(q.get('renovada')) : ttl), modo, pag });
+      if (q.get('subs') === 'vtt' && q.get('subsTv') !== '0') f.set('subs', '1');
       if (Number(q.get('demora')) > 0) f.set('demora', q.get('demora'));
       contexto = { cmid: CMID_PRUEBA, sesskey: SESSKEY_PRUEBA, firmaUrl: `${origen}/firma?${f}`, firmaAhora: segundos() };
       if (q.get('falla') === 'playlist-404') firma.fallas.set(pag, q.get('falla'));
@@ -289,6 +307,12 @@ export async function crearServidor({ html, video }) {
         progressUrl: `${origen}/progreso`, savedProgress: respaldo.avance,
         ...(vimeoDeMentira ? {} : { respaldoUrl: `${origen}/respaldo?modo=${modo}` }),
       };
+    }
+    // Subtítulos en la TV: lo que agrega player.php con Bunny y subtítulos (el enlace a
+    // subtitulos.php con el vencimiento de la firma del video; sin firma, una hora).
+    if (q.get('subs') === 'vtt' && q.get('subsTv') !== '0' && config.videoUrl && !vimeoDeMentira) {
+      const inicial = ttl > 0 ? firma.inicial.get(String(firma.paginas)) : null;
+      config.subtitlesUrlTv = emitirSubs(inicial ? inicial.expires : Math.floor(segundos()) + 3600, origen);
     }
     // La casilla "La app con Chromecast ya está publicada" (player.php la pone siempre).
     if (q.get('appCastPublicada') === '1') contexto = { ...(contexto || {}), appCastPublicada: true };
@@ -410,14 +434,27 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
         // pedir, con una demora mayor que la mitad del TTL llegaba vencida.
         return setTimeout(() => {
           const f = emitirFirma(Number(u.searchParams.get('ttl')) || 60, origen, u.searchParams.get('pag'));
-          responder(200, { ok: true, playlist: f.playlist, poster: f.poster, expires: f.expires, ahora: segundos() });
+          responder(200, { ok: true, playlist: f.playlist, poster: f.poster, expires: f.expires, ahora: segundos(), ...subsDe(f) });
         }, Math.max(0, (inicial.expires + (Number(u.searchParams.get('demora')) || 2)) * 1000 - Date.now()));
       }
       if (modo === 'permiso') return responder(403, { ok: false, motivo: 'permiso' });
       if (modo === 'falla' || b.get('cmid') !== String(CMID_PRUEBA) || b.get('sesskey') !== SESSKEY_PRUEBA) return responder(401, { ok: false, motivo: 'sesion' });
       const f = emitirFirma(Number(u.searchParams.get('ttl')) || 60, origen, u.searchParams.get('pag'));
-      responder(200, { ok: true, playlist: f.playlist, poster: f.poster, expires: f.expires, ahora: segundos() });
+      responder(200, { ok: true, playlist: f.playlist, poster: f.poster, expires: f.expires, ahora: segundos(), ...subsDe(f) });
     });
+    // Como firma.php: con subtítulos, el enlace nuevo con el vencimiento de la firma nueva.
+    function subsDe(f) { return u.searchParams.get('subs') === '1' ? { subtitulosTv: emitirSubs(f.expires, origen) } : {}; }
+  }
+
+  // subtitulos.php de mentira: sin sesión, CORS abierto, el VTT si el enlace es de acá y
+  // está vigente; 403 sin detalle si no (también para los enlaces vencidos).
+  function responderSubtitulos(req, u, res) {
+    const s = u.searchParams.get('s'), e = Number(u.searchParams.get('e'));
+    const bien = subs.emitidas.get(s) === e && u.searchParams.get('id') === String(CMID_PRUEBA) && segundos() < e;
+    subs.pedidos.push({ ms: Date.now(), metodo: req.method, s, e, estado: bien ? 200 : 403, cookie: !!req.headers.cookie });
+    if (!bien) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'no-store' }); return res.end(); }
+    res.writeHead(200, { 'content-type': 'text/vtt; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'private, max-age=300' });
+    res.end(VTT_PRUEBA + '\n');
   }
 
   // progress.php de mentira. scorm.js manda FormData (multipart): lo lee undici.
@@ -466,6 +503,7 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
         configurator: fs.readFileSync(path.join(RAIZ, 'configurator', 'index.html'), 'utf8'),
       }));
       if (u.pathname === '/firma') return responderFirma(req, u, origen, res);
+      if (u.pathname === '/subtitulos') return responderSubtitulos(req, u, res);
       if (u.pathname === '/progreso') return await responderProgreso(req, res);
       if (u.pathname === '/respaldo') return responderRespaldo(req, u, res);
       if (u.pathname.startsWith('/bcdn_token=')) return await servirFirmado(u.pathname, res);
@@ -482,7 +520,7 @@ iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;
     srv.listen(0, '127.0.0.1', () => {
       const base = `http://127.0.0.1:${srv.address().port}`;
       ok({
-        base, pedidosHls, firma, cargas, respaldo,
+        base, pedidosHls, firma, cargas, respaldo, subs,
         cerrar: () => new Promise((r) => { srv.closeAllConnections?.(); srv.close(() => r()); }),
       });
     });

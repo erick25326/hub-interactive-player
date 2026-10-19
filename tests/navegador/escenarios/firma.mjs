@@ -337,6 +337,8 @@ export function registrar(entorno) {
   // poco, sin que el componente vea saltos ni la TV pase de largo la pregunta.
   // Lo mismo adentro de hub-app (1.4.0): para la app, cada renovación es un `cargar` más
   // por el puente, con la URL nueva (la media anterior queda IDLE/INTERRUPTED con otro msid).
+  // Con los subtítulos prendidos (1.4.0): cada recarga lleva la pista con el enlace NUEVO
+  // de subtitulos.php (firma.php lo trae con la firma), y la TV lo baja vigente.
   for (const [modo, titulo, extra] of [
     ['web', 'firma de Bunny que vence · Chromecast simulado', {}],
     ['app', 'firma de Bunny que vence · hub-app simulada por el puente ivcast', { latPuente: '80' }],
@@ -344,8 +346,10 @@ export function registrar(entorno) {
     paso(entorno, 'transmitiendo, la TV vuelve a cargar el video con la firma nueva en el mismo segundo', async () => {
       const tok = (u) => (/bcdn_token=([^&/]+)/.exec(String(u)) || [])[1] || null;
       const cargas = async () => (await p.a('window.__tv.log')).filter((x) => x.ev === 'CMD LOAD');
-      await abrirConTV(p, modo, { query: { motor: 'hls', lat: '120', firma: TTL, ...extra }, progreso: { completed: ['n8'], currentTime: 16 }, esperarEn: 16 });
+      await abrirConTV(p, modo, { query: { motor: 'hls', lat: '120', firma: TTL, subs: 'vtt', ...extra }, progreso: { completed: ['n8'], currentTime: 16 }, esperarEn: 16 });
       await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
+      await p.clic('button[aria-label="Subtítulos"]');
+      await p.debe(`A.estado().subsBtn === 'true'`, 3000, 'el botón de subtítulos no se prendió');
       await p.reproducir();
       await p.debe(`A.comp() > 16.5`, 10000, 'no arrancó a reproducir');
       await p.clic('.iv-tv-btn');
@@ -384,6 +388,18 @@ export function registrar(entorno) {
       assert.equal(new Set(tokens).size, tokens.length, `una recarga sin firma nueva: ${tokens.join(', ')}`);
       assert.ok(tokens.every((x) => F().emitidas.has(x)), `una firma que el servidor no emitió: ${tokens.join(', ')}`);
       assert.equal(tok(await p.a('window.__tv.receptor.media.contentId')), tokens.at(-1));
+      // Los subtítulos en cada recarga: prendidos, con un enlace nuevo con el vencimiento de
+      // SU firma (el de antes ya venció), y la TV los bajó con 200.
+      const enlaces = L.map((x) => (x.tracks && x.tracks[0] && x.tracks[0].trackContentId) || null);
+      const venceSub = (u) => Number((/[?&]e=(\d+)/.exec(String(u)) || [])[1]);
+      const venceVideo = (u) => Number((/expires=(\d+)/.exec(String(u)) || [])[1]);
+      assert.ok(L.every((x) => x.activeTrackIds && x.activeTrackIds.join() === '1'), `cada recarga con los subtítulos prendidos: ${JSON.stringify(L.map((x) => x.activeTrackIds))}`);
+      assert.ok(enlaces.every((u, i) => u && venceSub(u) === venceVideo(L[i].contentId)), `cada pista con el vencimiento de su firma: ${JSON.stringify(enlaces)}`);
+      assert.equal(new Set(enlaces).size, enlaces.length, `una recarga con el enlace viejo: ${enlaces.join(', ')}`);
+      await p.debe(`window.__tv.bajadas.length >= ${L.length} && window.__tv.bajadas.every((b) => b.estado != null)`, 5000, 'la TV no bajó los subtítulos de cada carga');
+      const bajadas = await p.a('window.__tv.bajadas');
+      assert.ok(bajadas.every((b) => b.estado === 200), `la TV bajó un enlace vencido o ajeno: ${JSON.stringify(bajadas.map((b) => [b.url, b.estado]))}`);
+      assert.ok(enlaces.every((u) => bajadas.some((b) => b.url === u)), 'la TV bajó la pista de cada carga');
       // El componente, de punta a punta: ni una caída ni un salto (los LOAD incluidos).
       assert.deepEqual(anomalias(await p.a('A.serie'), { desdeMs: desde }), [], 'el componente vio el tiempo caer o saltar');
       assert.equal((await p.a('A.marcas')).filter((m) => m.txt === 'tarjeta tf25').length, 1, 'la pregunta apareció una sola vez');

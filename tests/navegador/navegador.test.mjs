@@ -14,6 +14,7 @@ import * as calidad from './escenarios/calidad.mjs';
 import * as subtitulos from './escenarios/subtitulos.mjs';
 import * as tv from './escenarios/tv.mjs';
 import * as tvApp from './escenarios/tv-app.mjs';
+import * as tvSubtitulos from './escenarios/tv-subtitulos.mjs';
 import * as angosto from './escenarios/angosto.mjs';
 import * as avisos from './escenarios/avisos.mjs';
 import * as glosario from './escenarios/glosario.mjs';
@@ -71,6 +72,7 @@ if (entorno.omitir) {
   subtitulos.registrar(entorno);
   tv.registrar(entorno);
   tvApp.registrar(entorno);
+  tvSubtitulos.registrar(entorno);
   angosto.registrar(entorno);
   avisos.registrar(entorno);
   glosario.registrar(entorno);

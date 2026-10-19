@@ -17,6 +17,11 @@
 //   nombre=…      nombre de la TV
 // Control remoto de la TV (window.__tv.remoto): adelantar(s), irA(t), play(), pause(),
 // parar() (CANCELLED), cortarSesion() (Google Home "dejar de transmitir"), otroVideo().
+// Subtítulos (1.4.0): el LOAD trae las pistas (tracks), su estilo y las prendidas
+// (activeTrackIds), que la TV guarda en su media e informa en cada estado. T.pistas(msid,
+// ids) las cambia (EDIT_TRACKS_INFO; un id que la media no tiene se rechaza, como el
+// receptor de verdad) y anota 'CMD pistas'. Como el receptor, la TV BAJA el VTT de una
+// pista cuando queda prendida y anota en T.bajadas { url, estado, tipo, cors, texto }.
 (() => {
   const q = new URLSearchParams(location.search);
   const LAT = Number(q.get('lat') || 120);
@@ -37,10 +42,27 @@
   T.videoUrl = () => (window.PLAYER_CONFIG || (marcoReproductor() && marcoReproductor().PLAYER_CONFIG) || {}).videoUrl;
 
   // ---- La TV (el receptor) ----------------------------------------------------
-  const R = T.receptor = { base: 0, hBase: 0, estado: 'IDLE', rate: 1, media: null, idleReason: null, msid: 0, duracion: 260 };
+  const R = T.receptor = { base: 0, hBase: 0, estado: 'IDLE', rate: 1, media: null, idleReason: null, msid: 0, duracion: 260, activeTrackIds: [] };
+  T.bajadas = [];
+  T.subsUrl = () => (window.PLAYER_CONFIG || (marcoReproductor() && marcoReproductor().PLAYER_CONFIG) || {}).subtitlesUrlTv || null;
+  // Baja el VTT de cada pista prendida (como el receptor al mostrarla): estado, tipo, CORS y
+  // el texto, para que las pruebas vean que el enlace que llegó a la TV anda.
+  const bajarPrendidas = () => {
+    const pistas = (R.media && R.media.tracks) || [];
+    for (const id of R.activeTrackIds) {
+      const p = pistas.find((x) => x && x.trackId === id);
+      if (!p || !p.trackContentId) continue;
+      const b = { ms: ms(), url: p.trackContentId, estado: null };
+      T.bajadas.push(b);
+      fetch(p.trackContentId, { credentials: 'omit', cache: 'no-store' }).then(async (r) => {
+        b.estado = r.status; b.tipo = r.headers.get('content-type'); b.cors = r.headers.get('access-control-allow-origin');
+        b.cache = r.headers.get('cache-control'); b.texto = await r.text();
+      }, (e) => { b.estado = 0; b.error = String(e); });
+    }
+  };
   R.tiempo = () => R.estado === 'PLAYING' ? Math.min(R.duracion, R.base + (performance.now() - R.hBase) / 1000 * R.rate) : R.base;
   R.fijar = (t, estado) => { R.base = Math.max(0, Math.min(R.duracion, t)); R.hBase = performance.now(); R.estado = estado; };
-  R.foto = () => ({ t: +R.tiempo().toFixed(3), estado: R.estado, rate: R.rate, idleReason: R.idleReason, msid: R.msid });
+  R.foto = () => ({ t: +R.tiempo().toFixed(3), estado: R.estado, rate: R.rate, idleReason: R.idleReason, msid: R.msid, pistas: R.activeTrackIds.slice() });
   // Fin del video en la TV.
   setInterval(() => {
     if (R.estado === 'PLAYING' && R.tiempo() >= R.duracion) { R.fijar(R.duracion, 'IDLE'); R.idleReason = 'FINISHED'; anotar('TV fin'); difundir(); }
@@ -48,7 +70,7 @@
   // MEDIA_STATUS hacia el emisor (una vía de latencia). `alLlegar` corre después de
   // entregarlo: así la respuesta de un comando llega con su estado ya aplicado.
   const difundir = T.difundir = (alLlegar) => {
-    const s = { t: R.tiempo(), estado: R.estado, rate: R.rate, idleReason: R.idleReason, msid: R.msid, media: R.media, h: performance.now() };
+    const s = { t: R.tiempo(), estado: R.estado, rate: R.rate, idleReason: R.idleReason, msid: R.msid, media: R.media, activeTrackIds: R.activeTrackIds.slice(), h: performance.now() };
     demora(() => { if (T.alEstado) T.alEstado(s); if (alLlegar) alLlegar(); });
   };
   const aplicable = (msid) => !!R.media && R.msid === msid && R.estado !== 'IDLE';
@@ -79,6 +101,21 @@
       }, 250);
     });
   });
+  // EDIT_TRACKS_INFO: las pistas prendidas. Rechaza ('invalid_parameter') un id que la media
+  // no tiene, como el receptor; si no, las aplica, baja las que se prendieron y avisa.
+  T.pistas = (msid, ids) => new Promise((ok, mal) => {
+    T.log.push({ ms: ms(), ev: 'CMD pistas', ids });
+    demora(() => {
+      if (!aplicable(msid)) { demora(() => mal('session_error')); return; }
+      const tiene = ((R.media && R.media.tracks) || []).map((p) => p && p.trackId);
+      if (!Array.isArray(ids) || ids.some((i) => !tiene.includes(i))) { anotar('TV pistas rechazadas', { ids }); demora(() => mal('invalid_parameter')); return; }
+      const antes = R.activeTrackIds;
+      R.activeTrackIds = ids.slice();
+      anotar('TV pistas', { ids });
+      if (ids.some((i) => !antes.includes(i))) bajarPrendidas();
+      difundir(ok);
+    });
+  });
   // SET_PLAYBACK_RATE (el log 'MSG …' lo hace cada emisor, con lo que recibió).
   T.velocidad = (rate) => new Promise((ok) => {
     demora(() => { const t = R.tiempo(); R.rate = rate; R.fijar(t, R.estado); difundir(ok); });
@@ -87,7 +124,8 @@
   // media (lo que guarda la TV como su media) }. `alNuevaMedia(s)` entrega al emisor el
   // estado de la media NUEVA (antes de resolver), como el MEDIA_SESSION del SDK.
   T.cargar = (c, alNuevaMedia) => {
-    T.log.push({ ms: ms(), ev: 'CMD LOAD', t: c.t, autoplay: c.autoplay, contentId: c.contentId, contentType: c.contentType, hls: c.hls, hlsv: c.hlsv, titulo: c.titulo, poster: c.poster, rate: c.rate });
+    T.log.push({ ms: ms(), ev: 'CMD LOAD', t: c.t, autoplay: c.autoplay, contentId: c.contentId, contentType: c.contentType, hls: c.hls, hlsv: c.hlsv, titulo: c.titulo, poster: c.poster, rate: c.rate,
+      tracks: c.tracks || null, estilo: c.estilo || null, activeTrackIds: c.activeTrackIds || null });
     const dur = T.duracionVideo();
     return new Promise((ok, mal) => {
       if (q.get('cargaFalla')) { demora(() => mal('load_media_failed'), LAT * 2 + 300); return; }
@@ -101,11 +139,13 @@
         if (q.get('idlePrimero')) { R.msid++; alNuevaMedia({ t: 0, estado: 'IDLE', rate: 1, idleReason: 'INTERRUPTED', msid: R.msid, media: { ...c.media } }); }
         // La media anterior (si había) queda interrumpida.
         if (R.media && R.estado !== 'IDLE') { R.idleReason = 'INTERRUPTED'; }
-        R.msid++; R.media = { ...c.media, duration: dur }; R.duracion = dur; R.idleReason = null; R.rate = c.rate || 1;
+        R.msid++; R.media = { ...c.media, tracks: c.tracks || null, duration: dur }; R.duracion = dur; R.idleReason = null; R.rate = c.rate || 1;
+        R.activeTrackIds = Array.isArray(c.activeTrackIds) ? c.activeTrackIds.slice() : [];
         R.fijar(c.t || 0, 'BUFFERING'); anotar('TV LOAD', R.foto());
+        bajarPrendidas();
         setTimeout(() => {
           R.fijar(c.t || 0, c.autoplay === false ? 'PAUSED' : 'PLAYING'); anotar('TV cargó', R.foto());
-          const s = { t: R.tiempo(), estado: R.estado, rate: R.rate, idleReason: null, msid: R.msid, media: R.media };
+          const s = { t: R.tiempo(), estado: R.estado, rate: R.rate, idleReason: null, msid: R.msid, media: R.media, activeTrackIds: R.activeTrackIds.slice() };
           demora(() => { alNuevaMedia(s); ok(null); });
         }, 600);
       }), tarde);
@@ -114,13 +154,16 @@
   // Se cierra la app de la TV (dejar de transmitir deteniendo la TV).
   T.cerrarApp = () => { R.fijar(R.tiempo(), 'IDLE'); R.idleReason = 'CANCELLED'; R.media = null; anotar('TV app cerrada'); };
   // Una sesión que ya estaba (otra pestaña, otra lección, la app que ya transmitía): la
-  // TV con ESTE video (u otro, con ajeno=1) en `t`, reproduciendo o en pausa.
-  T.prepararReanudada = ({ t, pausado = false, ajeno = false }) => {
+  // TV con ESTE video (u otro, con ajeno=1) en `t`, reproduciendo o en pausa. subs: con
+  // la pista de subtítulos de esta lección, prendida (la cargó otra página).
+  T.prepararReanudada = ({ t, pausado = false, ajeno = false, subs = false }) => {
     const src = ajeno ? T.OTRO_VIDEO : T.videoUrl();
-    R.msid++; R.media = { contentId: src, contentUrl: src, contentType: 'application/x-mpegurl', duration: 260, customData: ajeno ? null : { ivplayer: 1 } }; R.duracion = 260; R.idleReason = null;
+    const tracks = subs ? [{ trackId: 1, type: 'TEXT', subtype: 'SUBTITLES', trackContentId: T.subsUrl(), trackContentType: 'text/vtt', language: 'es', name: 'Español' }] : null;
+    R.msid++; R.media = { contentId: src, contentUrl: src, contentType: 'application/x-mpegurl', duration: 260, customData: ajeno ? null : { ivplayer: 1 }, tracks }; R.duracion = 260; R.idleReason = null;
+    R.activeTrackIds = subs ? [1] : [];
     const est = pausado ? 'PAUSED' : 'PLAYING';
     R.fijar(Number(t), est);
-    return { t: R.tiempo(), estado: est, rate: 1, idleReason: null, msid: R.msid, media: R.media };
+    return { t: R.tiempo(), estado: est, rate: 1, idleReason: null, msid: R.msid, media: R.media, activeTrackIds: R.activeTrackIds.slice() };
   };
 
   // ---- Control remoto de la TV (HDMI-CEC / Google Home) -------------------------
@@ -137,7 +180,7 @@
     cortarSesion() { anotar('REMOTO cortarSesion', R.foto()); if (T.alCortar) T.alCortar(); },
     otroVideo() {
       anotar('REMOTO otroVideo');
-      R.msid++; R.media = { contentId: T.OTRO_VIDEO, contentUrl: T.OTRO_VIDEO, duration: 100 }; R.idleReason = null; R.fijar(0, 'PLAYING'); difundir();
+      R.msid++; R.media = { contentId: T.OTRO_VIDEO, contentUrl: T.OTRO_VIDEO, duration: 100 }; R.idleReason = null; R.activeTrackIds = []; R.fijar(0, 'PLAYING'); difundir();
     },
   };
 })();

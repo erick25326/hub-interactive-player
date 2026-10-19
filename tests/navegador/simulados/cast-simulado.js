@@ -12,6 +12,7 @@
 //   ajeno=1      …pero con OTRO video cargado
 //   inicio=300   cuánto tarda la sesión en arrancar después de elegir la TV
 //   nombre=…     friendlyName (se entrega escapado como HTML, como el SDK real)
+//   reanudarSubs=1  la sesión reanudada trae la pista de subtítulos prendida
 (() => {
   const T = window.__tv;
   const q = T.q;
@@ -26,6 +27,11 @@
   class LoadRequest { constructor(media) { this.type = 'LOAD'; this.media = media; this.autoplay = true; this.currentTime = null; this.playbackRate = 1; } }
   class SeekRequest { constructor() { this.currentTime = null; this.resumeState = null; } }
   class PlayRequest {} class PauseRequest {} class GetStatusRequest {}
+  // Las pistas de texto, como las del Web Sender SDK.
+  class Track { constructor(trackId, type) { this.trackId = trackId; this.type = type; this.trackContentId = null; this.trackContentType = null; this.subtype = null; this.name = null; this.language = null; this.customData = null; } }
+  class TextTrackStyle { constructor() { this.foregroundColor = null; this.backgroundColor = null; this.edgeType = null; this.edgeColor = null; this.windowType = null; this.windowColor = null; this.windowRoundedCornerRadius = null; this.fontScale = null; this.fontFamily = null; this.fontGenericFamily = null; this.fontStyle = null; this.customData = null; } }
+  class EditTracksInfoRequest { constructor(activeTrackIds, textTrackStyle) { this.activeTrackIds = activeTrackIds || null; this.textTrackStyle = textTrackStyle || null; } }
+  const copiar = (o) => (o ? JSON.parse(JSON.stringify(o)) : null);
   const escapar = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const unescape = (s) => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 
@@ -42,6 +48,13 @@
       StreamType: { BUFFERED: 'BUFFERED', LIVE: 'LIVE', OTHER: 'OTHER' },
       HlsSegmentFormat: { AAC: 'aac', AC3: 'ac3', MP3: 'mp3', TS: 'ts', TS_AAC: 'ts_aac', E_AC3: 'e_ac3', FMP4: 'fmp4' },
       HlsVideoSegmentFormat: { MPEG2_TS: 'mpeg2_ts', FMP4: 'fmp4' },
+      Track, TextTrackStyle, EditTracksInfoRequest,
+      TrackType: { TEXT: 'TEXT', AUDIO: 'AUDIO', VIDEO: 'VIDEO' },
+      TextTrackType: { SUBTITLES: 'SUBTITLES', CAPTIONS: 'CAPTIONS', DESCRIPTIONS: 'DESCRIPTIONS', CHAPTERS: 'CHAPTERS', METADATA: 'METADATA' },
+      TextTrackEdgeType: { NONE: 'NONE', OUTLINE: 'OUTLINE', DROP_SHADOW: 'DROP_SHADOW', RAISED: 'RAISED', DEPRESSED: 'DEPRESSED' },
+      TextTrackFontGenericFamily: { SANS_SERIF: 'SANS_SERIF', MONOSPACED_SANS_SERIF: 'MONOSPACED_SANS_SERIF', SERIF: 'SERIF', MONOSPACED_SERIF: 'MONOSPACED_SERIF', CASUAL: 'CASUAL', CURSIVE: 'CURSIVE', SMALL_CAPITALS: 'SMALL_CAPITALS' },
+      TextTrackFontStyle: { NORMAL: 'NORMAL', BOLD: 'BOLD', BOLD_ITALIC: 'BOLD_ITALIC', ITALIC: 'ITALIC' },
+      TextTrackWindowType: { NONE: 'NONE', NORMAL: 'NORMAL', ROUNDED_CORNERS: 'ROUNDED_CORNERS' },
     },
   };
 
@@ -51,7 +64,7 @@
 
   // ---- El celular (emisor) ------------------------------------------------------
   class Media {
-    constructor(s) { this._s = s; this.mediaSessionId = s.msid; this.media = s.media; this.playerState = s.estado; this.currentTime = s.t; this.playbackRate = s.rate; this.idleReason = s.idleReason || null; this._oy = []; this._h = performance.now(); }
+    constructor(s) { this._s = s; this.mediaSessionId = s.msid; this.media = s.media; this.playerState = s.estado; this.currentTime = s.t; this.playbackRate = s.rate; this.idleReason = s.idleReason || null; this.activeTrackIds = s.activeTrackIds || []; this._oy = []; this._h = performance.now(); }
     addUpdateListener(fn) { this._oy.push(fn); }
     removeUpdateListener(fn) { this._oy = this._oy.filter((x) => x !== fn); }
     getEstimatedTime() { return this.playerState === 'PLAYING' ? this.currentTime + (performance.now() - this._h) / 1000 * this.playbackRate : this.currentTime; }
@@ -61,8 +74,10 @@
     pause(req, ok, mal) { this._cmd(T.comando('pause', this.mediaSessionId), ok, mal); }
     getStatus(req, ok, mal) { this._cmd(T.comando('status', this.mediaSessionId), ok, mal); }
     seek(req, ok, mal) { this._cmd(T.saltar(this.mediaSessionId, req.currentTime, req.resumeState), ok, mal); }
+    editTracksInfo(req, ok, mal) { this._cmd(T.pistas(this.mediaSessionId, req && req.activeTrackIds), ok, mal); }
     _aplicar(s) {
       this.playerState = s.estado; this.currentTime = s.t; this.playbackRate = s.rate; this.idleReason = s.estado === 'IDLE' ? s.idleReason : null; this._h = performance.now();
+      if (Array.isArray(s.activeTrackIds)) this.activeTrackIds = s.activeTrackIds.slice();
       if (s.media && s.media.duration) this.media.duration = s.media.duration;
       const vivo = !(s.estado === 'IDLE' && s.idleReason);
       this._oy.slice().forEach((fn) => { try { fn(vivo); } catch (e) { console.error(e); } });
@@ -93,6 +108,7 @@
         contentId: m.contentId, contentType: m.contentType, hls: m.hlsSegmentFormat, hlsv: m.hlsVideoSegmentFormat,
         titulo: m.metadata && m.metadata.title, poster: !!(m.metadata && m.metadata.images && m.metadata.images[0]),
         t: req.currentTime, autoplay: req.autoplay, rate: req.playbackRate, media: { ...m },
+        tracks: copiar(m.tracks), estilo: copiar(m.textTrackStyle), activeTrackIds: Array.isArray(req.activeTrackIds) ? req.activeTrackIds.slice() : null,
       }, (s) => this._nuevaMedia(s));
     }
     _nuevaMedia(s) {
@@ -126,7 +142,7 @@
         this._reanudada = true;
         setTimeout(() => {
           sesion = new CastSession();
-          const s = T.prepararReanudada({ t: tr, pausado: !!q.get('reanudarPausado'), ajeno: !!q.get('ajeno') });
+          const s = T.prepararReanudada({ t: tr, pausado: !!q.get('reanudarPausado'), ajeno: !!q.get('ajeno'), subs: !!q.get('reanudarSubs') });
           sesion._media = new Media(s);
           this._estado = CS.CONNECTED;
           this._emitir('caststatechanged', { castState: CS.CONNECTED });
