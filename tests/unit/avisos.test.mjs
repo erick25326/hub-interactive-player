@@ -7,7 +7,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  frena, queSeViene, textoCuenta, ticsEntre, olvidarTics, cuentaRegresiva, umbralPaso, comoAvisar,
+  frena, queSeViene, textoCuenta, ticsEntre, ticAlto, olvidarTics, cuentaRegresiva, umbralPaso, comoAvisar,
   leerPreferencia, guardarPreferencia, AVISO_S, VIBRA_TIC, VIBRA_FRENO, OLVIDO_S, CLAVE_SONIDO, CLAVE_VIBRACION,
 } from '../../src/avisos.js';
 import { SEEK_MIN } from '../../src/candado.js';
@@ -38,17 +38,17 @@ function recorrer({ interactions = TODAS, desde, hasta, paso = 0.25, completed =
 }
 
 test('las constantes de los avisos son las acordadas con Erick', () => {
-  assert.deepEqual({ AVISO_S, VIBRA_TIC, VIBRA_FRENO, OLVIDO_S }, { AVISO_S: 3, VIBRA_TIC: 40, VIBRA_FRENO: [60, 40, 60], OLVIDO_S: 0.5 });
+  assert.deepEqual({ AVISO_S, VIBRA_TIC, VIBRA_FRENO, OLVIDO_S }, { AVISO_S: 5, VIBRA_TIC: 40, VIBRA_FRENO: [60, 40, 60], OLVIDO_S: 0.5 });
 });
 
 test('el reproductor usa los módulos de avisos, glosario y sonidos, sin copias propias', () => {
   const jsx = fs.readFileSync(new URL('../../src/InteractiveVideoPlayer.jsx', import.meta.url), 'utf8');
   assert.match(jsx, /import \{[^}]*\bticsEntre\b[^}]*\} from "\.\/avisos\.js"/);
-  assert.match(jsx, /import \{[^}]*\bterminosNuevos\b[^}]*\} from "\.\/glosario\.js"/);
+  assert.match(jsx, /import \{[^}]*\bterminosVisibles\b[^}]*\bterminosCruzados\b[^}]*\} from "\.\/glosario\.js"/);
   assert.match(jsx, /import \{[^}]*\bcrearSonidos\b[^}]*\} from "\.\/sonidos\.js"/);
   assert.match(jsx, /import \{[^}]*\bcomoAvisar\b[^}]*\} from "\.\/avisos\.js"/);
-  assert.match(jsx, /import \{[^}]*\bpausarAlAbrir\b[^}]*\breanudarAlCerrar\b[^}]*\} from "\.\/glosario\.js"/);
-  for (const f of ['ticsEntre', 'olvidarTics', 'cuentaRegresiva', 'terminosNuevos', 'entradas', 'crearSonidos', 'comoAvisar', 'cobertura', 'pausarAlAbrir', 'pasoATapar', 'reanudarAlCerrar']) {
+  assert.match(jsx, /import \{[^}]*\bmarcadores\b[^}]*\bretomarAlCerrar\b[^}]*\} from "\.\/glosario\.js"/);
+  for (const f of ['ticsEntre', 'olvidarTics', 'cuentaRegresiva', 'terminosVisibles', 'terminosCruzados', 'marcadores', 'crearSonidos', 'comoAvisar', 'retomarAlCerrar']) {
     assert.doesNotMatch(jsx, new RegExp(`function ${f}\\b|const ${f}\\s*=`), `${f} está definida otra vez en el JSX`);
   }
 });
@@ -66,15 +66,17 @@ describe('qué frena y qué se anuncia', () => {
   });
 });
 
-describe('ticsEntre: el tic-tac de los 3 segundos', () => {
-  test('reproduciendo: un tic a los 3, 2 y 1 s de cada una que frena, alto-bajo-alto', () => {
+describe('ticsEntre: el tic-tac de los 5 segundos', () => {
+  test('reproduciendo: un tic a los 5, 4, 3, 2 y 1 s de cada una que frena; alto el primero y el último', () => {
     const { tics } = recorrer({ desde: 0, hasta: 52 });
     const por = (id) => tics.filter((x) => x.id === id).map((x) => [x.restan, x.alto, +x.marca.toFixed(3)]);
-    assert.deepEqual(por('n10'), [[3, true, 7], [2, false, 8], [1, true, 9]]);
-    assert.deepEqual(por('mc20'), [[3, true, 17], [2, false, 18], [1, true, 19]]);
-    assert.deepEqual(por('vf30'), [[3, true, 27], [2, false, 28], [1, true, 29]]);
-    assert.deepEqual(por('hs40'), [[3, true, 37], [2, false, 38], [1, true, 39]]);
-    assert.deepEqual(por('x50'), [[3, true, 47], [2, false, 48], [1, true, 49]]);
+    const cinco = (l) => [[5, true, l - 5], [4, false, l - 4], [3, false, l - 3], [2, false, l - 2], [1, true, l - 1]];
+    assert.deepEqual(por('n10'), cinco(10));
+    assert.deepEqual(por('mc20'), cinco(20));
+    assert.deepEqual(por('vf30'), cinco(30));
+    assert.deepEqual(por('hs40'), cinco(40));
+    assert.deepEqual(por('x50'), cinco(50));
+    assert.deepEqual([5, 4, 3, 2, 1].map(ticAlto), [true, false, false, false, true]);
     assert.equal(tics.filter((x) => x.id === 'e15').length, 0, 'las etiquetas no hacen tic-tac');
   });
 
@@ -83,13 +85,13 @@ describe('ticsEntre: el tic-tac de los 3 segundos', () => {
       const { tics } = recorrer({ interactions: [MC], desde: 10, hasta: 19.99, paso });
       for (const x of tics) assert.ok(x.t >= x.marca - 1e-9 && x.t < x.marca + paso + 1e-9, `paso ${paso}: ${JSON.stringify(x)}`);
       // Con pasos de más de 1 s, dos marcas pueden caer en el mismo paso: suena una.
-      assert.ok(tics.length >= Math.min(3, Math.floor(3 / paso)), `paso ${paso}: ${tics.length} tics`);
+      assert.ok(tics.length >= Math.min(5, Math.floor(5 / paso)), `paso ${paso}: ${tics.length} tics`);
     }
   });
 
-  test('en tiempo de VIDEO: a 2× (ticks de 0,5 s) suenan los mismos tres, cada medio segundo de reloj', () => {
-    const { tics } = recorrer({ interactions: [MC], desde: 15, hasta: 19.9, paso: 0.5 });
-    assert.deepEqual(tics.map((x) => x.restan), [3, 2, 1]);
+  test('en tiempo de VIDEO: a 2× (ticks de 0,5 s) suenan los mismos cinco, cada medio segundo de reloj', () => {
+    const { tics } = recorrer({ interactions: [MC], desde: 14.5, hasta: 19.9, paso: 0.5 });
+    assert.deepEqual(tics.map((x) => x.restan), [5, 4, 3, 2, 1]);
   });
 
   test('llegar SALTANDO no avisa: un paso de más de 2 s, en pausa o hacia atrás no toca nada', () => {
@@ -120,13 +122,13 @@ describe('ticsEntre: el tic-tac de los 3 segundos', () => {
 
   test('una interacción puesta después del fin real avisa antes del fin (frena con el último tick)', () => {
     const tarde = { id: 'tarde', type: 'note', time: 80, data: {} };
-    // Frena en 78,67 (fin − 0,05): las marcas son 75,67, 76,67 y 77,67, no 77, 78 y 79.
+    // Frena en 78,67 (fin − 0,05): las marcas son 73,67 a 77,67, no 75 a 79.
     const xs = ticsEntre({ interactions: [tarde], completed: vacio(), triggered: vacio(), prev: 75.5, t: 75.8, reproduciendo: true, fin: 78.72 });
     assert.deepEqual(xs.map((x) => [x.restan, +x.marca.toFixed(2)]), [[3, 75.67]]);
     assert.equal(cuentaRegresiva(tarde, 77.8, 78.72), 1);
   });
 
-  test('dos que frenan a menos de 3 s: se anuncia sólo la PRÓXIMA, nunca las dos a la vez', () => {
+  test('dos que frenan a menos de 5 s: se anuncia sólo la PRÓXIMA, nunca las dos a la vez', () => {
     const nota7 = { id: 'n7', type: 'note', time: 7, data: {} };
     const vf9 = { id: 'vf9', type: 'true-false', time: 9, data: {} };
     const vf12 = { id: 'vf12', type: 'true-false', time: 12, data: {} };
@@ -152,9 +154,9 @@ describe('ticsEntre: el tic-tac de los 3 segundos', () => {
       if (xs.length) sonaron.push([xs[xs.length - 1].id, xs[xs.length - 1].restan, +t.toFixed(2)]);
       prev = t;
     }
-    // La nota: 3, 2, 1. El V/F de los 9: sólo el 1 (el 3 cayó en el aviso de la nota y
-    // el 2, en el paso en que la nota frenó). El de los 12: 3 (en 9, al frenar el de
-    // los 9, no suena), así que 2 y 1.
+    // La nota: 3, 2, 1 (el recorrido arranca en 3). El V/F de los 9: sólo el 1 (los
+    // anteriores cayeron en el aviso de la nota o en el paso en que frenó). El de los
+    // 12: 2 y 1 (sus marcas anteriores, en los avisos y frenos de los otros dos).
     assert.deepEqual(sonaron, [['n7', 3, 4], ['n7', 2, 5], ['n7', 1, 6], ['vf9', 1, 8], ['vf12', 2, 10], ['vf12', 1, 11]]);
   });
 
@@ -196,8 +198,10 @@ describe('cuentaRegresiva: el número que se ve', () => {
     assert.equal(cuentaRegresiva(MC, 19.01), 1);
     assert.equal(cuentaRegresiva(MC, 19.99), 1);
   });
-  test('fuera de los 3 segundos, nada: antes, al llegar o pasado', () => {
-    assert.equal(cuentaRegresiva(MC, 16.5), null);
+  test('fuera de los 5 segundos, nada: antes, al llegar o pasado', () => {
+    assert.equal(cuentaRegresiva(MC, 15), 5);
+    assert.equal(cuentaRegresiva(MC, 16.5), 4);
+    assert.equal(cuentaRegresiva(MC, 14.5), null);
     assert.equal(cuentaRegresiva(MC, 20), null);
     assert.equal(cuentaRegresiva(MC, 25), null);
     assert.equal(cuentaRegresiva(null, 18), null);

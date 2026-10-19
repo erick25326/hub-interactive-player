@@ -1,5 +1,5 @@
 // Los AVISOS de las interacciones que frenan (src/avisos.js + src/sonidos.js) con el
-// reproductor de verdad: el tic-tac de los 3 segundos antes, la cuenta regresiva, el
+// reproductor de verdad: el tic-tac de los 5 segundos antes, la cuenta regresiva, el
 // "plop" al frenar y la vibración. Web Audio y navigator.vibrate son de mentira
 // (simulados/sonido-simulado.js, ?sonido=simulado): anotan cada sonido con el segundo
 // del VIDEO en que salió, cada vibración y la cuenta que se vio. Lo puro (qué tic
@@ -8,9 +8,9 @@
 // se repita al volver para atrás, que los ajustes del alumno lo apaguen, que el silencio
 // del video calle los sonidos y no la vibración, y que siga en el celular transmitiendo
 // a la TV.
-// Interacciones (?ias=glosario): nota7 (tics en 4, 5, 6), mc15 (12, 13, 14), hs22
-// (19, 20, 21), tf40; etiquetas en 2, 10, 18 y 32 (sin tic). Con ?ias=juntas: nota7 y
-// tf9 (a menos de 3 s) y una etiqueta en 9, el mismo segundo que el V/F.
+// Interacciones (?ias=glosario): nota7 (tics en 2 a 6), mc15 (10 a 14), hs22 (17 a 21),
+// tf40; etiquetas en 2, 10, 18 y 32 (sin tic). Con ?ias=juntas: nota7 y tf9 (a menos
+// de 5 s) y una etiqueta en 9, el mismo segundo que el V/F.
 import { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { paso } from '../apoyo/entorno.mjs';
@@ -56,10 +56,10 @@ export async function clicBarra(p, seg) {
   await p.cdp.cmd('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y: r.y, button: 'left', clickCount: 1 });
 }
 
-// Los tres tics de una pendiente: alto-bajo-alto, cada uno al cruzar su marca (entre la
-// marca y un tick después: a 2× el tick es de ~0,5 s de video).
-export function tresTics(lista, marcas, tolerancia) {
-  assert.deepEqual(lista.map((o) => o.que), ['tic-alto', 'tic-bajo', 'tic-alto'], `tic-tac: ${JSON.stringify(lista)}`);
+// Los cinco tics de una pendiente: alto, bajo, bajo, bajo, alto, cada uno al cruzar su
+// marca (entre la marca y un tick después: a 2× el tick es de ~0,5 s de video).
+export function cincoTics(lista, marcas, tolerancia) {
+  assert.deepEqual(lista.map((o) => o.que), ['tic-alto', 'tic-bajo', 'tic-bajo', 'tic-bajo', 'tic-alto'], `tic-tac: ${JSON.stringify(lista)}`);
   lista.forEach((o, i) => assert.ok(o.t != null && o.t >= marcas[i] - 0.05 && o.t <= marcas[i] + tolerancia,
     `el tic ${i + 1} tenía que sonar al cruzar ${marcas[i]} s de video: ${JSON.stringify(lista)}`));
 }
@@ -70,31 +70,22 @@ export function registrar(entorno) {
   // avisos lo prueba glosario.mjs ("sin transmitir, como antes"); lo puro (qué tic
   // toca en cada paso, el silencio, los ajustes) lo prueban las unitarias de avisos.js.
   describe('avisos de las interacciones que frenan, transmitiendo (tic-tac, cuenta, plop y vibración)', () => {
-    paso(entorno, 'transmitiendo a la TV: los tics, el plop y la vibración salen en el celular, y el glosario se abre sobre el cartel de la TV', async () => {
+    paso(entorno, 'transmitiendo a la TV: los tics, el plop y la vibración salen en el celular, y el término entra arriba en el glosario en vivo', async () => {
       await abrirConTV(p, 'web', { query: { ...Q, lat: '120' }, progreso: { completed: [], currentTime: 0.3 }, esperarEn: 0.3 });
       await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
       await p.reproducir();
       await p.clic('.iv-tv-btn');
       await p.debe(`/^Reproduciendo en/.test(A.estado().capa || '') && window.__tv.receptor.estado === 'PLAYING'`, 10000, 'no se conectó');
-      // El término de los 2 s: plop suave en el celular y el aviso, encima del cartel.
-      await p.debe(`/Data Link/.test(D.querySelector('.iv-glosario-aviso')?.textContent || '')`, 8000, 'no apareció el aviso del glosario transmitiendo');
-      await p.clic('.iv-glosario-aviso');
-      await p.debe(`!!D.querySelector('.iv-glosario')`, 3000, 'el aviso no abrió el glosario');
-      const encima = await p.a(`(() => {
-        const g = D.querySelector('.iv-glosario').getBoundingClientRect();
-        const h = D.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2);
-        return { capa: !!D.querySelector('.iv-tv-capa'), enPanel: !!(h && h.closest('.iv-glosario')), abierto: D.querySelector('[data-termino="data-link"] button')?.getAttribute('aria-expanded') };
-      })()`);
-      assert.deepEqual(encima, { capa: true, enPanel: true, abierto: 'true' }, 'el panel queda encima del cartel de la TV, en el término del aviso');
-      // La nota de los 7: el freno es en la TV, los avisos en el celular (el panel se cierra).
+      // El término de los 2 s: plop suave en el celular y entra arriba, como el más nuevo.
+      await p.debe(`D.querySelector('.iv-gv-fila.nuevo')?.dataset.termino === 'data-link'`, 8000, 'no apareció Data Link en el glosario en vivo');
+      // La nota de los 7: el freno es en la TV, los avisos en el celular.
       await p.debe(`A.tarjeta()?.id === 'nota7'`, 15000, 'no frenó en la nota de los 7 transmitiendo');
       await dormir(300);
       const S = await sonidos(p);
-      tresTics(tics(S), [4, 5, 6], 0.7);
+      cincoTics(tics(S), [2, 3, 4, 5, 6], 0.7);
       assert.equal(de(S, 'plop').length, 1);
       assert.equal(de(S, 'suave').length, 1, 'el plop suave del término');
-      assert.deepEqual(patrones(S), ['40', '40', '40', FRENO]);
-      assert.equal(await p.a(`!!D.querySelector('.iv-glosario')`), false, 'la nota cierra el panel');
+      assert.deepEqual(patrones(S), ['40', '40', '40', '40', '40', FRENO]);
       const e = await p.estado();
       assert.equal(e.tv && e.tv.estado, 'PAUSED', `la TV quedó frenada en la nota: ${JSON.stringify(e.tv)}`);
     }, { timeout: 90000 });
@@ -109,9 +100,9 @@ export function registrar(entorno) {
       await dormir(300);
       const S = await sonidos(p);
       assert.deepEqual(S.contextos.map((c) => c.enGesto), [true], `el toque de la TV crea el AudioContext: ${JSON.stringify(S.contextos)}`);
-      tresTics(tics(S), [12, 13, 14], 0.7);
+      cincoTics(tics(S), [10, 11, 12, 13, 14], 0.7);
       assert.equal(de(S, 'plop').length, 1);
-      assert.deepEqual(patrones(S), ['40', '40', '40', FRENO]);
+      assert.deepEqual(patrones(S), ['40', '40', '40', '40', '40', FRENO]);
     }, { timeout: 60000 });
   });
 }

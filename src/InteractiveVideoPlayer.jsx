@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, Fragment } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useId, Fragment } from "react";
 import Player from "@vimeo/player";
 import NativePlayer from "./nativePlayer.js";
 import { Renovador, recargarParaReintentar } from "./firma.js";
@@ -12,11 +12,11 @@ import { debeFrenar, tiempoAGuardar, esTickPropio, pendienteARetomar } from "./c
 import { parseVTT } from "./subtitulos.js";
 // La config por defecto (sin video) y la de window.PLAYER_CONFIG: ver configuracion.js.
 import { getConfig, hayVideo } from "./configuracion.js";
-// Los avisos de las interacciones que frenan (tic-tac de 3 s, cuenta regresiva, "plop"
-// y vibración) y el glosario interactivo de las etiquetas: las decisiones son puras y
+// Los avisos de las interacciones que frenan (tic-tac de 5 s, cuenta regresiva, "plop"
+// y vibración) y el glosario en vivo de las etiquetas: las decisiones son puras y
 // viven aparte (tests/unit/avisos.test.mjs, glosario.test.mjs). Los sonidos, Web Audio.
 import { ticsEntre, olvidarTics, cuentaRegresiva, textoCuenta, queSeViene, comoAvisar, VIBRA_TIC, VIBRA_FRENO, CLAVE_SONIDO, CLAVE_VIBRACION, leerPreferencia, guardarPreferencia } from "./avisos.js";
-import { terminosNuevos, entradas as entradasDelGlosario, hayGlosario, totalPosible, cobertura, pausarAlAbrir, pasoATapar, reanudarAlCerrar, RECIEN_MS, AVISO_MS } from "./glosario.js";
+import { terminosVisibles, terminosCruzados, hayTerminos, marcadores, retomarAlCerrar, TOAST_MS, ENTRADA_MS } from "./glosario.js";
 import { crearSonidos, vibracionPosible } from "./sonidos.js";
 // La tarjeta de fin del video (la próxima lección del campus y "Volver a ver"): lo puro.
 import { leerBarraDelTema, destinoDeFin, leccionCompletada, textosDeFin } from "./finVideo.js";
@@ -47,8 +47,10 @@ const ReplayIcon = () => <svg aria-hidden="true" focusable="false" width="18" he
 // Transmitir a la TV: el mismo ícono para Chromecast y AirPlay (un solo botón).
 const CastIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"/></svg>;
 const CastOnIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm18-7H5v1.63c3.96 1.28 7.09 4.41 8.37 8.37H19V7zM1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>;
-// Glosario: un libro abierto.
-const GlosarioIcon = () => <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M21 5c-1.11-.35-2.33-.5-3.5-.5-1.95 0-4.05.4-5.5 1.5-1.45-1.1-3.55-1.5-5.5-1.5S2.45 4.9 1 6v14.65c0 .25.25.5.5.5.1 0 .15-.05.25-.05C3.1 20.45 5.05 20 6.5 20c1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.3 4.75 1.05.1.05.15.05.25.05.25 0 .5-.25.5-.5V6c-.6-.45-1.25-.75-2-1zm0 13.5c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V8c1.35-.85 3.8-1.5 5.5-1.5 1.2 0 2.4.15 3.5.5v11.5z"/></svg>;
+// Glosario en vivo (diseño con íconos Lucide, trazo 2): transmitir, plegar y volver.
+const LucideCast = () => <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a9 9 0 0 1 8 8"/><path d="M2 16a5 5 0 0 1 4 4"/><line x1="2" x2="2.01" y1="20" y2="20"/></svg>;
+const ChevronIcon = () => <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>;
+const VolverIcon = () => <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>;
 
 // El localStorage puede tirar al leerlo (modo privado, datos bloqueados): las
 // preferencias del alumno lo piden por acá y, sin él, valen "sí".
@@ -332,8 +334,11 @@ function LabelOverlay({ interactions, currentTime, playerRef }) {
 
 const TYPE_COLORS = { note:"#84F4BE", "multiple-choice":"#0162F5", "true-false":"#14CCF7", hotspot:"#F59E0B", label:"#14CCF7" };
 
-function TimelineMarkers({ interactions, duration }) {
+function TimelineMarkers({ interactions, duration, vivo, currentTime }) {
   if(!duration) return null;
+  // Glosario en vivo: términos = rayitas, lo que frena = cuadraditos; lo ya pasado en
+  // cyan (términos) o blanco, lo que viene translúcido (src/glosario.js: marcadores).
+  if(vivo) return <>{marcadores(interactions,currentTime,duration).map(m=><div key={m.id} className={`iv-gv-marca ${m.tipo} ${m.visto?'visto':''}`} style={{left:`${m.left}%`}}/>)}</>;
   return <>{interactions.map(ia=><div key={ia.id} className="iv-timeline-marker" style={{left:`${(ia.time/duration)*100}%`,background:TYPE_COLORS[ia.type]||"#fff"}}/>)}</>;
 }
 
@@ -552,34 +557,28 @@ function Reproductor() {
     if (c.vibra) s.vibrar(que === 'tic' ? VIBRA_TIC : VIBRA_FRENO);
   };
 
-  // ─── Glosario interactivo (src/glosario.js) ────────────────────────
+  // ─── Glosario en vivo (src/glosario.js) ────────────────────────────
   // Modo de las etiquetas de la actividad (mod_ivplayer → PLAYER_CONFIG.etiquetas):
   // 'glosario' (por defecto) o 'pantalla' (los pines sobre el video, como hasta la
-  // 1.4.0, de respaldo). En pantalla no hay glosario: el reproductor es el de antes.
-  // Sin transmitir, siempre en pantalla (ver enTV).
-  const modoGlosario = enTV && etiquetas !== 'pantalla';
-  const conGlosario = modoGlosario && hayGlosario(interactions);
-  const totalGlosario = useMemo(() => totalPosible(interactions), [interactions]);
-  const nombradosRef = useRef(new Set());
-  const [nombrados, setNombrados] = useState(() => new Set());
-  const [recienes, setRecienes] = useState({});          // id → hasta cuándo dice "recién"
-  const [avisoGlosario, setAvisoGlosario] = useState(null);   // { id, nombre }: "Nuevo en el glosario: …"
-  const avisoGlosarioTimer = useRef(null);
-  const [anuncioPanel, setAnuncioPanel] = useState('');   // lo mismo con el panel abierto, sólo para el lector de pantalla
-  const anuncioPanelTimer = useRef(null);
-  const [latido, setLatido] = useState(0);               // cambia → el contador late UNA vez
-  const [glosarioAbierto, setGlosarioAbiertoEstado] = useState(false);
-  const glosarioRef = useRef(false);
-  const setGlosarioAbierto = useCallback((v) => { glosarioRef.current = v; setGlosarioAbiertoEstado(v); }, []);
-  const [expandidos, setExpandidos] = useState(() => new Set());
-  const glosarioBtnRef = useRef(null);
-  const glosarioPanelRef = useRef(null);
-  // true mientras la pausa vigente la puso el glosario al abrirse (tapaba el video):
-  // cerrarlo la retoma. Ver el efecto de "El panel que tapa el video".
-  const pausaGlosarioRef = useRef(false);
-  const enfocarTerminoRef = useRef(null);
-  const moverFocoGlosarioRef = useRef(false);
-  const idGlosario = useId();
+  // 1.4.0, de respaldo). Sin transmitir, siempre en pantalla (ver enTV). Transmitiendo
+  // en modo glosario, la pantalla "Glosario en vivo" reemplaza al cartel de la TV: la
+  // lista de los términos ya nombrados SALE DEL TIEMPO (terminosVisibles), no se acumula.
+  const vivo = enTV && etiquetas !== 'pantalla';
+  const vivoRef = useRef(vivo); vivoRef.current = vivo;
+  const conTerminos = useMemo(() => hayTerminos(interactions), [interactions]);
+  // El término abierto (uno a la vez) y el que está entrando (anima su llegada).
+  const [expandido, setExpandidoEstado] = useState(null);
+  const expandidoRef = useRef(null);
+  const setExpandido = useCallback((v) => { expandidoRef.current = v; setExpandidoEstado(v); }, []);
+  const [entrando, setEntrando] = useState(null);
+  const entrandoTimer = useRef(null);
+  const [anuncioTermino, setAnuncioTermino] = useState('');   // para el lector de pantalla
+  const [toastVivo, setToastVivo] = useState('');            // "Volviendo a M:SS en la TV"
+  const toastVivoTimer = useRef(null);
+  // true mientras la pausa vigente la puso expandir un término: plegarlo retoma la TV
+  // (retomarAlCerrar). La apaga cualquier play o pausa del alumno en el medio.
+  const pausaTerminoRef = useRef(false);
+  const idVivo = useId();
 
   // Parse Vimeo ID and hash from various URL formats
   const vimeoData = useMemo(()=>{
@@ -717,10 +716,10 @@ function Reproductor() {
       // Volvió a reproducir (Volver a ver, el play después de cerrar la tarjeta, o uno de
       // afuera: auriculares, la pantalla de bloqueo): la tarjeta de fin se va.
       soltarFinRef.current();
-      // Alguien lo puso a andar con el glosario abierto (el alumno, los auriculares, la
-      // pantalla de bloqueo): la pausa ya no es del glosario y cerrarlo no la retoma,
-      // aunque en el medio lo vuelvan a pausar (ver reanudarAlCerrar).
-      pausaGlosarioRef.current=false;
+      // Alguien la puso a andar con un término abierto (el alumno, el control remoto, la
+      // pantalla de bloqueo): la pausa ya no es del término y plegarlo no la retoma,
+      // aunque en el medio la vuelvan a pausar (ver retomarAlCerrar).
+      pausaTerminoRef.current=false;
       setPlaying(true);
       // Moodle móvil: el gesto nunca llega al iframe de Vimeo (pointer-events:
       // none) y el navegador fuerza arranque muteado; el ícono decía "sonido
@@ -940,37 +939,20 @@ function Reproductor() {
     // Frenó en este mismo paso (el efecto de disparo va antes y ya puso la tarjeta,
     // aunque activeIA de este render siga en null): el plop del freno es el único sonido.
     const frenando=!!(activeIA||activeIARef.current);
-    if(conGlosario){
-      const nuevos=terminosNuevos({interactions,nombrados:nombradosRef.current,prev,t,reproduciendo,velocidad:speed});
-      if(nuevos.length){
-        const sig=new Set(nombradosRef.current);
-        nuevos.forEach(n=>sig.add(n.id));
-        nombradosRef.current=sig;
-        setNombrados(sig);
-        // Los que se cruzaron reproduciendo: "plop" suave (sin vibrar), "recién" unos
-        // segundos, el contador late una vez y, con el panel cerrado, el aviso. Los que
-        // quedaron atrás en un salto se suman callados.
-        const oidos=nuevos.filter(n=>n.sonido);
-        if(oidos.length){
-          // Una etiqueta en el mismo segundo que una pregunta: se suma (con "recién" y
-          // el latido) sin su plop suave encima del plop del freno.
-          if(!frenando) avisarRef.current('suave');
-          const hasta=Date.now()+RECIEN_MS;
-          setRecienes(r=>{ const x={...r}; oidos.forEach(n=>{ x[n.id]=hasta; }); return x; });
-          setLatido(n=>n+1);
-          const n=oidos[oidos.length-1];
-          if(!glosarioRef.current&&!activeIARef.current){
-            clearTimeout(avisoGlosarioTimer.current);
-            setAvisoGlosario({id:n.id,nombre:n.nombre});
-            avisoGlosarioTimer.current=setTimeout(()=>setAvisoGlosario(null),AVISO_MS);
-          } else if(glosarioRef.current&&!activeIARef.current){
-            // Con el panel abierto no hay aviso a la vista, pero el lector de pantalla
-            // se tiene que enterar igual (la lista cambia sin mover el foco).
-            clearTimeout(anuncioPanelTimer.current);
-            setAnuncioPanel(`Nuevo en el glosario: ${n.nombre}`);
-            anuncioPanelTimer.current=setTimeout(()=>setAnuncioPanel(''),AVISO_MS);
-          }
-        }
+    // Glosario en vivo: los términos que aparecen REPRODUCIENDO suenan con el plop suave
+    // (sin vibrar), entran animados y se anuncian. Los que trae un salto, callados: la
+    // lista sale del tiempo igual (terminosVisibles, en el render).
+    if(vivoRef.current){
+      const cruzados=terminosCruzados({interactions,prev,t,reproduciendo,velocidad:speed});
+      if(cruzados.length){
+        // Una etiqueta en el mismo segundo que una pregunta: entra sin su plop suave
+        // encima del plop del freno.
+        if(!frenando) avisarRef.current('suave');
+        const n=cruzados[cruzados.length-1];
+        clearTimeout(entrandoTimer.current);
+        setEntrando(n.id);
+        entrandoTimer.current=setTimeout(()=>setEntrando(null),ENTRADA_MS+80);
+        setAnuncioTermino(`Nuevo término: ${cruzados.map(x=>x.nombre).join(', ')}`);
       }
     }
     // Tic-tac. Volver antes de la marca de un tic (un salto hacia atrás, Reiniciar) lo
@@ -991,21 +973,9 @@ function Reproductor() {
       setCuenta({id:x.id,ia:x.ia});
       setAvisoCuenta(`${textoCuenta(x.ia)} en ${x.restan} ${x.restan===1?'segundo':'segundos'}.`);
     }
-  },[currentTime,ready,activeIA,completed,interactions,conGlosario,enTV]);
-  // Se cortó la transmisión con el glosario abierto: se cierra (y no vuelve a aparecer
-  // abierto en la próxima).
-  useEffect(()=>{ if(!conGlosario&&glosarioRef.current) setGlosarioAbierto(false); },[conGlosario,setGlosarioAbierto]);
+  },[currentTime,ready,activeIA,completed,interactions,enTV]);
   // Lo que dice la cuenta regresiva en este render (null: no se ve).
   const restanCuenta=cuenta&&!activeIA?cuentaRegresiva(cuenta.ia,currentTime,finRef.current):null;
-
-  // "recién" se apaga solo: un temporizador hasta el próximo vencimiento.
-  useEffect(()=>{
-    const ids=Object.keys(recienes);
-    if(!ids.length) return;
-    const prox=Math.min(...ids.map(k=>recienes[k]));
-    const h=setTimeout(()=>setRecienes(r=>{ const ahora=Date.now(), x={}; for(const k in r) if(r[k]>ahora) x[k]=r[k]; return x; }),Math.max(0,prox-Date.now())+20);
-    return()=>clearTimeout(h);
-  },[recienes]);
 
   // Gesto o botón de ATRÁS con la pantalla completa simulada (iPhone, página
   // suelta): cierra la pantalla completa como en YouTube en vez de irse de la
@@ -1057,7 +1027,7 @@ function Reproductor() {
     // Try native Fullscreen API on the wrapper (desktop/Android/standalone)
     try{
       if(!document.fullscreenElement&&!document.webkitFullscreenElement&&!fakeFS){
-        if(el.requestFullscreen) { await el.requestFullscreen({navigationUI:'hide'}); bloquearHorizontal(); return; }
+        if(el.requestFullscreen) { await el.requestFullscreen({navigationUI:'hide'}); if(!tvRef.current) bloquearHorizontal(); return; }
         if(el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); return; }
       } else if(document.fullscreenElement||document.webkitFullscreenElement){
         soltarHorizontal();
@@ -1188,11 +1158,6 @@ function Reproductor() {
         if(e.key==='Escape'){ e.preventDefault(); cerrarMenuRef.current(true); }
         return;   // con el menú abierto las teclas son del menú (Tab, Enter, espacio)
       }
-      // Lo mismo con el glosario abierto: Escape lo cierra y el resto es del panel.
-      if(glosarioRef.current){
-        if(e.key==='Escape'){ e.preventDefault(); cerrarGlosarioRef.current(true); }
-        return;
-      }
       // La tarjeta de fin: Escape la cierra (el video queda en el final) y el resto de las
       // teclas son de sus botones (Tab, Enter, espacio).
       if(tarjetaFinRef.current){
@@ -1211,7 +1176,7 @@ function Reproductor() {
         case 'ArrowUp': e.preventDefault(); changeVolume(Math.min(1,volume+0.1)); break;
         case 'ArrowDown': e.preventDefault(); changeVolume(Math.max(0,volume-0.1)); break;
         // Transmitiendo no se entra a pantalla completa (el video está en la TV).
-        case 'f': case 'F': if(!tv) toggleFS(); break;
+        case 'f': case 'F': if(!tv||vivo) toggleFS(); break;
         case 'm': case 'M': toggleMute(); break;
         case 'c': case 'C': toggleSubs(); break;
       }
@@ -1338,15 +1303,15 @@ function Reproductor() {
 
   // Con el menú de Ajustes abierto los controles no se ocultan: el menú cuelga del
   // engranaje y se desvanecía con la barra (lo hacía el viejo menú de velocidad).
-  // Lo mismo con el glosario abierto.
+  // Transmitiendo con el glosario en vivo, siempre a la vista: la pantalla es el control.
   const resetCtrl = useCallback(()=>{
     setShowCtrl(true); clearTimeout(ctrlTimer.current);
-    if(playing&&!activeIA&&!menuRef.current&&!glosarioRef.current) ctrlTimer.current=setTimeout(()=>setShowCtrl(false), fakeFS?2500:3000);
+    if(playing&&!activeIA&&!menuRef.current&&!vivoRef.current) ctrlTimer.current=setTimeout(()=>setShowCtrl(false), fakeFS?2500:3000);
   },[playing,activeIA,fakeFS]);
 
   // Auto-hide controls when playing starts or fullscreen changes
   useEffect(()=>{
-    if(playing&&!activeIA&&!menu&&!glosarioAbierto){
+    if(playing&&!activeIA&&!menu&&!vivo){
       clearTimeout(ctrlTimer.current);
       ctrlTimer.current=setTimeout(()=>setShowCtrl(false), fakeFS?2500:3000);
     } else {
@@ -1354,7 +1319,7 @@ function Reproductor() {
       clearTimeout(ctrlTimer.current);
     }
     return()=>clearTimeout(ctrlTimer.current);
-  },[playing,activeIA,fakeFS,menu,glosarioAbierto]);
+  },[playing,activeIA,fakeFS,menu,vivo]);
 
   // ─── Menú de Ajustes ───────────────────────────────────────────
   // Transmitiendo no se ofrece Calidad: la elige la TV (ABR del receptor o del
@@ -1368,8 +1333,10 @@ function Reproductor() {
   // un aviso que explica qué pasa. Con Vimeo no se ofrece nada.
   const tvBoton=!!nativeSrc;
   // Transmitiendo no hay botón de pantalla completa (ni de girar), salvo que siga
-  // en pantalla completa: ahí el de SALIR no se esconde nunca.
-  const fsVisible=!tv||isFS||fakeFS;
+  // en pantalla completa: ahí el de SALIR no se esconde nunca. Con el glosario en vivo
+  // sí (ocupa el lugar del viejo botón del glosario): en el celular parado el iframe
+  // mide ~375×211 y la pantalla completa le da el alto entero a la lista.
+  const fsVisible=!tv||vivo||isFS||fakeFS;
   // Sin el de pantalla completa sobra lugar: el de la TV entra también a ≤340 px.
   const tvSiempre=!!tv&&!(isFS||fakeFS);
   // En la pantalla completa NATIVA el wrapper es el elemento :fullscreen y la regla del
@@ -1420,7 +1387,6 @@ function Reproductor() {
     const ancho=containerRef.current?containerRef.current.clientWidth:Infinity;
     const enMenu=tvBoton&&!tvSiempre&&ancho<=anchoTvEnMenu;
     setTvEnMenu(enMenu);
-    if(glosarioRef.current) setGlosarioAbierto(false);
     // Siempre en la vista principal: ahí están también "Sonidos de aviso" y "Vibración"
     // (antes, sin calidades ni TV en el menú, se abría directo en Velocidad).
     irAMenu('principal');
@@ -1473,84 +1439,61 @@ function Reproductor() {
     if(v){ sonidosRef.current.desbloquear({audio:sonidoOnRef.current}); sonidosRef.current.vibrar(VIBRA_TIC); }
   };
 
-  // ─── Glosario: el panel ────────────────────────────────────────
-  // Encima del video, adentro del contenedor (así vale en pantalla completa, en el
-  // iframe del campus y en hub-app): lateral derecho si el reproductor es ancho, hoja
-  // de abajo si es angosto (ver .iv-glosario-capa en styles.css). Se cierra con la X,
-  // Escape o tocando afuera; una pregunta o un error lo cierran. `enfocar`: el id del
-  // término a mostrar abierto (el del aviso "Nuevo en el glosario").
-  const listaGlosario=useMemo(()=>conGlosario?entradasDelGlosario({interactions,nombrados,completed}):[],[conGlosario,interactions,nombrados,completed]);
-  const abrirGlosario=(enfocar)=>{
-    if(activeIARef.current||tarjetaFinRef.current||videoError) return;
-    if(menuRef.current) setMenu(null);
-    clearTimeout(avisoGlosarioTimer.current);
-    setAvisoGlosario(null);
-    if(enfocar) setExpandidos(s=>new Set([...s,enfocar]));
-    // El foco va al panel sólo si venía del botón (teclado, o el clic de escritorio) o
-    // desde el aviso; un toque en el botón no enfoca nada y así se queda.
-    const a=document.activeElement;
-    moverFocoGlosarioRef.current=!!enfocar||(!!a&&a===glosarioBtnRef.current);
-    enfocarTerminoRef.current=enfocar||null;
-    setGlosarioAbierto(true);
+  // ─── Glosario en vivo: la lista, expandir y "Ver en el video" ─────────
+  // La lista sale del tiempo (src/glosario.js): visibles = etiquetas con su segundo ya
+  // pasado, la más nueva arriba. Expandir un término PAUSA la TV y plegarlo la retoma
+  // (retomarAlCerrar); uno abierto a la vez. "Ver en el video" lleva la TV a ese segundo
+  // por el mismo camino que la transcripción (seekExterno: respeta el candado; un salto
+  // para atrás no vuelve a mostrar lo respondido) y deja el término abierto: la TV queda
+  // quieta en ese cuadro hasta plegarlo.
+  const listaVivo=useMemo(()=>vivo?terminosVisibles(interactions,currentTime):[],[vivo,interactions,currentTime]);
+  const plegarTermino=(retomar)=>{
+    const volver=retomar&&retomarAlCerrar({pausoElTermino:pausaTerminoRef.current,
+      pregunta:!!(activeIARef.current||tarjetaFinRef.current),error:!!videoError});
+    pausaTerminoRef.current=false;
+    setExpandido(null);
+    if(volver) safePlay();
   };
-  const cerrarGlosario=(devolverFoco)=>{
-    const a=document.activeElement;
-    const adentro=!!a&&!!glosarioPanelRef.current?.contains(a);
-    setGlosarioAbierto(false);
-    if(devolverFoco||adentro){ try{ glosarioBtnRef.current?.focus({preventScroll:true}); }catch(e){} }
-  };
-  const cerrarGlosarioRef=useRef(cerrarGlosario);
-  cerrarGlosarioRef.current=cerrarGlosario;
-  const alternarTermino=(id)=>setExpandidos(s=>{ const x=new Set(s); if(x.has(id)) x.delete(id); else x.add(id); return x; });
-  useEffect(()=>{
-    if(!glosarioAbierto) return;
-    const panel=glosarioPanelRef.current; if(!panel) return;
-    const id=enfocarTerminoRef.current;
-    enfocarTerminoRef.current=null;
-    // El término del aviso, a la vista (a mano y no con scrollIntoView, que además
-    // desplaza la página del campus).
-    const fila=id!=null?[...panel.querySelectorAll('[data-termino]')].find(el=>el.dataset.termino===id):null;
-    const lista=panel.querySelector('.iv-glosario-lista');
-    if(fila&&lista&&lista.scrollHeight>lista.clientHeight+1){
-      const arriba=fila.offsetTop, abajo=arriba+fila.offsetHeight;   // relativos a la lista (position: relative)
-      if(abajo>lista.scrollTop+lista.clientHeight) lista.scrollTop=abajo-lista.clientHeight+6;
-      else if(arriba<lista.scrollTop) lista.scrollTop=Math.max(0,arriba-6);
+  const alternarTermino=(id)=>{
+    if(expandidoRef.current===id){ plegarTermino(true); return; }
+    // Pasar de un término abierto a otro: la pausa sigue siendo del glosario.
+    if(expandidoRef.current==null){
+      const p=playerRef.current;
+      if(p&&playingRef.current&&!activeIARef.current){ pausaTerminoRef.current=true; playIntentRef.current=null; p.pause(); }
     }
-    if(!moverFocoGlosarioRef.current) return;
-    moverFocoGlosarioRef.current=false;
-    const destino=(fila&&fila.querySelector('button'))||panel.querySelector('.iv-glosario-termino button, .iv-glosario-cerrar');
-    try{ destino?.focus({preventScroll:true}); }catch(e){}
-  },[glosarioAbierto]);
-  // Un toque o clic afuera lo cierra (como el menú). La capa de toques lo cierra ella
-  // misma y SIN pausar (handleTouchEnd / handleClickLayer); el botón y el aviso, también.
+    setExpandido(id);
+  };
+  const verEnElVideo=(e)=>{
+    if(activeIARef.current) return;
+    seekExternoRef.current?.(e.time,{sinPlay:true});
+    clearTimeout(toastVivoTimer.current);
+    setToastVivo(`Volviendo a ${fmt(e.time)} en la TV`);
+    toastVivoTimer.current=setTimeout(()=>setToastVivo(''),TOAST_MS);
+  };
+  // El término abierto dejó de estar en la lista (se volvió para atrás con la barra,
+  // Reiniciar) o se cortó la transmisión: se pliega sin retomar (lo movió otro).
   useEffect(()=>{
-    if(!glosarioAbierto) return;
-    const h=(e)=>{
-      const t=e.target;
-      if(glosarioPanelRef.current?.contains(t)||glosarioBtnRef.current?.contains(t)) return;
-      if(t?.closest?.('.iv-glosario-aviso')) return;
-      if(t?.classList?.contains('iv-click-layer')) return;
-      // 🔴 El botón de reproducir decide él: si cerrar retomara el video que pausó el
-      // glosario, el clic que viene detrás lo encontraba andando y lo pausaba. También
-      // el GRANDE (a la vista si, pausado por el glosario, el celular se acuesta y el
-      // panel pasa al costado): al retomar desaparece bajo el dedo y el clic del toque
-      // caía en la capa de toques, que lo volvía a pausar.
-      if(playBtnRef.current?.contains(t)||t?.closest?.('.iv-big-play')) pausaGlosarioRef.current=false;
-      setGlosarioAbierto(false);
-    };
-    document.addEventListener('pointerdown',h,true);
-    return()=>document.removeEventListener('pointerdown',h,true);
-  },[glosarioAbierto]);
-  useEffect(()=>{ if(activeIA||videoError){ setGlosarioAbierto(false); setAvisoGlosario(null); } },[activeIA,videoError]);
-  useEffect(()=>()=>{ clearTimeout(avisoGlosarioTimer.current); clearTimeout(anuncioPanelTimer.current); },[]);
+    if(expandido!=null&&!listaVivo.some(x=>x.id===expandido)) plegarTermino(false);
+  },[expandido,listaVivo]);
+  // Una pregunta, una nota, la tarjeta de fin o un error: el término se pliega sin
+  // retomar (la TV la frenó otro).
+  useEffect(()=>{ if((activeIA||videoError||tarjetaFin)&&expandidoRef.current!=null) plegarTermino(false); },[activeIA,videoError,tarjetaFin]);
+  useEffect(()=>()=>{ clearTimeout(entrandoTimer.current); clearTimeout(toastVivoTimer.current); },[]);
+  // El término que se abre, a la vista en la lista (en el iframe con el celular parado la
+  // lista mide ~100 px): a mano y no con scrollIntoView, que desplaza la página del campus.
+  useEffect(()=>{
+    if(expandido==null) return;
+    const lista=containerRef.current?.querySelector('.iv-gv-lista'); if(!lista) return;
+    const fila=[...lista.children].find(li=>li.dataset.termino===expandido); if(!fila) return;
+    const arriba=fila.offsetTop, abajo=arriba+fila.offsetHeight;   // relativos a la lista (position: relative)
+    if(abajo>lista.scrollTop+lista.clientHeight) lista.scrollTop=Math.min(arriba,abajo-lista.clientHeight);
+    else if(arriba<lista.scrollTop) lista.scrollTop=arriba;
+  },[expandido]);
 
   const togglePlay=()=>{
     const p=playerRef.current;if(!p||!ready)return;
-    // 🔴 Una pausa del alumno con el glosario abierto es suya: cerrarlo no la retoma. No
-    // alcanza con el pointerdown sobre Reproducir: el toque en el costado del video
-    // pausa 300 ms DESPUÉS (por si viene el doble toque), y si en ese rato se abrió el
-    // glosario, esta pausa llega con el panel ya abierto y sin pasar por ahí.
-    if(playing){playIntentRef.current=null;pausaGlosarioRef.current=false;p.pause();return;}
+    // 🔴 Una pausa del alumno con un término abierto es suya: plegarlo no la retoma.
+    if(playing){playIntentRef.current=null;pausaTerminoRef.current=false;p.pause();return;}
     // El play es EL gesto: ahí se crea (o se reanuda) el sonido de los avisos.
     sonidosRef.current.desbloquear({audio:sonidoOnRef.current});
     // Terminado, el video quedó en el final (la tarjeta de fin): play es volver a empezar.
@@ -1626,63 +1569,6 @@ function Reproductor() {
     },700);
   },[]);
 
-  // ─── El panel que tapa el video (decisión de Erick, 19-oct-2026) ──────
-  // Si al abrirse el glosario tapa más del 70 % del video (el reproductor bajo: el iframe
-  // del campus o la pantalla completa con el celular parado), lo pausa; al cerrarse lo
-  // retoma, sólo si nada más lo frenó o lo tomó en el medio (src/glosario.js:
-  // pausarAlAbrir y reanudarAlCerrar). Transmitiendo a la TV, nunca: ahí el video está en
-  // la TV. Se mide al abrir, ANTES de pintar, en coordenadas del contenedor (offset*: no
-  // las mueve el giro de 90° ni la animación de entrada); el área del video es la del
-  // contenedor, que siempre es 16:9 (la pantalla completa también lo centra).
-  // 🔴 La pausa y la vuelta son las del botón (pause con el intent anulado, safePlay):
-  // para el candado, los avisos, el avance y la firma es una pausa más del alumno.
-  // Lo último que se midió con el panel abierto (ver el ResizeObserver de abajo).
-  const tapaGlosarioRef=useRef(0);
-  const medirTapaGlosario=()=>{
-    const panel=glosarioPanelRef.current, capa=panel&&panel.parentElement;
-    return panel&&capa?cobertura(
-      {x:panel.offsetLeft,y:panel.offsetTop,ancho:panel.offsetWidth,alto:panel.offsetHeight},
-      {x:0,y:0,ancho:capa.clientWidth,alto:capa.clientHeight}):0;
-  };
-  const transmitiendoAhora=()=>{ const p=playerRef.current; return !!tvRef.current||!!(p&&p.esTV); };
-  const pausarSiTapa=(tapa)=>{
-    const p=playerRef.current;
-    if(p&&pausarAlAbrir({reproduciendo:playingRef.current,transmitiendo:transmitiendoAhora(),cobertura:tapa})){
-      pausaGlosarioRef.current=true;
-      playIntentRef.current=null;
-      p.pause();
-    }
-  };
-  useLayoutEffect(()=>{
-    if(glosarioAbierto){
-      const tapa=medirTapaGlosario();
-      tapaGlosarioRef.current=tapa;
-      pausarSiTapa(tapa);
-      return;
-    }
-    // La tarjeta de fin cuenta como una pregunta: lo cerró ella y el video terminó.
-    const volver=reanudarAlCerrar({pausoElGlosario:pausaGlosarioRef.current,
-      pregunta:!!(activeIA||activeIARef.current||tarjetaFinRef.current),error:!!videoError,transmitiendo:transmitiendoAhora()});
-    pausaGlosarioRef.current=false;
-    if(volver) safePlay();
-  },[glosarioAbierto]);
-  // 🔴 Con el panel abierto el reproductor puede cambiar de tamaño sin que nadie toque
-  // nada: el celular que se para con el glosario abierto (acostado iba al costado y el
-  // video seguía; parado, en el iframe del campus, el panel tapa todo) o la pantalla
-  // completa que se cierra con el atrás del sistema. Medir sólo al abrir dejaba el video
-  // corriendo debajo, que es lo que se quería evitar. Si PASA a tapar, vale lo mismo que
-  // al abrirlo (pasoATapar); si deja de tapar, no se retoma: eso lo hace cerrar el panel.
-  useEffect(()=>{
-    if(!glosarioAbierto||typeof ResizeObserver!=='function') return;
-    const capa=glosarioPanelRef.current?.parentElement; if(!capa) return;
-    const ro=new ResizeObserver(()=>{
-      const antes=tapaGlosarioRef.current, ahora=medirTapaGlosario();
-      tapaGlosarioRef.current=ahora;
-      if(pasoATapar(antes,ahora)) pausarSiTapa(ahora);   // sólo usa refs: vale la de este render
-    });
-    ro.observe(capa);
-    return()=>ro.disconnect();
-  },[glosarioAbierto]);
   const skip=(seconds)=>{
     const p=playerRef.current;if(!p||!ready)return;
     soltarFinRef.current();   // ±10 s de la pantalla de bloqueo con la tarjeta de fin abierta
@@ -2328,9 +2214,9 @@ function Reproductor() {
   const handleTouchEnd=(e)=>{
     if(activeIA) return;
     lastTouchAction.current=Date.now();
-    // 🔴 Con el menú de Ajustes o el glosario abiertos, un toque en el video SÓLO los
-    // cierra: no pausa ni salta (YouTube igual).
-    if(menuRef.current||glosarioRef.current){ clearTimeout(singleTapTimer.current); lastTapRef.current={time:0,x:0}; setMenu(null); setGlosarioAbierto(false); return; }
+    // 🔴 Con el menú de Ajustes abierto, un toque en el video SÓLO lo cierra: no pausa
+    // ni salta (YouTube igual).
+    if(menuRef.current){ clearTimeout(singleTapTimer.current); lastTapRef.current={time:0,x:0}; setMenu(null); return; }
     // Dentro del toque: los avisos pueden sonar aunque el play salga 300 ms después.
     sonidosRef.current.desbloquear({audio:sonidoOnRef.current});
     const now=Date.now();
@@ -2373,7 +2259,7 @@ function Reproductor() {
   const handleClickLayer=()=>{
     // On mobile, touchEnd already handles it; block click for 500ms after any touch
     if(Date.now()-lastTouchAction.current<500) return;
-    if(menuRef.current||glosarioRef.current){ setMenu(null); setGlosarioAbierto(false); return; }   // sólo cierra, no pausa
+    if(menuRef.current){ setMenu(null); return; }   // sólo cierra, no pausa
     togglePlay();
   };
 
@@ -2389,9 +2275,6 @@ function Reproductor() {
       activeIARef.current=null;
       // "Continuar" también es un gesto (por si el sonido no se desbloqueó con el play).
       sonidosRef.current.desbloquear({audio:sonidoOnRef.current});
-      // Una nota, después de verla, queda en el glosario: arriba, con "recién", y el
-      // contador late una vez (sin sonido ni aviso: se acaba de leer).
-      if(conGlosario&&ia.type==='note'){ setRecienes(r=>({...r,[ia.id]:Date.now()+RECIEN_MS})); setLatido(n=>n+1); }
       // Frenó pegado al fin: el medio pudo terminar sin 'ended' (ver alTerminar).
       // Darlo por terminado en vez de un play() que arrancaría desde 0. Se mira
       // también el tiempo de la interacción: un play externo con ella abierta
@@ -2426,12 +2309,10 @@ function Reproductor() {
       registra:!!(ctx&&ctx.completeUrl)||isScormAvailable(), yaCompletada:!!(ctx&&ctx.alreadyCompleted) });
     const destino=destinoDeFin(leerBarraDelTema(window));
     const t={ completada, destino };
-    // La tarjeta tapa todo, como una pregunta: el menú y el glosario se cierran debajo
-    // (antes de soltar el glosario, la marca: así cerrarlo no retoma nada).
+    // La tarjeta tapa todo, como una pregunta: el menú se cierra debajo (y un término
+    // abierto se pliega sin retomar: ver el efecto de tarjetaFin).
     setTarjetaFin(t);
     setMenu(null);
-    setGlosarioAbierto(false);
-    clearTimeout(avisoGlosarioTimer.current); setAvisoGlosario(null);
   };
   // Cierra la tarjeta (X o Escape): el video queda en el final, terminado. El foco vuelve
   // al botón de reproducir si estaba en la tarjeta (o si se pide, con Escape). Lo mueve el
@@ -2519,15 +2400,13 @@ function Reproductor() {
     currentTimeRef.current=0; prevTimeRef.current=0; setCurrent(0);
     resetHastaRef.current=Date.now()+1000;
     playerRef.current?.setCurrentTime(0);
-    // Volver a empezar es también el glosario y los avisos: lo que se nombre se vuelve a
-    // sumar (con su sonido) y los tics vuelven a sonar.
-    nombradosRef.current=new Set(); setNombrados(new Set()); setRecienes({});
-    clearTimeout(avisoGlosarioTimer.current); setAvisoGlosario(null);
+    // Volver a empezar es también los avisos: los tics vuelven a sonar (la lista del
+    // glosario sale del tiempo: se vacía sola).
     ticsRef.current=new Map(); setCuenta(null); setAvisoCuenta('');
   };
 
   // fsNativo: ver arriba, junto al botón de girar.
-  const girado=girar&&vertical&&!fsNativo&&(isFS||fakeFS);
+  const girado=girar&&vertical&&!fsNativo&&(isFS||fakeFS)&&!vivo;   // el glosario en vivo va parado
   giroRef.current=girado?90:0;
   const progress=scrubPct!=null?scrubPct*100:(duration?(currentTime/duration)*100:0);
   const displayTime=scrubPct!=null?scrubPct*duration:currentTime;
@@ -2546,7 +2425,7 @@ function Reproductor() {
           {completed.size>0&&<button className="iv-reset-btn-top" onClick={resetProgress}>Reiniciar</button>}
         </span>
       </div>
-      <div ref={containerRef} className="iv-container"
+      <div ref={containerRef} className={`iv-container ${vivo?'vivo':''}`}
         onMouseMove={resetCtrl} onTouchStart={resetCtrl}>
 
         <div ref={vimeoRef} className="iv-vimeo-wrap"/>
@@ -2554,7 +2433,7 @@ function Reproductor() {
             segundo en que se conectó; con AirPlay el celular no lo dibuja). Debajo de
             la capa de toques: tocar sigue pausando y reproduciendo la TV. Con un
             hotspot no, que sus puntos van sobre el cuadro (ver el efecto del hotspot). */}
-        {tv&&activeIA?.type!=='hotspot'&&<div className="iv-tv-capa" aria-hidden="true">
+        {tv&&!vivo&&activeIA?.type!=='hotspot'&&<div className="iv-tv-capa" aria-hidden="true">
           <CastOnIcon/>
           <span className="iv-tv-capa-titulo">{tv.estado==='conectando'?'Conectando con la TV…':`Reproduciendo en ${tv.nombre||'la TV'}`}</span>
           {tv.estado!=='conectando'&&<span className="iv-tv-capa-sub">Las preguntas aparecen en esta pantalla.</span>}
@@ -2574,24 +2453,54 @@ function Reproductor() {
         {/* Lo mismo para la TV: el cartel de arriba es aria-hidden y lo dice éste. */}
         <div className="iv-sr" role="status" aria-live="polite">{tv?(tv.estado==='conectando'?'Conectando con la TV':`Reproduciendo en ${tv.nombre||'la TV'}. Las preguntas aparecen en esta pantalla.`):''}</div>
         <div className={`iv-tv-aviso ${tvAviso?'visible':''}`} role="status" aria-live="polite">{tvAviso}</div>
+        {/* Glosario en vivo (diseño de Erick, 19-oct-2026): transmitiendo en modo glosario,
+            la pantalla de la compu o del celular es la segunda pantalla. Reemplaza al
+            cartel de la TV; encima de la capa de toques (sus botones se tocan) y debajo de
+            los controles y de las preguntas, que siguen apareciendo como siempre. Con un
+            hotspot no: sus puntos van sobre el cuadro. Ver "Glosario en vivo" más arriba. */}
+        {vivo&&activeIA?.type!=='hotspot'&&<section className={`iv-gv ${restanCuenta!=null?'con-cuenta':''}`} aria-labelledby={`${idVivo}-titulo`}>
+          <p className="iv-gv-cast"><LucideCast/><span className="iv-tv-capa-titulo">{`Reproduciendo en ${tv.nombre||'la TV'}`}</span></p>
+          {toastVivo&&<p className="iv-gv-toast" role="status"><VolverIcon/><span>{toastVivo}</span></p>}
+          <div className="iv-gv-columna">
+            <div className="iv-gv-cabecera">
+              <h2 id={`${idVivo}-titulo`} className="iv-gv-titulo">Glosario de esta clase</h2>
+              <p className="iv-gv-sub">{conTerminos
+                ? <>{listaVivo.length} {listaVivo.length===1?'término':'términos'}<span className="iv-gv-sub-mas"> · tocá uno para ver qué significa</span><span className="iv-gv-sub-corto"> · tocá uno para verlo</span></>
+                : 'Las preguntas aparecen en esta pantalla.'}</p>
+            </div>
+            {conTerminos&&listaVivo.length===0&&<p className="iv-gv-vacio">Los términos aparecen acá a medida que se nombran en el video.</p>}
+            {listaVivo.length>0&&<ul className="iv-gv-lista">
+              {listaVivo.map((e,i)=>{
+                const abierto=expandido===e.id, nuevo=i===0;
+                const idDef=`${idVivo}-def-${i}`;
+                return <li key={e.id} data-termino={e.id} className={`iv-gv-fila ${nuevo?'nuevo':''} ${abierto?'abierta':''} ${entrando===e.id?'entra':''}`}>
+                  <button className="iv-gv-cab" aria-expanded={abierto} aria-controls={idDef} onClick={()=>alternarTermino(e.id)}>
+                    <span className="iv-gv-tiempo">{fmt(e.time)}</span>
+                    <span className="iv-gv-nombre">{e.nombre}</span>
+                    {nuevo&&<span className="iv-gv-badge">Nuevo</span>}
+                    <span className="iv-gv-chev"><ChevronIcon/></span>
+                  </button>
+                  <div id={idDef} className={`iv-gv-cuerpo ${e.imagen?'con-imagen':''}`} hidden={!abierto}>
+                    {abierto&&e.imagen&&<img className="iv-gv-img" src={e.imagen} alt=""/>}
+                    <div className="iv-gv-texto">
+                      {e.texto?<RichText className="iv-gv-def">{e.texto}</RichText>:<p className="iv-gv-def">Sin definición.</p>}
+                      <button className="iv-gv-ver" onClick={()=>verEnElVideo(e)}><VolverIcon/><span>Ver en el video · {fmt(e.time)}</span></button>
+                    </div>
+                  </div>
+                </li>;
+              })}
+            </ul>}
+          </div>
+        </section>}
         {/* Cuenta regresiva de la interacción que va a frenar el video (ver ticsEntre). La
-            ve el que mira; al lector de pantalla se le dice una vez, abajo. Con el glosario
-            abierto va adentro del panel (acá quedaba tapada, o tapaba su X). */}
-        {restanCuenta!=null&&!glosarioAbierto&&<div className={`iv-cuenta iv-cuenta-${queSeViene(cuenta.ia)}`} aria-hidden="true">
+            ve el que mira; al lector de pantalla se le dice una vez, abajo. */}
+        {restanCuenta!=null&&<div className={`iv-cuenta iv-cuenta-${queSeViene(cuenta.ia)}`} aria-hidden="true">
           <span key={restanCuenta} className="iv-cuenta-num">{restanCuenta}</span>
           <span className="iv-cuenta-texto">{textoCuenta(cuenta.ia)}</span>
         </div>}
         <div className="iv-sr" role="status" aria-live="polite">{avisoCuenta}</div>
-        {/* "Nuevo en el glosario: …" con el panel cerrado: tocarlo abre el panel en ese
-            término. La región existe siempre (aria-live); el botón, sólo con aviso. */}
-        {conGlosario&&<div className={`iv-glosario-aviso-zona ${restanCuenta!=null?'con-cuenta':''}`} role="status" aria-live="polite">
-          {avisoGlosario&&!activeIA&&!tarjetaFin&&!glosarioAbierto&&<button className="iv-glosario-aviso" onClick={()=>abrirGlosario(avisoGlosario.id)}>
-            <GlosarioIcon/><span>Nuevo en el glosario: <strong>{avisoGlosario.nombre}</strong></span>
-          </button>}
-        </div>}
-        {/* Con el panel abierto el aviso no se muestra (la lista ya tiene el término con
-            "recién"): éste se lo dice al lector de pantalla. Existe siempre, como las otras. */}
-        {conGlosario&&<div className="iv-sr iv-glosario-anuncio" role="status" aria-live="polite">{glosarioAbierto?anuncioPanel:''}</div>}
+        {/* El término nuevo, para el lector de pantalla (la lista cambia sin mover el foco). */}
+        <div className="iv-sr" role="status" aria-live="polite">{vivo?anuncioTermino:''}</div>
         {videoError&&<div className="iv-error" role="alert">
           <strong>No se pudo cargar el video</strong>
           <span>{textoDelError(videoError)} Tu avance está guardado.</span>
@@ -2608,7 +2517,7 @@ function Reproductor() {
 
         {/* Etiquetas en pantalla: sólo en el modo "En pantalla" (el de antes). En el de
             glosario se suman al panel (ver más abajo). */}
-        {ready&&!activeIA&&!tarjetaFin&&!modoGlosario&&<LabelOverlay interactions={interactions} currentTime={currentTime} playerRef={playerRef}/>}
+        {ready&&!activeIA&&!tarjetaFin&&!vivo&&<LabelOverlay interactions={interactions} currentTime={currentTime} playerRef={playerRef}/>}
 
         {activeIA?.type==="note"&&<NoteOverlay data={activeIA.data} onDismiss={dismiss}/>}
         {activeIA?.type==="multiple-choice"&&<MCOverlay data={activeIA.data} onDismiss={dismiss}/>}
@@ -2641,7 +2550,7 @@ function Reproductor() {
             ella. Así el foco queda en la pregunta. (Safari < 15.5 ignora inert: ahí
             sigue valiendo el freno de 'play' con la pregunta abierta.) Lo mismo con la
             tarjeta de fin. */}
-        <div className={`iv-controls ${showCtrl||!playing||activeIA||scrubPct!=null||menu||glosarioAbierto?"visible":""}`} inert={activeIA||tarjetaFin?true:undefined}>
+        <div className={`iv-controls ${showCtrl||!playing||activeIA||scrubPct!=null||menu||vivo?"visible":""} ${vivo?'vivo':''}`} inert={activeIA||tarjetaFin?true:undefined}>
           {/* La barra es también un slider de teclado (ver onBarraKey). El total se
               agrega a lo que se lee sólo al enfocarla, como en el ejemplo de la APG,
               para no repetirlo en cada segundo. */}
@@ -2654,12 +2563,12 @@ function Reproductor() {
             onPointerDown={onScrubStart} onPointerMove={onScrubMove}
             onPointerUp={onScrubEnd} onPointerCancel={onScrubCancel}>
             <div className="iv-progress-track">
-              <TimelineMarkers interactions={interactions} duration={duration}/>
+              <TimelineMarkers interactions={interactions} duration={duration} vivo={vivo} currentTime={currentTime}/>
               <div className="iv-progress-fill" style={{width:`${progress}%`}}/>
               <div className="iv-progress-thumb" style={{left:`${progress}%`}}/>
             </div>
           </div>
-          <div className={`iv-controls-row ${girarVisible?'con-girar':''} ${conGlosario?'con-glosario':''}`}>
+          <div className={`iv-controls-row ${girarVisible?'con-girar':''} ${vivo?'con-vivo':''}`}>
             <button ref={playBtnRef} className="iv-ctrl-btn" onClick={togglePlay} aria-label={playing?"Pausar":"Reproducir"}>{playing?<PauseIcon/>:<PlayIcon/>}</button>
             <button className="iv-ctrl-btn" onClick={()=>skip(-10)} aria-label="Retroceder 10 segundos"><SkipBackIcon/></button>
             <button className="iv-ctrl-btn" onClick={()=>skip(10)} aria-label="Adelantar 10 segundos"><SkipFwdIcon/></button>
@@ -2674,14 +2583,6 @@ function Reproductor() {
             {isEmbedded&&<span className="iv-ctrl-progress" aria-label={`${completed.size} de ${completableInteractions.length} actividades`}>{completed.size}/{completableInteractions.length}</span>}
             <div style={{flex:1}}/>
             {isEmbedded&&completed.size>0&&<button className="iv-ctrl-btn iv-reset-ctrl" onClick={resetProgress} title="Reiniciar progreso" aria-label="Reiniciar progreso"><span aria-hidden="true">↺</span></button>}
-            {/* Glosario: con el contador de lo ya nombrado, que late una vez con cada
-                término nuevo (latido cambia la key y reinicia la animación). */}
-            {conGlosario&&<button ref={glosarioBtnRef} className={`iv-ctrl-btn iv-glosario-btn ${glosarioAbierto?'abierto':''}`}
-              onClick={()=>glosarioRef.current?cerrarGlosario(true):abrirGlosario(null)}
-              aria-label={`Glosario: ${listaGlosario.length} ${listaGlosario.length===1?'entrada':'entradas'}`} title="Glosario"
-              aria-haspopup="dialog" aria-expanded={glosarioAbierto} aria-controls="iv-glosario">
-              <GlosarioIcon/><span key={latido} className={`iv-glosario-marca ${latido?'late':''}`} aria-hidden="true">{listaGlosario.length}</span>
-            </button>}
             {(hasCues||hasVimeoSubs)&&<button className="iv-ctrl-btn" onClick={toggleSubs} aria-label="Subtítulos" aria-pressed={subsOn}><SubsIcon on={subsOn}/></button>}
             {/* Transmitir a la TV: sólo con una TV a la vista. A ≤340 px no entra sin
                 recortar el de pantalla completa: ahí se esconde por CSS y va como fila
@@ -2762,43 +2663,6 @@ function Reproductor() {
         </div>
         </div>}
 
-        {/* Panel del glosario (ver abrirGlosario). Encima de todo lo del video, también
-            del cartel "Reproduciendo en la TV": transmitiendo, el celular es la segunda
-            pantalla. Cada término se despliega con su botón (aria-expanded). */}
-        {glosarioAbierto&&conGlosario&&!activeIA&&<div className="iv-glosario-capa">
-        <div ref={glosarioPanelRef} id="iv-glosario" className="iv-glosario" role="dialog" aria-labelledby={`${idGlosario}-titulo`}
-          onClick={e=>e.stopPropagation()} onTouchEnd={e=>e.stopPropagation()}>
-          <div className="iv-glosario-cabecera">
-            <GlosarioIcon/>
-            <span id={`${idGlosario}-titulo`} className="iv-glosario-titulo">Glosario</span>
-            <span className="iv-glosario-cuenta">{listaGlosario.length} de {totalGlosario}</span>
-            <button className="iv-glosario-cerrar" onClick={()=>cerrarGlosario(true)} aria-label="Cerrar glosario"><CloseIcon/></button>
-          </div>
-          {restanCuenta!=null&&<div className={`iv-glosario-se-viene iv-se-viene-${queSeViene(cuenta.ia)}`} aria-hidden="true">
-            <span key={restanCuenta} className="iv-cuenta-num">{restanCuenta}</span><span>{textoCuenta(cuenta.ia)}</span>
-          </div>}
-          {listaGlosario.length===0
-            ? <p className="iv-glosario-vacio">Los términos aparecen acá a medida que se nombran en el video. Tocá uno para leer qué significa.</p>
-            : <ul className="iv-glosario-lista">
-              {listaGlosario.map((e,i)=>{
-                const abierto=expandidos.has(e.id);
-                const recien=(recienes[e.id]||0)>Date.now();
-                const idDef=`${idGlosario}-def-${i}`;
-                return <li key={e.id} data-termino={e.id} className={`iv-glosario-termino iv-glosario-${e.tipo} ${recien?'recien':''}`}>
-                  <button aria-expanded={abierto} aria-controls={idDef} onClick={()=>alternarTermino(e.id)}>
-                    <span className="iv-glosario-icono" aria-hidden="true">{e.tipo==='nota'?<InfoIcon/>:'Aa'}</span>
-                    <span className="iv-glosario-nombre">{e.nombre}{e.tipo==='nota'&&<span className="iv-sr"> (nota)</span>}</span>
-                    {recien&&<span className="iv-glosario-recien">recién</span>}
-                    <span className="iv-glosario-tiempo" aria-hidden="true">{fmt(e.time)}</span>
-                  </button>
-                  <div id={idDef} className="iv-glosario-def" hidden={!abierto}>
-                    {e.texto?<RichText>{e.texto}</RichText>:<p className="iv-glosario-sindef">Sin definición.</p>}
-                  </div>
-                </li>;
-              })}
-            </ul>}
-        </div>
-        </div>}
       </div>
       {!isEmbedded&&<div className="iv-legend">
         <span className="iv-legend-title">Marcadores:</span>

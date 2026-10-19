@@ -68,7 +68,9 @@ function recorridoChromecast(entorno, modo, titulo, extra) {
       assert.ok(cerca(carga.t, e.vt, 0.3), `la TV tenía que arrancar donde quedó el <video> (${e.vt}): ${carga.t}`);
       assert.equal(e.pausado, true, 'el <video> del celular queda en pausa');
       assert.equal(e.botonTV, 'Dejar de transmitir');
-      assert.equal(e.botonFS, null, 'transmitiendo no hay pantalla completa');
+      // Con el glosario en vivo (el modo por defecto) sí: en el celular parado el iframe
+      // mide ~375×211 y la pantalla completa le da el alto entero a la lista.
+      assert.equal(e.botonFS, 'Pantalla completa', 'transmitiendo con el glosario en vivo hay pantalla completa');
       assert.ok(cerca(e.comp, e.tv.t, 0.6), `el componente sigue a la TV: ${JSON.stringify({ comp: e.comp, tv: e.tv })}`);
       if (modo === 'app') {
         await comprobarModoApp(p);

@@ -1,5 +1,5 @@
 // Los AVISOS de las interacciones que frenan el video (preguntas, notas, puntos para
-// tocar): el tic-tac de los 3 segundos antes, la cuenta regresiva que se ve en el
+// tocar): el tic-tac de los 5 segundos antes (eran 3 hasta el 19-oct-2026), la cuenta regresiva que se ve en el
 // reproductor y el "plop" al frenar. Pedido de Erick (18-oct-2026): el alumno que está
 // mirando para otro lado (tomando nota, con el video en la TV) se entera de que viene
 // algo que lo va a frenar, y el celular vibra.
@@ -12,7 +12,9 @@
 import { SEEK_MIN } from "./candado.js";
 
 // Cuántos segundos antes avisa (en tiempo de VIDEO: a 2× suenan cada medio segundo).
-export const AVISO_S = 3;
+// 5 desde el 19-oct-2026 (Erick, después de probarlo con la TV: 3 no alcanzaban para
+// volver a mirar el celular). Eran 3.
+export const AVISO_S = 5;
 // Vibración de cada tic (corta) y la de frenar (un poco más larga, en dos golpes).
 export const VIBRA_TIC = 40;
 export const VIBRA_FRENO = [60, 40, 60];
@@ -71,11 +73,12 @@ function llegada(ia, fin) {
 }
 
 /**
- * Los tics que tocan en el paso de `prev` a `t` (tiempo de video): uno a los 3, 2 y 1
- * segundos de la PRÓXIMA interacción pendiente que frena, alternando tono alto y bajo
- * (alto en el 3 y el 1).
+ * Los tics que tocan en el paso de `prev` a `t` (tiempo de video): uno a los 5, 4, 3, 2 y
+ * 1 segundos de la PRÓXIMA interacción pendiente que frena. Tono ALTO en el primero y en
+ * el último (5 y 1), BAJO en el medio (4, 3, 2): el alto de arranque avisa "viene algo" y
+ * el del 1, "ya frena"; con alto-bajo alternado, cinco tics sonaban a reloj.
  *
- * 🔴 Sólo la próxima, no todas las pendientes: con dos a menos de 3 s (una nota a los 7
+ * 🔴 Sólo la próxima, no todas las pendientes: con dos a menos de 5 s (una nota a los 7
  * y una pregunta a los 9) los tics de las dos se intercalaban, la cuenta saltaba de "1
  * Se viene una nota" a "3 Se viene una pregunta" y el tic de la segunda cortaba la
  * vibración del freno de la primera (verificación de oct-2026). La segunda se anuncia
@@ -115,9 +118,14 @@ export function ticsEntre({ interactions, completed, triggered, prev, t, reprodu
   for (let restan = AVISO_S; restan >= 1; restan--) {
     const marca = l - restan;
     const clave = `${ia.id}:${restan}`;
-    if (prev < marca && marca <= t && !tocados.has(clave)) out.push({ clave, id: ia.id, ia, restan, alto: restan % 2 === 1, marca });
+    if (prev < marca && marca <= t && !tocados.has(clave)) out.push({ clave, id: ia.id, ia, restan, alto: ticAlto(restan), marca });
   }
   return out;
+}
+
+/** El tono de cada tic: alto el primero (AVISO_S) y el último (1), bajo los del medio. */
+export function ticAlto(restan) {
+  return restan === AVISO_S || restan === 1;
 }
 
 /**
@@ -132,9 +140,9 @@ export function olvidarTics(tocados, t) {
 }
 
 /**
- * Cuántos segundos muestra la cuenta regresiva de `ia` en el tiempo `t` (3, 2 o 1), o
- * null si `t` ya está fuera de los 3 segundos de aviso (llegó, o se fue para atrás).
- * Coincide con el tic: al cruzar la marca de los 3 s dice 3.
+ * Cuántos segundos muestra la cuenta regresiva de `ia` en el tiempo `t` (5 a 1), o
+ * null si `t` ya está fuera de los 5 segundos de aviso (llegó, o se fue para atrás).
+ * Coincide con el tic: al cruzar la marca de los 5 s dice 5.
  */
 export function cuentaRegresiva(ia, t, fin = Infinity) {
   if (!ia) return null;
