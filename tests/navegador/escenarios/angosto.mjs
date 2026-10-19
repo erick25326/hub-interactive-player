@@ -4,8 +4,9 @@
 // celular parado (aparece el botón de girar). 🔴 El botón de SALIR de pantalla
 // completa no se puede recortar nunca: si no, el alumno no tiene cómo salir. Ya pasó
 // dos veces (320 px; y entre 341 y ~365 px con el botón de girar, oct-2026), y una
-// tercera con el botón del glosario (1.4.0: 10 px afuera a 360). La nota de los 8
-// respondida pone el glosario (las notas vistas quedan en él), así que su botón está.
+// tercera con el botón del glosario (1.4.0: 10 px afuera a 360). Desde el 19-oct-2026
+// el glosario es sólo transmitiendo a la TV, y transmitiendo no hay pantalla completa:
+// acá ya no está (la prueba de abajo lo mide en la fila transmitiendo).
 // Se entra con un TOQUE real (pantalla táctil emulada), como en el celular.
 import { describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -60,7 +61,7 @@ export function registrar(entorno) {
           assert.ok(m.boton[0] >= m.contenedor[0] - 0.5 && m.boton[1] <= m.contenedor[1] + 0.5, `el botón de salir se sale del reproductor: ${JSON.stringify(m)}`);
           assert.ok(m.sobra >= 0, `la fila desborda ${-m.sobra} px: ${JSON.stringify(m)}`);
           assert.ok(m.tocable, `en el centro del botón de salir hay otra cosa: ${JSON.stringify(m)}`);
-          assert.ok(m.visibles.some((v) => /^Glosario/.test(v)), `el botón del glosario tiene que estar en la fila: ${JSON.stringify(m)}`);
+          assert.ok(!m.visibles.some((v) => /^Glosario/.test(v)), `sin transmitir no hay botón del glosario: ${JSON.stringify(m)}`);
           // Y sale de verdad.
           await p.toque('.iv-fs-btn');
           await p.debe(`A.estado().botonFS === 'Pantalla completa'`, 5000, 'el botón de salir no sacó de la pantalla completa');
@@ -70,9 +71,9 @@ export function registrar(entorno) {
       });
     }
 
-    // Sin pantalla completa no hay botón de girar, pero sí el de la TV en la fila (a más
-    // de 340 px) junto con el del glosario: el otro caso cargado entre 341 y 400 px.
-    paso(entorno, 'sin pantalla completa, con la TV y el glosario en la fila, de 341 a 400 px no desborda', async (t) => {
+    // Transmitiendo: el de la TV en la fila (a más de 340 px) junto con el del glosario,
+    // sin pantalla completa: el otro caso cargado entre 341 y 400 px.
+    paso(entorno, 'transmitiendo, con la TV y el glosario en la fila, de 341 a 400 px no desborda', async (t) => {
       try {
         for (const ancho of [341, 360, 375, 400]) {
           await p.vista({ ancho, alto: 740, movil: true, escala: 2, tactil: true });
@@ -81,15 +82,22 @@ export function registrar(entorno) {
             query: { motor: 'hls', subs: 'vtt', cast: 'fake', ancho: `${ancho}px` },
             progreso: { completed: ['n8'], currentTime: 1 },
           });
+          // El glosario va en la fila sólo transmitiendo: se conecta la TV.
+          await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
+          await p.reproducir();
+          await p.clic('.iv-tv-btn');
+          await p.debe(`(A.estado().capa || '').startsWith('Reproduciendo en')`, 10000, 'no se conectó');
           await p.debe(`!!D.querySelector('.iv-tv-btn') && !!D.querySelector('.iv-glosario-btn')`, 10000, 'no aparecieron los botones de la TV y del glosario');
           await p.a('D.fonts.ready.then(() => true)');
           await dormir(300);
           const m = await p.a(`(() => {
             const c = D.querySelector('.iv-container').getBoundingClientRect();
             const fila = D.querySelector('.iv-controls-row');
-            const b = D.querySelector('.iv-fs-btn').getBoundingClientRect();
+            // Transmitiendo no hay pantalla completa: se mide el último botón de la fila.
+            const bs = [...fila.querySelectorAll('button')].filter((x) => x.getBoundingClientRect().width > 0);
+            const b = bs[bs.length - 1].getBoundingClientRect();
             const tv = D.querySelector('.iv-tv-btn').getBoundingClientRect();
-            return { contenedor: [c.left, c.right], boton: [b.left, b.right], tv: tv.width, sobra: fila.clientWidth - fila.scrollWidth };
+            return { contenedor: [c.left, c.right], boton: [b.left, b.right], tv: tv.width, glosario: !!D.querySelector('.iv-glosario-btn'), sobra: fila.clientWidth - fila.scrollWidth };
           })()`);
           t.diagnostic(`${ancho} px: ${JSON.stringify(m)}`);
           assert.ok(m.tv > 0, `a ${ancho} px el de la TV va en la fila: ${JSON.stringify(m)}`);

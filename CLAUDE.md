@@ -658,6 +658,7 @@ instalarlo. Procedimiento completo en el README ("Instalar el plugin en el campu
   `\core\event\course_module_viewed` y `completion_info` (el cableado, no el log).
 
 ## Glosario interactivo y avisos (1.4.0, pedido de Erick 18-oct-2026) — trampas
+🔴 **Sólo transmitiendo a la TV (Erick, 19-oct-2026).** Los avisos (tic-tac, cuenta, plop, vibración, sus ajustes) y el glosario existen sólo mientras el video está en la TV: la persona mira la tele y el aviso le dice que vuelva a mirar la compu o el celular. **Sin transmitir, el reproductor es el de antes de la 1.4.0**: etiquetas en pantalla, sin sonidos ni glosario. Lo decide `enTV` en `InteractiveVideoPlayer.jsx`. Erick lo pidió así porque en la compu le cambiaba una experiencia que ya andaba bien. Lo que sigue describe el comportamiento transmitiendo; el pausado del panel que tapa el video quedó sin uso (transmitiendo no pausa).
 Tic-tac 3 s antes de lo que frena, cuenta regresiva, "plop" + vibración al frenar, y las
 etiquetas en un glosario que crece a medida que se nombran (o en pantalla, como antes,
 por actividad). Uso y lo que falta probar en equipos reales: README ("Glosario

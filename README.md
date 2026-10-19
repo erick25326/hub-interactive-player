@@ -13,7 +13,7 @@ Reproductor de video interactivo para cursos de drones. Reemplaza H5P Interactiv
 - ✅ **Verdadero/Falso** — Con feedback
 - 📍 **Hotspots** — Puntos clickeables sobre el video
 - 📝 **Notas** — Popups informativos en momentos específicos
-- 📖 **Glosario interactivo** — Las etiquetas se suman a un glosario a medida que se nombran (o, por actividad, en pantalla como antes)
+- 📖 **Glosario interactivo** — Transmitiendo a la TV, las etiquetas se suman a un glosario a medida que se nombran (o, por actividad, en pantalla como antes); sin transmitir, siempre en pantalla
 - 🔔 **Avisos** — Tic-tac 3 s antes de lo que frena el video, "plop" al frenar y vibración (el alumno los apaga en Ajustes)
 - 📊 **Marcadores** — Timeline visual con colores por tipo de interacción
 - 📦 **Single file** — Se compila a un solo HTML, cero dependencias externas
@@ -190,6 +190,9 @@ interna con que se firman los enlaces de los subtítulos para la TV (la crea el 
 se muestra nunca). Ver "Subtítulos en la TV".
 
 ## Glosario interactivo y avisos de las interacciones (1.4.0)
+
+🔴 **Sólo transmitiendo a la TV (Erick, 19-oct-2026).** Los avisos (tic-tac, cuenta, plop, vibración, sus ajustes) y el glosario existen sólo mientras el video está en la TV: la persona mira la tele y el aviso le dice que vuelva a mirar la compu o el celular. **Sin transmitir, el reproductor es el de antes de la 1.4.0**: etiquetas en pantalla, sin sonidos ni glosario. Lo decide `enTV` en `InteractiveVideoPlayer.jsx`. Erick lo pidió así porque en la compu le cambiaba una experiencia que ya andaba bien. Lo que sigue describe el comportamiento transmitiendo; el pausado del panel que tapa el video quedó sin uso (transmitiendo no pausa).
+
 
 Pedido de Erick (18-oct-2026): las etiquetas aparecían unos segundos como pines sobre el
 video y no daban tiempo a leerlas, y el alumno que miraba para otro lado se enteraba de

@@ -512,11 +512,19 @@ function Reproductor() {
   const lastSaveRef = useRef(0);
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
+  // 🔴 Los avisos y el glosario son SÓLO para cuando se transmite a la TV (Erick,
+  // 19-oct-2026): la persona mira la tele y el aviso le dice que vuelva a mirar la compu o
+  // el celular. Sin transmitir, el reproductor es el de antes de la 1.4.0: etiquetas en
+  // pantalla, sin tic-tac, sin cuenta regresiva, sin plop ni vibración, sin glosario.
+  const enTV = tv?.estado === 'conectado';
+  const enTVRef = useRef(enTV); enTVRef.current = enTV;
+
   // ─── Avisos de las interacciones que frenan (src/avisos.js) ───────
-  // Tic-tac 3 s antes (en tiempo de video), con una cuenta regresiva chica y vibración
-  // corta en cada tic; "plop" y vibración más larga al frenar. Valen en los DOS modos de
-  // las etiquetas (glosario y en pantalla). Los sonidos se crean en el primer gesto
-  // (src/sonidos.js) y el alumno los apaga en Ajustes; la preferencia queda en su navegador.
+  // Transmitiendo (ver enTV): tic-tac 3 s antes (en tiempo de video), con una cuenta
+  // regresiva chica y vibración corta en cada tic; "plop" y vibración más larga al frenar.
+  // Valen en los DOS modos de las etiquetas (glosario y en pantalla). Los sonidos se crean
+  // en el primer gesto (src/sonidos.js) y el alumno los apaga en Ajustes; la preferencia
+  // queda en su navegador.
   const sonidosRef = useRef(null);
   if (!sonidosRef.current) sonidosRef.current = crearSonidos(window);
   const [sonidoOn, setSonidoOn] = useState(() => leerPreferencia(CLAVE_SONIDO, almacenLocal()));
@@ -537,6 +545,7 @@ function Reproductor() {
   // que: 'tic' (alto o bajo) | 'plop' (al frenar) | 'suave' (término nuevo: sin vibrar).
   const avisarRef = useRef(null);
   avisarRef.current = (que, alto) => {
+    if (!enTVRef.current) return;
     const s = sonidosRef.current;
     const c = comoAvisar(que, { sonido: sonidoOnRef.current, vibracion: vibraOnRef.current, silenciado: silencioRef.current });
     if (c.suena) { if (que === 'tic') s.tic(alto); else if (que === 'plop') s.plop(); else s.plopSuave(); }
@@ -547,7 +556,8 @@ function Reproductor() {
   // Modo de las etiquetas de la actividad (mod_ivplayer → PLAYER_CONFIG.etiquetas):
   // 'glosario' (por defecto) o 'pantalla' (los pines sobre el video, como hasta la
   // 1.4.0, de respaldo). En pantalla no hay glosario: el reproductor es el de antes.
-  const modoGlosario = etiquetas !== 'pantalla';
+  // Sin transmitir, siempre en pantalla (ver enTV).
+  const modoGlosario = enTV && etiquetas !== 'pantalla';
   const conGlosario = modoGlosario && hayGlosario(interactions);
   const totalGlosario = useMemo(() => totalPosible(interactions), [interactions]);
   const nombradosRef = useRef(new Set());
@@ -967,6 +977,8 @@ function Reproductor() {
     // olvida: se repite la próxima vez que se cruce.
     ticsRef.current=olvidarTics(ticsRef.current,t);
     const c=cuentaRef.current;
+    // Sin transmitir no hay tic-tac ni cuenta regresiva (ver enTV).
+    if(!enTVRef.current){ if(c){ setCuenta(null); setAvisoCuenta(''); } return; }
     if(frenando){ if(c){ setCuenta(null); setAvisoCuenta(''); } return; }
     if(c&&(completed.has(c.id)||triggered.current.has(c.id)||cuentaRegresiva(c.ia,t,finRef.current)==null)){ setCuenta(null); setAvisoCuenta(''); }
     const tics=ticsEntre({interactions,completed,triggered:triggered.current,prev,t,reproduciendo,tocados:ticsRef.current,fin:finRef.current,velocidad:speed});
@@ -979,7 +991,10 @@ function Reproductor() {
       setCuenta({id:x.id,ia:x.ia});
       setAvisoCuenta(`${textoCuenta(x.ia)} en ${x.restan} ${x.restan===1?'segundo':'segundos'}.`);
     }
-  },[currentTime,ready,activeIA,completed,interactions,conGlosario]);
+  },[currentTime,ready,activeIA,completed,interactions,conGlosario,enTV]);
+  // Se cortó la transmisión con el glosario abierto: se cierra (y no vuelve a aparecer
+  // abierto en la próxima).
+  useEffect(()=>{ if(!conGlosario&&glosarioRef.current) setGlosarioAbierto(false); },[conGlosario,setGlosarioAbierto]);
   // Lo que dice la cuenta regresiva en este render (null: no se ve).
   const restanCuenta=cuenta&&!activeIA?cuentaRegresiva(cuenta.ia,currentTime,finRef.current):null;
 
@@ -2713,12 +2728,13 @@ function Reproductor() {
             {tvEnMenu&&tvBoton&&<button className="iv-ajustes-fila iv-ajustes-tv" onClick={()=>{ cerrarMenu(); tocarTV(); }}>
               <span>{etiquetaTV}</span><span className="iv-ajustes-valor">{tv?<CastOnIcon/>:<CastIcon/>}</span>
             </button>}
-            {/* Avisos de las interacciones que frenan: del alumno, en su navegador. La
-                vibración, sólo si el equipo puede (no en la compu ni en iPhone). */}
-            <button className="iv-ajustes-fila" role="switch" aria-checked={sonidoOn} onClick={()=>cambiarSonido(!sonidoOn)}>
+            {/* Avisos de las interacciones que frenan: del alumno, en su navegador, y sólo
+                transmitiendo (ver enTV). La vibración, sólo si el equipo puede (no en la
+                compu ni en iPhone). */}
+            {enTV&&<button className="iv-ajustes-fila" role="switch" aria-checked={sonidoOn} onClick={()=>cambiarSonido(!sonidoOn)}>
               <span>Sonidos de aviso</span><span className="iv-ajustes-valor" aria-hidden="true">{sonidoOn?'Sí':'No'}</span>
-            </button>
-            {puedeVibrar&&<button className="iv-ajustes-fila" role="switch" aria-checked={vibraOn} onClick={()=>cambiarVibracion(!vibraOn)}>
+            </button>}
+            {enTV&&puedeVibrar&&<button className="iv-ajustes-fila" role="switch" aria-checked={vibraOn} onClick={()=>cambiarVibracion(!vibraOn)}>
               <span>Vibración</span><span className="iv-ajustes-valor" aria-hidden="true">{vibraOn?'Sí':'No'}</span>
             </button>}
           </div>}

@@ -19,11 +19,16 @@ describe('config por defecto', () => {
     assert.deepEqual(DEFAULT_CONFIG.interactions, []);
     assert.equal(hayVideo(DEFAULT_CONFIG), false);
   });
-  test('las etiquetas van al glosario interactivo salvo que la actividad pida "pantalla" (1.4.0)', () => {
+  test('transmitiendo, las etiquetas van al glosario interactivo salvo que la actividad pida "pantalla"; sin transmitir, en pantalla como antes (1.4.0)', () => {
     assert.equal(DEFAULT_CONFIG.etiquetas, 'glosario');
     // El componente decide con "!== 'pantalla'": cualquier otro valor (un SCORM o una
-    // demo armados sin el campo, uno mal escrito) también es el glosario.
-    assert.match(leer('src/InteractiveVideoPlayer.jsx'), /const modoGlosario = etiquetas !== 'pantalla';/);
+    // demo armados sin el campo, uno mal escrito) también es el glosario. Y sólo con la
+    // TV conectada (Erick, 19-oct-2026): los avisos también.
+    const c = leer('src/InteractiveVideoPlayer.jsx');
+    assert.match(c, /const enTV = tv\?\.estado === 'conectado';/);
+    assert.match(c, /const modoGlosario = enTV && etiquetas !== 'pantalla';/);
+    assert.match(c, /avisarRef\.current = \(que, alto\) => \{\s+if \(!enTVRef\.current\) return;/);
+    assert.match(c, /if\(!enTVRef\.current\)\{ if\(c\)\{ setCuenta\(null\); setAvisoCuenta\(''\); \} return; \}/);
   });
 
   test('getConfig: sin PLAYER_CONFIG, la por defecto; con PLAYER_CONFIG, mezclada encima', () => {
