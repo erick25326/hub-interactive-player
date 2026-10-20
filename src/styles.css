@@ -1468,6 +1468,9 @@ html, body { margin: 0; padding: 0; background: #000; }
   cursor: pointer;
 }
 .iv-gv-ver svg { flex-shrink: 0; }
+.iv-gv-acciones { display: flex; flex-wrap: wrap; gap: 8px; }
+.iv-gv-continuar, .iv-gv-fila.nuevo .iv-gv-continuar { background: #1594F5; color: #fff; }
+.iv-gv-continuar svg { width: 16px; height: 16px; }
 .iv-gv-fila.nuevo .iv-gv-tiempo, .iv-gv-fila.nuevo .iv-gv-def { color: #3D4857; }
 .iv-gv-fila.nuevo .iv-gv-ver { background: rgba(21, 148, 245, 0.12); color: #0A5DE3; }
 @keyframes ivGvEntra { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
@@ -1490,6 +1493,7 @@ html, body { margin: 0; padding: 0; background: #000; }
   .iv-gv-cuerpo, .iv-gv-cuerpo.con-imagen { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 0 16px 16px; }
   .iv-gv-img { width: 100%; height: 170px; }
   .iv-gv-ver { align-self: stretch; justify-content: center; min-height: 48px; font-size: 15px; }
+  .iv-gv-acciones .iv-gv-ver { flex: 1 1 140px; }
 }
 /* Bajo (el iframe del campus con el celular parado mide ~375×211; la compu chica):
    sin cabecera (el nombre de la región sigue siendo el título) y filas de un renglón

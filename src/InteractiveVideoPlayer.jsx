@@ -1463,6 +1463,15 @@ function Reproductor() {
     }
     setExpandido(id);
   };
+  // "Continuar" (Erick, 20-oct-2026): pliega el término y la TV sigue, la haya pausado el
+  // término, "Ver en el video" o el alumno: es un pedido explícito de seguir. Con una
+  // pregunta, una nota o un error a la vista no hace nada (manda el candado).
+  const continuarTermino=()=>{
+    if(activeIARef.current||videoError) return;
+    pausaTerminoRef.current=false;
+    setExpandido(null);
+    safePlay();
+  };
   const verEnElVideo=(e)=>{
     if(activeIARef.current) return;
     seekExternoRef.current?.(e.time,{sinPlay:true});
@@ -2484,7 +2493,10 @@ function Reproductor() {
                     {abierto&&e.imagen&&<img className="iv-gv-img" src={e.imagen} alt=""/>}
                     <div className="iv-gv-texto">
                       {e.texto?<RichText className="iv-gv-def">{e.texto}</RichText>:<p className="iv-gv-def">Sin definición.</p>}
-                      <button className="iv-gv-ver" onClick={()=>verEnElVideo(e)}><VolverIcon/><span>Ver en el video · {fmt(e.time)}</span></button>
+                      <div className="iv-gv-acciones">
+                        <button className="iv-gv-ver" onClick={()=>verEnElVideo(e)}><VolverIcon/><span>Ver en el video · {fmt(e.time)}</span></button>
+                        <button className="iv-gv-ver iv-gv-continuar" onClick={continuarTermino}><PlayIcon/><span>Continuar</span></button>
+                      </div>
                     </div>
                   </div>
                 </li>;
