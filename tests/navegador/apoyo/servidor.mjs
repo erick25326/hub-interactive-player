@@ -387,7 +387,8 @@ export async function crearServidor({ html, video }) {
     const app = ['fake', 'mudo'].includes(q.get('app')) ? `<script>${TV}</script>\n<script>${PUENTE}</script>\n` : '';
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${app}
 <style>html,body{margin:0;background:#222}iframe{border:0;width:${ancho};aspect-ratio:16/9;display:block}
-iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;z-index:9}</style></head>
+iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;z-index:9}
+@media (max-width:700px) and (orientation:portrait){iframe.tv:not(.css-fs){aspect-ratio:auto;height:75vh;max-height:640px}}</style></head>
 <body><iframe src="/player.html?${q.toString().replace(/"/g, '&quot;')}" title="Reproductor" allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe>
 ${lnav}
 <script>
@@ -398,6 +399,11 @@ ${lnav}
     const en = e.data.action === 'enter';
     f.classList.toggle('css-fs', en);
     f.contentWindow.postMessage({ type: 'ivplayer-fullscreen-state', isFS: en }, '*');
+  });
+  // Lo que hace view.php con "ivplayer-alto" (glosario en vivo: más alto en el celular parado).
+  addEventListener('message', (e) => {
+    if (e.source !== f.contentWindow || !e.data || e.data.type !== 'ivplayer-alto') return;
+    f.classList.toggle('tv', !!e.data.tv);
   });
 </script></body></html>`;
   }

@@ -1488,6 +1488,14 @@ function Reproductor() {
   // retomar (la TV la frenó otro).
   useEffect(()=>{ if((activeIA||videoError||tarjetaFin)&&expandidoRef.current!=null) plegarTermino(false); },[activeIA,videoError,tarjetaFin]);
   useEffect(()=>()=>{ clearTimeout(entrandoTimer.current); clearTimeout(toastVivoTimer.current); },[]);
+  // 🔴 En el iframe del campus con el celular parado, el recuadro 16:9 mide ~375×211 y la
+  // definición abierta quedaba en ~95 px (Erick, 20-oct-2026). Mientras se ve el glosario
+  // en vivo se le pide a la página (view.php) que lo haga más alto; al cortar, vuelve. La
+  // página sólo lo cambia en pantallas angostas paradas.
+  useEffect(()=>{
+    if(window===window.parent) return;
+    try{ window.parent.postMessage({type:'ivplayer-alto',tv:!!vivo},location.origin); }catch(e){}
+  },[vivo]);
   // El término que se abre, a la vista en la lista (en el iframe con el celular parado la
   // lista mide ~100 px): a mano y no con scrollIntoView, que desplaza la página del campus.
   useEffect(()=>{

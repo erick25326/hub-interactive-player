@@ -66,5 +66,26 @@ export function registrar(entorno) {
       await p.clic(fila);
       await p.debe(`A.estado().tv?.estado === 'PLAYING' && A.estado().boton === 'Pausar'`, 4000, 'plegar no retomó la TV');
     }, { timeout: 60000 });
+
+    // Erick, 20-oct-2026: en el celular parado la definición quedaba apretada en el 16:9
+    // (~375×211). Transmitiendo, el reproductor le pide a la página (view.php, acá
+    // marco.html) que lo haga más alto, y la definición abierta tiene lugar.
+    paso(entorno, 'celular parado transmitiendo: la página agranda el iframe y la definición abierta tiene lugar', async () => {
+      try {
+        await p.vista({ ancho: 375, alto: 740, movil: true, escala: 2, tactil: true });
+        await p.abrir({ pagina: 'marco.html', query: { ...Q, cast: 'fake', lat: '120', ancho: '375px' }, progreso: { completed: ['nota7'], currentTime: 8 }, esperarEn: 8 });
+        assert.ok((await p.esperarArriba(`document.querySelector('iframe').getBoundingClientRect().height`)) < 230, 'sin transmitir, el 16:9 de siempre');
+        await p.debe(`A.estado().botonTV === 'Transmitir a la TV'`, 10000, 'no apareció el botón de la TV');
+        await p.reproducir();
+        await p.clic('.iv-tv-btn');
+        await p.debe(`!!D.querySelector('.iv-gv [data-termino="data-link"]')`, 10000, 'no apareció el glosario en vivo');
+        assert.ok(await p.esperarArriba(`document.querySelector('iframe').getBoundingClientRect().height > 450`), 'la página no agrandó el iframe');
+        await p.clic('.iv-gv [data-termino="data-link"] .iv-gv-cab');
+        const m = await p.debe(`(() => { const l = D.querySelector('.iv-gv-lista'), c = D.querySelector('[data-termino="data-link"] .iv-gv-cuerpo'); return l && c && !c.hidden && l.clientHeight > 250 && c.getBoundingClientRect().height > 100 ? { lista: l.clientHeight, cuerpo: Math.round(c.getBoundingClientRect().height) } : null; })()`, 4000, 'la definición abierta no tiene lugar');
+        assert.ok(m);
+      } finally {
+        await p.vista();
+      }
+    }, { timeout: 60000 });
   });
 }

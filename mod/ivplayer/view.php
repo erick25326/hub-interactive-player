@@ -51,6 +51,17 @@ echo $OUTPUT->header();
     border: none;
     display: block;
 }
+/* Transmitiendo a la TV con el glosario en vivo (el reproductor lo pide con
+   "ivplayer-alto"): con el celular parado, más alto que el 16:9. El video está en la
+   TV y acá va la lista de términos, que en 375×211 no entraba. */
+@media (max-width: 700px) and (orientation: portrait) {
+    .ivplayer-frame-wrap.ivplayer-tv .ivplayer-frame {
+        aspect-ratio: auto;
+        height: 75vh;
+        height: 75dvh;
+        max-height: 640px;
+    }
+}
 /* Native fullscreen (Android/desktop) */
 .ivplayer-frame-wrap:fullscreen,
 .ivplayer-frame-wrap:-webkit-full-screen {
@@ -162,6 +173,13 @@ echo $OUTPUT->header();
         }
         notifyIframe(isFSNow);
     }
+
+    // El reproductor avisa si está mostrando el glosario en vivo (transmitiendo a la TV).
+    window.addEventListener('message', function(e) {
+        if (!e.data || e.data.type !== 'ivplayer-alto') return;
+        if (!frame || e.source !== frame.contentWindow || !wrap) return;
+        wrap.classList.toggle('ivplayer-tv', !!e.data.tv);
+    });
 
     function notifyIframe(isFS) {
         if (frame && frame.contentWindow) {
