@@ -23,6 +23,7 @@ import * as sinVideo from './escenarios/sin-video.mjs';
 import * as reintentar from './escenarios/reintentar.mjs';
 import * as respaldo from './escenarios/respaldo.mjs';
 import * as fin from './escenarios/fin.mjs';
+import * as vistas from './escenarios/vistas.mjs';
 import * as configurador from './escenarios/configurador.mjs';
 import * as configuradorBunny from './escenarios/configurador-bunny.mjs';
 
@@ -82,6 +83,7 @@ if (entorno.omitir) {
   sinVideo.registrar(entorno);
   respaldo.registrar(entorno);
   fin.registrar(entorno);
+  vistas.registrar(entorno);
   // Al final: bloquean el SDK de Vimeo y las fuentes mientras corren (y lo devuelven).
   configurador.registrar(entorno, { avisar: (motivo) => avisarSalteo('parcial', motivo) });
   configuradorBunny.registrar(entorno, { avisar: (motivo) => avisarSalteo('parcial', motivo) });

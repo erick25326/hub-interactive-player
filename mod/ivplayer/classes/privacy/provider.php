@@ -3,8 +3,10 @@
  * Privacy API provider for mod_ivplayer.
  *
  * El plugin guarda datos personales por usuario en ivplayer_progress
- * (progreso/completado del video) e ivplayer_answers (respuestas a las
- * interacciones). Este provider los declara y permite exportarlos/borrarlos
+ * (progreso/completado del video), ivplayer_answers (respuestas a las
+ * interacciones, con el primer intento desde la 1.5.0), ivplayer_vistas (los
+ * tramos del video vistos por día, 1.5.0) e ivplayer_pulso (el toque de fin de
+ * lección, 1.5.0). Este provider los declara y permite exportarlos/borrarlos
  * ante un pedido de datos (GDPR / Ley 25.326 AR).
  *
  * Bunny Stream (1.3.0) no cambia nada acá: el GUID (ivplayer.videourl) es
@@ -55,7 +57,28 @@ class provider implements
             'answer'        => 'privacy:metadata:ivplayer_answers:answer',
             'correct'       => 'privacy:metadata:ivplayer_answers:correct',
             'timemodified'  => 'privacy:metadata:ivplayer_answers:timemodified',
+            'firstanswer'   => 'privacy:metadata:ivplayer_answers:firstanswer',
+            'firstcorrect'  => 'privacy:metadata:ivplayer_answers:firstcorrect',
+            'attempts'      => 'privacy:metadata:ivplayer_answers:attempts',
+            'timefirst'     => 'privacy:metadata:ivplayer_answers:timefirst',
         ], 'privacy:metadata:ivplayer_answers');
+
+        $collection->add_database_table('ivplayer_vistas', [
+            'userid'       => 'privacy:metadata:ivplayer_vistas:userid',
+            'dia'          => 'privacy:metadata:ivplayer_vistas:dia',
+            'tramos'       => 'privacy:metadata:ivplayer_vistas:tramos',
+            'duracion'     => 'privacy:metadata:ivplayer_vistas:duracion',
+            'segundos'     => 'privacy:metadata:ivplayer_vistas:segundos',
+            'sesiones'     => 'privacy:metadata:ivplayer_vistas:sesiones',
+            'timemodified' => 'privacy:metadata:ivplayer_vistas:timemodified',
+        ], 'privacy:metadata:ivplayer_vistas');
+
+        $collection->add_database_table('ivplayer_pulso', [
+            'userid'       => 'privacy:metadata:ivplayer_pulso:userid',
+            'respuesta'    => 'privacy:metadata:ivplayer_pulso:respuesta',
+            'timecreated'  => 'privacy:metadata:ivplayer_pulso:timecreated',
+            'timemodified' => 'privacy:metadata:ivplayer_pulso:timemodified',
+        ], 'privacy:metadata:ivplayer_pulso');
 
         return $collection;
     }
@@ -84,6 +107,18 @@ class provider implements
             'userid1'  => $userid,
             'userid2'  => $userid,
         ]);
+
+        // Las tablas de la 1.5.0, aparte: un LEFT JOIN más por tabla multiplicaba las filas
+        // (una por día en ivplayer_vistas).
+        foreach (['ivplayer_vistas', 'ivplayer_pulso'] as $tabla) {
+            $sql = "SELECT ctx.id
+                      FROM {context} ctx
+                      JOIN {course_modules} cm ON cm.id = ctx.instanceid AND ctx.contextlevel = :modlevel
+                      JOIN {modules} m ON m.id = cm.module AND m.name = :modname
+                      JOIN {{$tabla}} t ON t.ivplayerid = cm.instance
+                     WHERE t.userid = :userid";
+            $contextlist->add_from_sql($sql, ['modlevel' => CONTEXT_MODULE, 'modname' => 'ivplayer', 'userid' => $userid]);
+        }
 
         return $contextlist;
     }
@@ -122,6 +157,17 @@ class provider implements
                   JOIN {context} ctx ON ctx.instanceid = cm.id AND ctx.contextlevel = :modlevel
                  WHERE ctx.id = :contextid";
         $userlist->add_from_sql('userid', $sql, $params);
+
+        foreach (['ivplayer_vistas', 'ivplayer_pulso'] as $tabla) {
+            $sql = "SELECT t.userid
+                      FROM {{$tabla}} t
+                      JOIN {ivplayer} iv ON iv.id = t.ivplayerid
+                      JOIN {course_modules} cm ON cm.instance = iv.id
+                      JOIN {modules} m ON m.id = cm.module AND m.name = :modname
+                      JOIN {context} ctx ON ctx.instanceid = cm.id AND ctx.contextlevel = :modlevel
+                     WHERE ctx.id = :contextid";
+            $userlist->add_from_sql('userid', $sql, $params);
+        }
     }
 
     /**
@@ -162,8 +208,37 @@ class provider implements
                         'answer'        => $a->answer,
                         'correct'       => transform::yesno($a->correct),
                         'timemodified'  => transform::datetime($a->timemodified),
+                        // Primer intento (1.5.0). En las de antes, desconocido: null.
+                        'firstanswer'   => $a->firstanswer ?? null,
+                        'firstcorrect'  => isset($a->firstcorrect) ? transform::yesno($a->firstcorrect) : null,
+                        'attempts'      => isset($a->attempts) ? (int) $a->attempts : null,
+                        'timefirst'     => isset($a->timefirst) ? transform::datetime($a->timefirst) : null,
                     ];
                 }, $answers));
+            }
+
+            // Los tramos vistos por día (1.5.0): una cifra por tramo de 5 s.
+            $vistas = $DB->get_records('ivplayer_vistas', ['ivplayerid' => $cm->instance, 'userid' => $userid], 'dia');
+            if ($vistas) {
+                $data->vistas = array_values(array_map(function ($v) {
+                    return (object) [
+                        'dia'          => (int) $v->dia,
+                        'tramos'       => $v->tramos,
+                        'duracion'     => (int) $v->duracion,
+                        'segundos'     => (int) $v->segundos,
+                        'timemodified' => transform::datetime($v->timemodified),
+                    ];
+                }, $vistas));
+            }
+
+            // El toque de fin de lección (1.5.0).
+            $pulso = $DB->get_record('ivplayer_pulso', ['ivplayerid' => $cm->instance, 'userid' => $userid]);
+            if ($pulso) {
+                $data->pulso = (object) [
+                    'respuesta'    => get_string('pulso_' . $pulso->respuesta, 'ivplayer'),
+                    'timecreated'  => transform::datetime($pulso->timecreated),
+                    'timemodified' => transform::datetime($pulso->timemodified),
+                ];
             }
 
             writer::with_context($context)->export_data([], $data);
@@ -188,6 +263,8 @@ class provider implements
 
         $DB->delete_records('ivplayer_progress', ['ivplayerid' => $cm->instance]);
         $DB->delete_records('ivplayer_answers', ['ivplayerid' => $cm->instance]);
+        $DB->delete_records('ivplayer_vistas', ['ivplayerid' => $cm->instance]);
+        $DB->delete_records('ivplayer_pulso', ['ivplayerid' => $cm->instance]);
     }
 
     /**
@@ -210,6 +287,8 @@ class provider implements
             }
             $DB->delete_records('ivplayer_progress', ['ivplayerid' => $cm->instance, 'userid' => $userid]);
             $DB->delete_records('ivplayer_answers', ['ivplayerid' => $cm->instance, 'userid' => $userid]);
+            $DB->delete_records('ivplayer_vistas', ['ivplayerid' => $cm->instance, 'userid' => $userid]);
+            $DB->delete_records('ivplayer_pulso', ['ivplayerid' => $cm->instance, 'userid' => $userid]);
         }
     }
 
@@ -240,5 +319,7 @@ class provider implements
 
         $DB->delete_records_select('ivplayer_progress', "ivplayerid = :ivplayerid AND userid {$insql}", $params);
         $DB->delete_records_select('ivplayer_answers', "ivplayerid = :ivplayerid AND userid {$insql}", $params);
+        $DB->delete_records_select('ivplayer_vistas', "ivplayerid = :ivplayerid AND userid {$insql}", $params);
+        $DB->delete_records_select('ivplayer_pulso', "ivplayerid = :ivplayerid AND userid {$insql}", $params);
     }
 }

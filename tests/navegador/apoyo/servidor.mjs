@@ -517,7 +517,10 @@ ${lnav}
     try { campos = Object.fromEntries(await new Response(Buffer.concat(trozos), { headers: { 'content-type': req.headers['content-type'] || '' } }).formData()); } catch {}
     let data = null;
     try { data = JSON.parse(campos.data); } catch {}
-    respaldo.progresos.push({ ms: Date.now(), cmid: campos.cmid, sesskey: campos.sesskey, data });
+    // Los tramos vistos (1.5.0) en su propio campo: `data` sigue siendo el avance de siempre.
+    let vistas = null;
+    try { vistas = campos.vistas ? JSON.parse(campos.vistas) : null; } catch {}
+    respaldo.progresos.push({ ms: Date.now(), cmid: campos.cmid, sesskey: campos.sesskey, data, vistas, crudo: campos.data });
     if (data) respaldo.avance = data;
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     res.end(JSON.stringify({ success: !!data }));

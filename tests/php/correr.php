@@ -85,6 +85,12 @@ $funciones = [
     'ivplayer_subtitulos_tv_tope',
     'ivplayer_subtitulos_cues',
     'ivplayer_subtitulos_a_vtt',
+    'ivplayer_vistas_dia',
+    'ivplayer_vistas_leer',
+    'ivplayer_vistas_combinar',
+    'ivplayer_pulso_opciones',
+    'ivplayer_pulso_valida',
+    'ivplayer_respuesta_a_guardar',
 ];
 
 $rutalib = dirname(__DIR__, 2) . '/mod/ivplayer/lib.php';
@@ -841,6 +847,87 @@ chequear('player.php arma la config con ivplayer_config_base($ivplayer, $video),
 chequear('player.php no vuelve a armar la config a mano', preg_match("/'interactions' => json_decode/", $srcplayer), 0);
 seccion('etiquetas: ivplayer_modo_etiquetas e ivplayer_config_base (lo que va en PLAYER_CONFIG)');
 
+
+// ─── Tablero de aprendizaje (1.5.0): las funciones puras ───────────────────────────
+// Los tramos vistos (ivplayer_vistas_*): lo que manda src/vistas.js con el avance es
+// ABSOLUTO por sesión; el servidor suma sólo la diferencia con lo último de esa sesión.
+$hoy = 20261115;
+chequear('vistas_dia: el de hoy', ivplayer_vistas_dia(20261115, $hoy), 20261115);
+chequear('vistas_dia: uno que esperó en la cola 14 días es de ese día', ivplayer_vistas_dia(20261101, $hoy), 20261101);
+chequear('vistas_dia: 15 días antes, no (un reloj corrido): hoy', ivplayer_vistas_dia(20261031, $hoy), $hoy);
+chequear('vistas_dia: mañana sí (zona horaria), pasado no', [ivplayer_vistas_dia(20261116, $hoy), ivplayer_vistas_dia(20261117, $hoy)], [20261116, $hoy]);
+chequear('vistas_dia: una fecha que no existe o basura: hoy', [ivplayer_vistas_dia(20261131, $hoy), ivplayer_vistas_dia('x', $hoy),
+    ivplayer_vistas_dia(null, $hoy), ivplayer_vistas_dia(1115, $hoy)], [$hoy, $hoy, $hoy, $hoy]);
+chequear('vistas_dia: cruzando el mes', ivplayer_vistas_dia(20261117, 20261201), 20261117);
+
+$e = fn($s, $d, $t, $g = 10, $dur = 60) => ['sesion' => $s, 'dia' => $d, 'tramos' => $t, 'segundos' => $g, 'duracion' => $dur];
+chequear('vistas_leer: una entrada como la manda el reproductor',
+    ivplayer_vistas_leer(json_encode([$e('abcd1234efgh5678', 20261115, '111100000000', 19.6, 59.8)]), $hoy),
+    [['sesion' => 'abcd1234efgh5678', 'dia' => 20261115, 'tramos' => '111100000000', 'segundos' => 20, 'duracion' => 60]]);
+chequear('vistas_leer: vacío, no JSON, un objeto en vez de lista o demasiado largo: nada', [ivplayer_vistas_leer('', $hoy),
+    ivplayer_vistas_leer('{', $hoy), ivplayer_vistas_leer(json_encode(['a' => $e('abcd1234', $hoy, '1')]), $hoy),
+    ivplayer_vistas_leer(str_repeat(' ', 40001), $hoy), ivplayer_vistas_leer(null, $hoy), ivplayer_vistas_leer('[]', $hoy)], [[], [], [], [], [], []]);
+chequear('vistas_leer: se descarta la entrada con sesión rara, tramos con letras o sin nada visto',
+    ivplayer_vistas_leer(json_encode([$e('corto', $hoy, '1'), $e('abcd1234', $hoy, '12a'), $e('abcd1234', $hoy, '0000'),
+        $e('abc-1234', $hoy, '1'), $e('abcd1234', $hoy, '1' . str_repeat('0', 4320))]), $hoy), []);
+chequear('vistas_leer: los tramos se cortan a los del video (22 s = 5 tramos)',
+    ivplayer_vistas_leer(json_encode([$e('abcd1234', $hoy, '1111111111', 22, 22)]), $hoy)[0]['tramos'], '11111');
+chequear('vistas_leer: de la misma sesión y día queda la última; como mucho 4 entradas, las últimas',
+    array_map(fn($x) => $x['sesion'] . $x['tramos'], ivplayer_vistas_leer(json_encode([$e('aaaaaaaa', $hoy, '1'), $e('bbbbbbbb', $hoy, '1'),
+        $e('cccccccc', $hoy, '1'), $e('cccccccc', $hoy, '11'), $e('dddddddd', $hoy, '1')]), $hoy)),
+    ['bbbbbbbb1', 'cccccccc11', 'dddddddd1']);
+chequear('vistas_leer: segundos y duración acotados', array_map(fn($x) => [$x['segundos'], $x['duracion']],
+    ivplayer_vistas_leer(json_encode([$e('aaaaaaaa', $hoy, '1', -5, -1), $e('bbbbbbbb', $hoy, '1', 999999, 999999)]), $hoy)),
+    [[0, 0], [86400, 86400]]);
+
+$sinsesiones = fn(array $c) => [$c['tramos'], $c['segundos'], $c['duracion']];
+$A1 = $e('sesionAAAA', $hoy, '1110', 15, 20);
+$c1 = ivplayer_vistas_combinar(null, $A1);
+chequear('vistas_combinar: la primera del día', $sinsesiones($c1), ['1110', 15, 20]);
+chequear('vistas_combinar: recuerda lo sumado de esa sesión', json_decode($c1['sesiones'], true), ['ssesionAAAA' => ['t' => '111', 'g' => 15]]);
+$c1b = ivplayer_vistas_combinar($c1, $A1);
+chequear('vistas_combinar: el MISMO envío otra vez (beacon + cola) no suma nada', [$sinsesiones($c1b), $c1b['sesiones']], [$sinsesiones($c1), $c1['sesiones']]);
+$c2 = ivplayer_vistas_combinar($c1, $e('sesionAAAA', $hoy, '1121', 22, 20));
+chequear('vistas_combinar: la misma sesión siguió mirando: suma sólo lo nuevo', $sinsesiones($c2), ['1121', 22, 20]);
+$c3 = ivplayer_vistas_combinar($c2, $e('sesionBBBB', $hoy, '0110', 8, 20));
+chequear('vistas_combinar: otra carga de la lección suma entera', $sinsesiones($c3), ['1231', 30, 20]);
+$c4 = ivplayer_vistas_combinar($c3, $A1);
+chequear('vistas_combinar: un envío VIEJO de la sesión A que llega tarde no suma ni la hace olvidar lo último',
+    [$sinsesiones($c4), json_decode($c4['sesiones'], true)['ssesionAAAA']], [['1231', 30, 20], ['t' => '1121', 'g' => 22]]);
+$c5 = ivplayer_vistas_combinar($c4, $e('sesionAAAA', $hoy, '1121', 22, 20));
+chequear('vistas_combinar: y el nuevo que se reenvía después, tampoco', $sinsesiones($c5), ['1231', 30, 20]);
+chequear('vistas_combinar: tope 9 por tramo', ivplayer_vistas_combinar(['tramos' => '98', 'segundos' => 0, 'duracion' => 10, 'sesiones' => null],
+    $e('sesionCCCC', $hoy, '55', 1, 10))['tramos'], '99');
+chequear('vistas_combinar: sin duración en la entrada queda la de la fila; una entrada más larga agrega tramos',
+    $sinsesiones(ivplayer_vistas_combinar(['tramos' => '1', 'segundos' => 3, 'duracion' => 7, 'sesiones' => '{}'], $e('sesionDDDD', $hoy, '011', 4, 0))),
+    ['111', 7, 7]);
+$fila = null;
+foreach (['s1aaaaaa', 's2aaaaaa', 's3aaaaaa', 's4aaaaaa', 's5aaaaaa'] as $s) { $fila = ivplayer_vistas_combinar($fila, $e($s, $hoy, '1', 1, 5)); }
+chequear('vistas_combinar: recuerda las últimas 4 sesiones (la más vieja se olvida)', array_keys(json_decode($fila['sesiones'], true)),
+    ['ss2aaaaaa', 'ss3aaaaaa', 'ss4aaaaaa', 'ss5aaaaaa']);
+chequear('vistas_combinar: un id de sólo cifras no convierte el registro en lista',
+    substr(ivplayer_vistas_combinar(null, $e('1234567890123456', $hoy, '1', 1, 5))['sesiones'], 0, 1), '{');
+chequear('vistas_combinar: una fila con basura en tramos o sesiones no rompe', $sinsesiones(ivplayer_vistas_combinar(
+    ['tramos' => '1x', 'segundos' => '2', 'duracion' => '5', 'sesiones' => '[1,2'], $e('sesionEEEE', $hoy, '11', 1, 0))), ['21', 3, 5]);
+seccion('tramos vistos (1.5.0): ivplayer_vistas_dia, ivplayer_vistas_leer e ivplayer_vistas_combinar');
+
+chequear('pulso: las cinco, en el orden en que se muestran', ivplayer_pulso_opciones(), ['bien', 'costo', 'perdi', 'poco', 'nada']);
+chequear('pulso: cada una vale tal cual', array_map('ivplayer_pulso_valida', ivplayer_pulso_opciones()), ivplayer_pulso_opciones());
+chequear('pulso: otra cosa, no', [ivplayer_pulso_valida('BIEN'), ivplayer_pulso_valida(''), ivplayer_pulso_valida(null),
+    ivplayer_pulso_valida(['bien']), ivplayer_pulso_valida('bien ')], [null, null, null, null, null]);
+seccion('toque de fin de lección (1.5.0): ivplayer_pulso_opciones e ivplayer_pulso_valida');
+
+$r = ivplayer_respuesta_a_guardar(null, 'b', false, 1000);
+chequear('respuesta: la primera guarda también el primer intento y un intento', (array) $r,
+    ['answer' => 'b', 'correct' => 0, 'timemodified' => 1000, 'firstanswer' => 'b', 'firstcorrect' => 0, 'attempts' => 1, 'timefirst' => 1000]);
+$previa = (object) ['id' => 7, 'answer' => 'b', 'correct' => 0, 'timemodified' => 1000, 'firstanswer' => 'b', 'firstcorrect' => 0, 'attempts' => '1', 'timefirst' => 1000];
+chequear('respuesta: la segunda cambia la última y suma un intento; el primer intento no se toca',
+    (array) ivplayer_respuesta_a_guardar($previa, 'a', true, 2000), ['id' => 7, 'answer' => 'a', 'correct' => 1, 'timemodified' => 2000, 'attempts' => 2]);
+$vieja = (object) ['id' => 8, 'answer' => 'a', 'correct' => 1, 'timemodified' => 500, 'firstanswer' => null, 'firstcorrect' => null, 'attempts' => null, 'timefirst' => null];
+chequear('respuesta: una de antes de la 1.5.0 (intentos desconocidos) sigue desconocida: no se inventa',
+    (array) ivplayer_respuesta_a_guardar($vieja, 'b', false, 3000), ['id' => 8, 'answer' => 'b', 'correct' => 0, 'timemodified' => 3000, 'attempts' => null]);
+seccion('primer intento (1.5.0): ivplayer_respuesta_a_guardar');
+
 // El paso del upgrade (db/upgrade.php) con lo mínimo de XMLDB, y que la columna sea la
 // misma que la de una instalación nueva (install.xml) y viaje en el backup.
 if (!defined('MOODLE_INTERNAL')) {
@@ -853,14 +940,14 @@ foreach (['XMLDB_TYPE_INTEGER' => 'int', 'XMLDB_TYPE_CHAR' => 'char', 'XMLDB_TYP
     }
 }
 eval('
-class xmldb_table { public $name; public function __construct($n) { $this->name = $n; } public function add_field(...$a) {} public function add_key(...$a) {} }
+class xmldb_table { public $name; public $campos = []; public function __construct($n) { $this->name = $n; } public function add_field(...$a) { $this->campos[] = $a; } public function add_key(...$a) {} }
 class xmldb_field { public $datos; public function __construct(...$a) { $this->datos = $a; } }
 class ivp_dbman_prueba {
-    public $existen = []; public $agregados = [];
+    public $existen = []; public $agregados = []; public $tablas = ["ivplayer", "ivplayer_progress", "ivplayer_answers"]; public $creadas = [];
     public function field_exists($t, $f) { return in_array($t->name . "." . $f->datos[0], $this->existen, true); }
     public function add_field($t, $f) { $this->agregados[] = [$t->name, $f->datos]; $this->existen[] = $t->name . "." . $f->datos[0]; }
-    public function table_exists($t) { return true; }
-    public function create_table($t) {}
+    public function table_exists($t) { return in_array($t->name, $this->tablas, true); }
+    public function create_table($t) { $this->creadas[] = [$t->name, $t->campos]; $this->tablas[] = $t->name; }
 }
 function upgrade_mod_savepoint($ok, $version, $modulo) { $GLOBALS["ivp_savepoints"][] = [$ok, $version, $modulo]; }
 function get_config($plugin, $nombre = null) { $c = $GLOBALS["ivp_config"][$plugin] ?? []; return array_key_exists((string) $nombre, $c) ? $c[$nombre] : false; }
@@ -876,22 +963,33 @@ require $raizplugin . '/db/upgrade.php';
 // La configuración del sitio de mentira (get_config/set_config de arriba): por defecto, con
 // la lista de ajustes sensibles de core (la que trae un sitio instalado).
 $LISTA_CORE = 'smtppass@@none, proxypassword@@none';
-$upgrade = function (int $desde, array $existen = [], ?array $config = null) use ($DB, $LISTA_CORE) {
+$upgrade = function (int $desde, array $existen = [], ?array $config = null, array $tablas = []) use ($DB, $LISTA_CORE) {
     $DB->dbman = new ivp_dbman_prueba();
     $DB->dbman->existen = $existen;
+    $DB->dbman->tablas = array_merge($DB->dbman->tablas, $tablas);
     $GLOBALS['ivp_savepoints'] = [];
     $GLOBALS['ivp_config'] = $config ?? ['adminpresets' => ['sensiblesettings' => $LISTA_CORE]];
     $r = xmldb_ivplayer_upgrade($desde);
     return [$r, $DB->dbman->agregados, $GLOBALS['ivp_savepoints']];
 };
 $campo = ['etiquetas', 'char', '16', null, true, null, 'glosario', 'videoloop'];
+// El paso de la 1.5.0 (2026111500) corre después de todos: las cuatro columnas del primer
+// intento en ivplayer_answers (más abajo, su sección).
+$campos15 = [
+    ['ivplayer_answers', ['firstanswer', 'char', '255', null, null, null, null, 'timemodified']],
+    ['ivplayer_answers', ['firstcorrect', 'int', '1', null, null, null, null, 'firstanswer']],
+    ['ivplayer_answers', ['attempts', 'int', '10', null, null, null, null, 'firstcorrect']],
+    ['ivplayer_answers', ['timefirst', 'int', '10', null, null, null, null, 'attempts']],
+];
+$paso15 = [true, 2026111500, 'ivplayer'];
+$existen15 = ['ivplayer_answers.firstanswer', 'ivplayer_answers.firstcorrect', 'ivplayer_answers.attempts', 'ivplayer_answers.timefirst'];
 chequear('upgrade desde 2026101902: agrega etiquetas (char 16, no nula, por defecto glosario, después de videoloop) y marca 2026101903 y 2026101904',
-    $upgrade(2026101902), [true, [['ivplayer', $campo]], [[true, 2026101903, 'ivplayer'], [true, 2026101904, 'ivplayer']]]);
+    $upgrade(2026101902, $existen15), [true, [['ivplayer', $campo]], [[true, 2026101903, 'ivplayer'], [true, 2026101904, 'ivplayer'], $paso15]]);
 chequear('upgrade con la columna ya creada (se cortó a la mitad): no la duplica y marca igual',
-    $upgrade(2026101902, ['ivplayer.etiquetas']), [true, [], [[true, 2026101903, 'ivplayer'], [true, 2026101904, 'ivplayer']]]);
+    $upgrade(2026101902, array_merge(['ivplayer.etiquetas'], $existen15)), [true, [], [[true, 2026101903, 'ivplayer'], [true, 2026101904, 'ivplayer'], $paso15]]);
 // Subtítulos en la TV: el paso 2026101904 crea el secreto de subtitulos.php (32 bytes al
 // azar en base64url), si falta, y lo suma a la lista de ajustes sensibles.
-chequear('upgrade desde 2026101903: sólo el paso del secreto', $upgrade(2026101903), [true, [], [[true, 2026101904, 'ivplayer']]]);
+chequear('upgrade desde 2026101903: sólo el paso del secreto (y el de la 1.5.0)', $upgrade(2026101903, $existen15), [true, [], [[true, 2026101904, 'ivplayer'], $paso15]]);
 $secreto1 = $GLOBALS['ivp_config']['mod_ivplayer']['subtitulossecreto'] ?? null;
 chequear('el secreto: 43 caracteres de base64url (32 bytes), sin "="', preg_match('/^[A-Za-z0-9_-]{43}$/D', (string) $secreto1), 1);
 chequear('el secreto entra en la lista de ajustes sensibles, sin tocar las de core',
@@ -907,7 +1005,8 @@ chequear('uno corto (cargado a mano) se reemplaza', strlen((string) $GLOBALS['iv
 $upgrade(2026101903, [], []);
 chequear('sin la lista de core (sitio a medio instalar): el secreto sí, la lista no se crea',
     [strlen((string) ($GLOBALS['ivp_config']['mod_ivplayer']['subtitulossecreto'] ?? '')), $GLOBALS['ivp_config']['adminpresets'] ?? null], [43, null]);
-chequear('upgrade desde 2026101904: nada', $upgrade(2026101904), [true, [], []]);
+chequear('upgrade desde 2026101904: sólo el paso de la 1.5.0', $upgrade(2026101904), [true, $campos15, [$paso15]]);
+chequear('upgrade desde 2026111500: nada', $upgrade(2026111500), [true, [], []]);
 // Una instalación nueva hace lo mismo (install.php): la clave de Bunny y el secreto.
 require $raizplugin . '/db/install.php';
 $GLOBALS['ivp_config'] = ['adminpresets' => ['sensiblesettings' => $LISTA_CORE]];
@@ -918,8 +1017,8 @@ $srcversion = (string) file_get_contents($raizplugin . '/version.php');
 $mv = [];
 preg_match('/\$plugin->version = (\d+);/', $srcversion, $mv);
 preg_match_all('/upgrade_mod_savepoint\(true, (\d+), \'ivplayer\'\)/', (string) file_get_contents($raizplugin . '/db/upgrade.php'), $ms);
-chequear('version.php es la del último paso del upgrade (2026101904) y la release sigue 1.4.0',
-    [(int) ($mv[1] ?? 0), max(array_map('intval', $ms[1])), preg_match("/\\\$plugin->release = '1\\.4\\.0';/", $srcversion)], [2026101904, 2026101904, 1]);
+chequear('version.php es la del último paso del upgrade (2026111500) y la release es la 1.5.0',
+    [(int) ($mv[1] ?? 0), max(array_map('intval', $ms[1])), preg_match("/\\\$plugin->release = '1\\.5\\.0';/", $srcversion)], [2026111500, 2026111500, 1]);
 $xml = str_replace("\r\n", "\n", (string) file_get_contents($raizplugin . '/db/install.xml'));
 chequear('install.xml crea la misma columna (instalación nueva = sitio actualizado)',
     preg_match('/<FIELD NAME="etiquetas" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="glosario"[ \/]/', $xml), 1);
@@ -931,6 +1030,35 @@ $rs = (string) file_get_contents($raizplugin . '/backup/moodle2/restore_ivplayer
 chequear('el restore lo normaliza con ivplayer_modo_etiquetas (y carga lib.php)',
     [preg_match('/\$data->etiquetas = ivplayer_modo_etiquetas\(\$data->etiquetas\);/', $rs), preg_match("/require_once\\(__DIR__ \\. '\\/\\.\\.\\/\\.\\.\\/lib\\.php'\\);/", $rs)], [1, 1]);
 seccion('etiquetas y secreto de los subtítulos: los pasos del upgrade, install.php, install.xml, version.php y el backup');
+
+// El paso de la 1.5.0: crea las dos tablas y agrega las columnas del primer intento, y una
+// instalación nueva (install.xml) queda IGUAL que un sitio actualizado: cada columna con el
+// mismo tipo, largo, nulidad y valor por defecto, en el mismo orden.
+$r15 = $upgrade(2026101904);
+$creadas = array_column($DB->dbman->creadas, 0);
+chequear('upgrade desde 2026101904: crea ivplayer_vistas e ivplayer_pulso', $creadas, ['ivplayer_vistas', 'ivplayer_pulso']);
+$upgrade(2026101904, $existen15, null, ['ivplayer_vistas', 'ivplayer_pulso']);
+chequear('upgrade cortado a la mitad (tablas y columnas ya están): no duplica nada y marca igual',
+    [$DB->dbman->creadas, $DB->dbman->agregados, $GLOBALS['ivp_savepoints']], [[], [], [$paso15]]);
+// [nombre, tipo, largo, no nula, por defecto] de un campo del upgrade y de install.xml.
+$deupgrade = fn(array $a) => [$a[0], $a[1], $a[2] === null ? null : (string) $a[2], $a[4] === true, $a[6] === null ? null : (string) $a[6]];
+$dexml = function (string $tabla) use ($xml): array {
+    $m = [];
+    preg_match('/<TABLE NAME="' . $tabla . '".*?<\/TABLE>/s', $xml, $m);
+    preg_match_all('/<FIELD NAME="([a-z]+)" TYPE="([a-z]+)"(?: LENGTH="(\d+)")? NOTNULL="(true|false)"(?: SEQUENCE="true")?(?: DEFAULT="([^"]*)")?/',
+        $m[0] ?? '', $f, PREG_SET_ORDER);
+    return array_map(fn($x) => [$x[1], $x[2], ($x[3] ?? '') === '' ? null : $x[3], $x[4] === 'true', array_key_exists(5, $x) ? $x[5] : null], $f);
+};
+$upgrade(2026101904);
+foreach ($DB->dbman->creadas as [$tabla, $campos]) {
+    chequear("install.xml: $tabla con las mismas columnas que el upgrade", $dexml($tabla), array_map($deupgrade, $campos));
+}
+chequear('install.xml: las cuatro del primer intento, al final de ivplayer_answers y como en el upgrade',
+    array_slice($dexml('ivplayer_answers'), -4), array_map(fn($x) => $deupgrade($x[1]), $campos15));
+chequear('install.xml: las del primer intento son nulas (las respuestas de antes, desconocidas)',
+    array_map(fn($x) => $x[3], array_slice($dexml('ivplayer_answers'), -4)), [false, false, false, false]);
+chequear('install.xml: VERSION del día del paso', preg_match('/<XMLDB PATH="mod\/ivplayer\/db" VERSION="20261115"/', $xml), 1);
+seccion('tablero (1.5.0): el paso del upgrade y install.xml');
 
 echo PHP_EOL . "$ok ok, $mal mal" . PHP_EOL;
 exit($mal ? 1 : 0);

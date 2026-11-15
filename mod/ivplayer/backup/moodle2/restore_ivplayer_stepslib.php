@@ -14,6 +14,8 @@ class restore_ivplayer_activity_structure_step extends restore_activity_structur
         if ($userinfo) {
             $paths[] = new restore_path_element('ivplayer_progress', '/activity/ivplayer/progresses/progress');
             $paths[] = new restore_path_element('ivplayer_answer', '/activity/ivplayer/answers/answer');
+            $paths[] = new restore_path_element('ivplayer_vista', '/activity/ivplayer/vistas/vista');
+            $paths[] = new restore_path_element('ivplayer_pulso', '/activity/ivplayer/pulsos/pulso');
         }
 
         return $this->prepare_activity_structure($paths);
@@ -55,6 +57,40 @@ class restore_ivplayer_activity_structure_step extends restore_activity_structur
         $data->userid = $this->get_mappingid('user', $data->userid);
 
         $DB->insert_record('ivplayer_answers', $data);
+    }
+
+    // Tramos vistos por día (1.5.0). Un backup de antes no los trae.
+    protected function process_ivplayer_vista($data) {
+        global $DB;
+
+        $data = (object)$data;
+        $data->ivplayerid = $this->get_new_parentid('ivplayer');
+        $data->userid = $this->get_mappingid('user', $data->userid);
+        if (!$data->userid) {
+            return;
+        }
+        // Una fila por alumno, video y día (clave única): si ya está, no se duplica.
+        if ($DB->record_exists('ivplayer_vistas', ['ivplayerid' => $data->ivplayerid, 'userid' => $data->userid, 'dia' => $data->dia])) {
+            return;
+        }
+        $data->sesiones = null;
+        $DB->insert_record('ivplayer_vistas', $data);
+    }
+
+    // El toque de fin de lección (1.5.0).
+    protected function process_ivplayer_pulso($data) {
+        global $DB;
+
+        $data = (object)$data;
+        $data->ivplayerid = $this->get_new_parentid('ivplayer');
+        $data->userid = $this->get_mappingid('user', $data->userid);
+        if (!$data->userid || ivplayer_pulso_valida($data->respuesta ?? null) === null) {
+            return;
+        }
+        if ($DB->record_exists('ivplayer_pulso', ['ivplayerid' => $data->ivplayerid, 'userid' => $data->userid])) {
+            return;
+        }
+        $DB->insert_record('ivplayer_pulso', $data);
     }
 
     protected function after_execute() {

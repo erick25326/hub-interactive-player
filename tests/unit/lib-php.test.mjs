@@ -271,7 +271,7 @@ test('el modo de las etiquetas: formulario, columna, upgrade, backup y PLAYER_CO
   // 2026101903 es el paso de la columna; la versión siguió subiendo (2026101904: el secreto
   // de los subtítulos en la TV, ver la prueba de abajo).
   assert.ok(Number((version.match(/\$plugin->version = (\d+);/) || [])[1]) >= 2026101903);
-  assert.match(version, /\$plugin->release = '1\.4\.0';/);
+  assert.match(version, /\$plugin->release = '1\.(?:[4-9]|\d\d)\.\d+';/, 'la release es la 1.4.0 o una posterior');
 
   // Backup y restore: el modo viaja con la actividad.
   assert.match(leer('backup/moodle2/backup_ivplayer_stepslib.php'), /'videoloop', 'etiquetas', 'interactions'/);
@@ -363,6 +363,91 @@ test('subtítulos en la TV: subtitulos.php, player.php, firma.php, el secreto y 
     }
   }
   const version = leer('version.php');
-  assert.equal(Number((version.match(/\$plugin->version = (\d+);/) || [])[1]), 2026101904);
-  assert.match(version, /\$plugin->release = '1\.4\.0';/);
+  // 2026101904 es el paso del secreto; la versión siguió subiendo (2026111500: la 1.5.0).
+  assert.ok(Number((version.match(/\$plugin->version = (\d+);/) || [])[1]) >= 2026101904);
+  assert.match(version, /\$plugin->release = '1\.(?:[4-9]|\d\d)\.\d+';/, 'la release es la 1.4.0 o una posterior');
+});
+
+// Tablero de aprendizaje, Etapa 1 (1.5.0): los tramos vistos, el toque de fin de lección y
+// el primer intento. El resultado de las funciones puras lo prueba correr.php (PHP de
+// verdad: en CI o en el servidor); acá, sin PHP, que no cambien sin pasar por esa prueba
+// (huella) y que las puntas sigan enchufadas: tablas en install.xml y en el upgrade,
+// endpoints, MOODLE_CONTEXT, privacidad, respaldo y textos.
+test('tablero (1.5.0): las funciones puras no cambiaron sin la prueba PHP, y todo está enchufado', async () => {
+  const fs = await import('node:fs');
+  const leer = (rel) => fs.readFileSync(new URL('../../mod/ivplayer/' + rel, import.meta.url), 'utf8').split('\r\n').join('\n');
+  const huellas = {
+    ivplayer_vistas_dia: 'e5025daa87227649',
+    ivplayer_vistas_leer: '4e4afc6d3f0772b7',
+    ivplayer_vistas_combinar: '180986bcac038911',
+    ivplayer_pulso_opciones: '42c86d01c6847814',
+    ivplayer_pulso_valida: '92ec00623526ea70',
+    ivplayer_respuesta_a_guardar: '46b84d5757bbbc00',
+  };
+  const src = leerLib();
+  for (const [nombre, esperada] of Object.entries(huellas)) {
+    const f = funcionPhp(src, nombre);
+    assert.ok(f, `${nombre} ya no está en lib.php`);
+    assert.equal(huella(f), esperada,
+      `${nombre} cambió en lib.php: corré npm run test:php (o el workflow "Pruebas") y, si da bien, poné la huella nueva (${huella(f)})`);
+  }
+  // Las tablas y columnas son el contrato con local_hubcampus (el tablero las lee).
+  const xml = leer('db/install.xml');
+  for (const [tabla, campos] of Object.entries({
+    ivplayer_vistas: ['ivplayerid', 'userid', 'dia', 'tramos', 'duracion', 'segundos', 'sesiones', 'timemodified'],
+    ivplayer_pulso: ['ivplayerid', 'userid', 'respuesta', 'timecreated', 'timemodified'],
+  })) {
+    const m = new RegExp(`<TABLE NAME="${tabla}"[\\s\\S]*?</TABLE>`).exec(xml);
+    assert.ok(m, `falta la tabla ${tabla} en install.xml`);
+    for (const c of campos) assert.match(m[0], new RegExp(`<FIELD NAME="${c}"`), `${tabla}.${c} en install.xml`);
+  }
+  for (const c of ['firstanswer', 'firstcorrect', 'attempts', 'timefirst']) {
+    assert.match(xml, new RegExp(`<FIELD NAME="${c}" [^>]*NOTNULL="false"`), `ivplayer_answers.${c}: nula (las de antes, desconocidas)`);
+  }
+  assert.match(xml, /<KEY NAME="ivplayerid-userid-dia" TYPE="unique" FIELDS="ivplayerid, userid, dia"\/>/);
+  const upgrade = leer('db/upgrade.php');
+  assert.match(upgrade, /if \(\$oldversion < 2026111500\) \{[\s\S]*?new xmldb_table\('ivplayer_vistas'\)[\s\S]*?new xmldb_table\('ivplayer_pulso'\)[\s\S]*?upgrade_mod_savepoint\(true, 2026111500, 'ivplayer'\);/);
+  const version = leer('version.php');
+  assert.ok(Number((version.match(/\$plugin->version = (\d+);/) || [])[1]) >= 2026111500);
+  // Los endpoints.
+  const progress = leer('progress.php');
+  assert.match(progress, /\$vistas = optional_param\('vistas', '', PARAM_RAW\);/);
+  assert.match(progress, /try \{\s*ivplayer_vistas_guardar\(\(int\) \$cm->instance, \(int\) \$USER->id, \$vistas\);\s*\} catch \(\\Throwable \$e\)/,
+    'los tramos se guardan sin poder romper el avance');
+  assert.ok(progress.indexOf('ivplayer_vistas_guardar(') > progress.lastIndexOf("$DB->insert_record('ivplayer_progress'"), 'los tramos, DESPUÉS del avance');
+  assert.match(leer('answer.php'), /\$fila = ivplayer_respuesta_a_guardar\(\$record \?: null, \$answer, \$correct, time\(\)\);/);
+  const pulso = leer('pulso.php');
+  for (const r of [/require_sesskey\(\);/, /require_login\(\$course, true, \$cm\);/, /require_capability\('mod\/ivplayer:view', \$context\);/, /ivplayer_pulso_valida\(\$respuesta\)/]) {
+    assert.match(pulso, r, 'pulso.php con los mismos chequeos que answer.php');
+  }
+  const player = leer('player.php');
+  const iContexto = player.indexOf('$contexto = ['), iPulso = player.indexOf("'pulsoUrl'"), iJson = player.indexOf('$moodlecontext = json_encode($contexto');
+  assert.ok(iContexto > 0 && iPulso > iContexto && iJson > iPulso, 'pulsoUrl va en MOODLE_CONTEXT: sólo en el campus');
+  assert.match(player, /'pulsoGuardado' => \$pulsoguardado,/);
+  // Privacidad, borrado de la actividad y respaldo.
+  const privacy = leer('classes/privacy/provider.php');
+  for (const t of ['ivplayer_vistas', 'ivplayer_pulso']) {
+    assert.match(privacy, new RegExp(`add_database_table\\('${t}'`), `${t} declarada en la privacidad`);
+    assert.ok((privacy.match(new RegExp(`delete_records(?:_select)?\\('${t}'`, 'g')) || []).length >= 3, `${t}: se borra en los tres casos`);
+    assert.match(leer('lib.php'), new RegExp(`delete_records\\('${t}', \\['ivplayerid' => \\$id\\]\\);`), `${t}: se borra con la actividad`);
+  }
+  const bk = leer('backup/moodle2/backup_ivplayer_stepslib.php');
+  assert.match(bk, /'firstanswer', 'firstcorrect', 'attempts', 'timefirst'/);
+  assert.match(bk, /\$vista->set_source_table\('ivplayer_vistas'/);
+  assert.match(bk, /\$pulso->set_source_table\('ivplayer_pulso'/);
+  const rs = leer('backup/moodle2/restore_ivplayer_stepslib.php');
+  assert.match(rs, /protected function process_ivplayer_vista\(/);
+  assert.match(rs, /protected function process_ivplayer_pulso\(/);
+  // Los textos del toque: los de Erick, en el orden de ivplayer_pulso_opciones.
+  const es = leer('lang/es/ivplayer.php');
+  const textos = { pulso_pregunta: '¿Cómo te resultó esta lección?', pulso_bien: 'La seguí bien', pulso_costo: 'Me costó un poco',
+    pulso_perdi: 'Me perdí', pulso_poco: 'Sentí que no me aportó mucho', pulso_nada: 'Sentí que no me aportó nada' };
+  for (const [k, v] of Object.entries(textos)) assert.ok(es.includes(`$string['${k}'] = '${v}';`), `lang/es: ${k} = ${v}`);
+  const en = leer('lang/en/ivplayer.php');
+  for (const k of Object.keys(textos)) assert.ok(en.includes(`$string['${k}'] = '`), `falta ${k} en lang/en`);
+  for (const idioma of [es, en]) {
+    for (const k of ['ivplayer_vistas', 'ivplayer_pulso', 'ivplayer_answers:firstanswer', 'ivplayer_vistas:sesiones']) {
+      assert.ok(idioma.includes(`$string['privacy:metadata:${k}'] = '`), `falta privacy:metadata:${k}`);
+    }
+  }
 });

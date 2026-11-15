@@ -99,6 +99,32 @@ $string['privacy:metadata:ivplayer_answers:interactionid'] = 'La interacción re
 $string['privacy:metadata:ivplayer_answers:answer'] = 'La respuesta que dio el usuario.';
 $string['privacy:metadata:ivplayer_answers:correct'] = 'Si la respuesta fue correcta.';
 $string['privacy:metadata:ivplayer_answers:timemodified'] = 'Cuándo se actualizó la respuesta por última vez.';
+$string['privacy:metadata:ivplayer_answers:firstanswer'] = 'La primera respuesta que dio el usuario (desde la 1.5.0; vacía en las anteriores).';
+$string['privacy:metadata:ivplayer_answers:firstcorrect'] = 'Si la primera respuesta fue correcta.';
+$string['privacy:metadata:ivplayer_answers:attempts'] = 'Cuántas veces respondió el usuario la interacción.';
+$string['privacy:metadata:ivplayer_answers:timefirst'] = 'Cuándo respondió el usuario la interacción por primera vez.';
+$string['privacy:metadata:ivplayer_vistas'] = 'Qué tramos de 5 segundos del video vio el usuario cada día, y cuántas veces (curva de retención).';
+$string['privacy:metadata:ivplayer_vistas:userid'] = 'El ID del usuario que miró el video.';
+$string['privacy:metadata:ivplayer_vistas:dia'] = 'El día (la fecha local del usuario).';
+$string['privacy:metadata:ivplayer_vistas:tramos'] = 'Cuántas veces se vio cada tramo de 5 segundos ese día.';
+$string['privacy:metadata:ivplayer_vistas:duracion'] = 'La duración del video que informó el reproductor.';
+$string['privacy:metadata:ivplayer_vistas:segundos'] = 'Segundos de video vistos ese día.';
+$string['privacy:metadata:ivplayer_vistas:sesiones'] = 'Registro técnico de las últimas cargas de la lección, para no contar dos veces un guardado repetido.';
+$string['privacy:metadata:ivplayer_vistas:timemodified'] = 'Cuándo se actualizó el registro por última vez.';
+$string['privacy:metadata:ivplayer_pulso'] = 'La respuesta a "¿Cómo te resultó esta lección?" al terminar el video.';
+$string['privacy:metadata:ivplayer_pulso:userid'] = 'El ID del usuario que respondió.';
+$string['privacy:metadata:ivplayer_pulso:respuesta'] = 'La opción que eligió el usuario.';
+$string['privacy:metadata:ivplayer_pulso:timecreated'] = 'Cuándo respondió por primera vez.';
+$string['privacy:metadata:ivplayer_pulso:timemodified'] = 'Cuándo cambió la respuesta por última vez.';
+
+// Toque de fin de lección (1.5.0). Los mismos textos que muestra el reproductor (decisión de
+// Erick, 15-nov-2026: no cambiarlos). Acá, para la exportación de datos y los informes.
+$string['pulso_pregunta'] = '¿Cómo te resultó esta lección?';
+$string['pulso_bien'] = 'La seguí bien';
+$string['pulso_costo'] = 'Me costó un poco';
+$string['pulso_perdi'] = 'Me perdí';
+$string['pulso_poco'] = 'Sentí que no me aportó mucho';
+$string['pulso_nada'] = 'Sentí que no me aportó nada';
 
 // Etiquetas: glosario interactivo o en pantalla (1.4.0).
 $string['etiquetas'] = 'Etiquetas';

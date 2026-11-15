@@ -2,12 +2,18 @@
 /**
  * AJAX endpoint: saves per-user playback progress (completed
  * interaction ids + current time) so it survives across devices.
+ *
+ * Desde la 1.5.0 trae además `vistas` (optativo): los tramos vistos de esta carga de la
+ * lección (src/vistas.js), que se suman en ivplayer_vistas (ivplayer_vistas_guardar). El
+ * avance (`data`) no cambia de forma: de él depende retomar el video.
  */
 define('AJAX_SCRIPT', true);
 require_once(__DIR__ . '/../../config.php');
+require_once(__DIR__ . '/lib.php');
 
 $cmid = required_param('cmid', PARAM_INT);
 $data = required_param('data', PARAM_RAW);
+$vistas = optional_param('vistas', '', PARAM_RAW);
 
 require_sesskey();
 
@@ -58,6 +64,18 @@ if ($record) {
         'progress' => json_encode($clean),
         'timemodified' => time(),
     ]);
+}
+
+// Los tramos vistos, después del avance y sin poder romperlo: si fallan (la tabla todavía
+// no existe porque el upgrade no corrió, o dos equipos crearon la fila del día a la vez),
+// el avance ya quedó guardado. Lo que no entró llega con el envío siguiente, que trae todo
+// lo de esa sesión (es absoluto, ver ivplayer_vistas_combinar).
+if ($vistas !== '') {
+    try {
+        ivplayer_vistas_guardar((int) $cm->instance, (int) $USER->id, $vistas);
+    } catch (\Throwable $e) {
+        debugging('mod_ivplayer: no se guardaron los tramos vistos: ' . $e->getMessage(), DEBUG_DEVELOPER);
+    }
 }
 
 echo json_encode(['success' => true]);

@@ -41,26 +41,23 @@ if ($ia['type'] === 'multiple-choice') {
     $correct = core_text::strtolower($answer) === $expected;
 }
 
-// Upsert the latest answer for this interaction.
+// La última respuesta pisa la anterior, como siempre (la nota sale de ella). Desde la
+// 1.5.0 la primera vez también queda el primer intento (firstanswer, firstcorrect,
+// timefirst) y se cuentan los intentos: ivplayer_respuesta_a_guardar. Sin el upgrade
+// corrido, insert_record y update_record descartan las columnas que no existen.
 $record = $DB->get_record('ivplayer_answers', [
     'ivplayerid' => $ivplayer->id,
     'userid' => $USER->id,
     'interactionid' => $interactionid,
 ]);
+$fila = ivplayer_respuesta_a_guardar($record ?: null, $answer, $correct, time());
 if ($record) {
-    $record->answer = $answer;
-    $record->correct = $correct ? 1 : 0;
-    $record->timemodified = time();
-    $DB->update_record('ivplayer_answers', $record);
+    $DB->update_record('ivplayer_answers', $fila);
 } else {
-    $DB->insert_record('ivplayer_answers', (object)[
-        'ivplayerid' => $ivplayer->id,
-        'userid' => $USER->id,
-        'interactionid' => $interactionid,
-        'answer' => $answer,
-        'correct' => $correct ? 1 : 0,
-        'timemodified' => time(),
-    ]);
+    $fila->ivplayerid = $ivplayer->id;
+    $fila->userid = $USER->id;
+    $fila->interactionid = $interactionid;
+    $DB->insert_record('ivplayer_answers', $fila);
 }
 
 // Recalculate this user's grade in the gradebook.

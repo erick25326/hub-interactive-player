@@ -152,12 +152,27 @@ if ($progressrec && !empty($progressrec->progress)) {
     $savedprogress = json_decode($progressrec->progress, true);
 }
 
+// La respuesta del toque de fin que ya dio (1.5.0), o null. Sin el upgrade corrido la tabla
+// no existe: la lección se abre igual.
+$pulsoguardado = null;
+try {
+    $pulsoguardado = ivplayer_pulso_valida($DB->get_field('ivplayer_pulso', 'respuesta',
+        ['ivplayerid' => $ivplayer->id, 'userid' => $USER->id]));
+} catch (\dml_exception $e) {
+    $pulsoguardado = null;
+}
+
 $contexto = [
     'cmid' => $cm->id,
     'sesskey' => sesskey(),
     'completeUrl' => (new moodle_url('/mod/ivplayer/complete.php'))->out(false),
     'progressUrl' => (new moodle_url('/mod/ivplayer/progress.php'))->out(false),
     'answerUrl' => (new moodle_url('/mod/ivplayer/answer.php'))->out(false),
+    // El toque de fin de lección (1.5.0): a dónde se manda y lo que ya respondió este alumno
+    // (se puede cambiar). Sólo acá, en el campus: la demo de la web, el configurador y los
+    // SCORM no lo tienen y no muestran la pregunta.
+    'pulsoUrl' => (new moodle_url('/mod/ivplayer/pulso.php'))->out(false),
+    'pulsoGuardado' => $pulsoguardado,
     'savedProgress' => $savedprogress,
     'alreadyCompleted' => $progressrec ? (bool)$progressrec->completed : false,
     // Casilla del sitio: la app con Chromecast ya está en Play (decide si el reproductor

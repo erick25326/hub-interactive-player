@@ -29,7 +29,7 @@
 // puenteDisponible() da false y cast.js sigue por el camino web de siempre.
 
 export const VERSION_PROTOCOLO = 1;
-export const VERSION_REPRODUCTOR = "1.4.0";
+export const VERSION_REPRODUCTOR = "1.5.0";
 export const TOPE_HOLA_MS = 3000;
 export const TOPE_COMANDO_MS = 10000;
 export const LATIDO_MS = 2000;

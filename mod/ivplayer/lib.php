@@ -90,6 +90,8 @@ function ivplayer_delete_instance($id) {
     ivplayer_grade_item_update($ivplayer, 'reset');
     $DB->delete_records('ivplayer_answers', ['ivplayerid' => $id]);
     $DB->delete_records('ivplayer_progress', ['ivplayerid' => $id]);
+    $DB->delete_records('ivplayer_vistas', ['ivplayerid' => $id]);
+    $DB->delete_records('ivplayer_pulso', ['ivplayerid' => $id]);
     $DB->delete_records('ivplayer', ['id' => $id]);
     return true;
 }
@@ -1316,4 +1318,208 @@ function ivplayer_subtitulos_tv_secreto(): string {
 function ivplayer_subtitulos_tv_url(int $cmid, int $expires): ?string {
     $parametros = ivplayer_subtitulos_tv_parametros($cmid, $expires, ivplayer_subtitulos_tv_secreto());
     return $parametros === null ? null : (new moodle_url('/mod/ivplayer/subtitulos.php', $parametros))->out(false);
+}
+
+/* ─── Tablero de aprendizaje (1.5.0): tramos vistos, toque de fin y primer intento ─── */
+// Lo que se empieza a guardar el día que se instala y no se puede reconstruir hacia atrás
+// (plan del tablero de aprendizaje, Etapa 1). Lo leen las etapas siguientes desde
+// local_hubcampus: los nombres de tablas y columnas son parte del contrato.
+
+// Topes: 4320 tramos por entrada (6 h de video en tramos de 5 s) y 4 entradas por envío
+// (src/vistas.js, MAX_ENTRADAS), que son también las sesiones que recuerda cada fila. Van
+// escritos en cada función, no en constantes: tests/php/correr.php carga las funciones
+// puras de a una.
+
+/**
+ * El día que manda el reproductor (el local del alumno, AAAAMMDD), si es una fecha real
+ * entre 14 días antes y 1 después de hoy; si no, hoy. Un envío que esperó en la cola (sin
+ * señal) es del día en que se vio, no del que llegó; un reloj del celular muy corrido, no.
+ * Pura.
+ *
+ * @param mixed $dia
+ * @param int $hoy AAAAMMDD
+ * @return int
+ */
+function ivplayer_vistas_dia($dia, int $hoy): int {
+    $dia = is_numeric($dia) ? (int) $dia : 0;
+    $a = intdiv($dia, 10000);
+    $m = intdiv($dia, 100) % 100;
+    $d = $dia % 100;
+    if ($a < 2000 || !checkdate($m, $d, $a)) {
+        return $hoy;
+    }
+    $base = DateTime::createFromFormat('!Ymd', (string) $hoy, new DateTimeZone('UTC'));
+    if (!$base) {
+        return $hoy;
+    }
+    $desde = (int) (clone $base)->modify('-14 days')->format('Ymd');
+    $hasta = (int) (clone $base)->modify('+1 day')->format('Ymd');
+    return ($dia >= $desde && $dia <= $hasta) ? $dia : $hoy;
+}
+
+/**
+ * Lee el campo `vistas` de progress.php (lo arma entradasParaEnviar en src/vistas.js):
+ * una lista JSON de entradas {sesion, dia, tramos, segundos, duracion}, una por carga de la
+ * lección y día. `tramos` es una cifra por tramo de 5 s (0 a 9). Lo que no cumple se
+ * descarta entero; de la misma sesión y día queda la última. Pura.
+ *
+ * @param mixed $crudo
+ * @param int $hoy AAAAMMDD
+ * @return array lista de ['sesion' => string, 'dia' => int, 'tramos' => string, 'segundos' => int, 'duracion' => int]
+ */
+function ivplayer_vistas_leer($crudo, int $hoy): array {
+    if (!is_string($crudo) || $crudo === '' || strlen($crudo) > 40000) {
+        return [];
+    }
+    $lista = json_decode($crudo, true);
+    if (!is_array($lista) || !$lista || array_keys($lista) !== range(0, count($lista) - 1)) {
+        return [];
+    }
+    $porclave = [];
+    foreach (array_slice($lista, -4) as $e) {
+        if (!is_array($e) || !isset($e['sesion'], $e['tramos']) || !is_string($e['sesion']) || !is_string($e['tramos'])) {
+            continue;
+        }
+        if (!preg_match('/^[A-Za-z0-9]{8,32}$/D', $e['sesion'])
+                || !preg_match('/^[0-9]{1,4320}$/D', $e['tramos'])) {
+            continue;
+        }
+        $duracion = isset($e['duracion']) && is_numeric($e['duracion']) ? (int) round((float) $e['duracion']) : 0;
+        $duracion = max(0, min(86400, $duracion));
+        $tramos = $e['tramos'];
+        if ($duracion > 0) {
+            $tramos = substr($tramos, 0, (int) ceil($duracion / 5));
+        }
+        if (!preg_match('/[1-9]/', $tramos)) {
+            continue;
+        }
+        $segundos = isset($e['segundos']) && is_numeric($e['segundos']) ? (int) round((float) $e['segundos']) : 0;
+        $dia = ivplayer_vistas_dia($e['dia'] ?? null, $hoy);
+        $porclave[$e['sesion'] . '|' . $dia] = [
+            'sesion' => $e['sesion'],
+            'dia' => $dia,
+            'tramos' => $tramos,
+            'segundos' => max(0, min(86400, $segundos)),
+            'duracion' => $duracion,
+        ];
+    }
+    return array_values($porclave);
+}
+
+/**
+ * Suma una entrada a la fila del alumno, video y día (ivplayer_vistas). La entrada es
+ * ABSOLUTA para su sesión (todo lo que vio esa carga ese día): se suma sólo lo que tenga
+ * de más sobre lo último que se sumó de esa misma sesión, que la fila recuerda en
+ * `sesiones` (las últimas cuatro). Así un envío repetido (el beacon y el reenvío de la
+ * cola, o un POST cuya respuesta se perdió) o uno viejo que llega tarde no cuenta dos
+ * veces. Cada tramo tiene tope 9. `duracion` queda la última conocida. Pura.
+ *
+ * @param array|null $fila la fila actual (tramos, segundos, duracion, sesiones) o null
+ * @param array $e una entrada de ivplayer_vistas_leer
+ * @return array ['tramos' => string, 'segundos' => int, 'duracion' => int, 'sesiones' => string]
+ */
+function ivplayer_vistas_combinar(?array $fila, array $e): array {
+    $tramos = $fila && isset($fila['tramos']) ? (string) $fila['tramos'] : '';
+    $sesiones = $fila && isset($fila['sesiones']) && is_string($fila['sesiones']) ? json_decode($fila['sesiones'], true) : [];
+    if (!is_array($sesiones)) {
+        $sesiones = [];
+    }
+    // La clave lleva una letra adelante: un id de sólo cifras sería una clave numérica y
+    // json_encode podría convertir el objeto en lista.
+    $clave = 's' . $e['sesion'];
+    $previa = isset($sesiones[$clave]) && is_array($sesiones[$clave]) ? $sesiones[$clave] : [];
+    $vistaprevia = isset($previa['t']) && is_string($previa['t']) ? $previa['t'] : '';
+    $segprevios = isset($previa['g']) && is_numeric($previa['g']) ? (int) $previa['g'] : 0;
+    $n = max(strlen($tramos), strlen($e['tramos']));
+    $suma = '';
+    $memoria = '';
+    for ($i = 0; $i < $n; $i++) {
+        $base = $i < strlen($tramos) && ctype_digit($tramos[$i]) ? (int) $tramos[$i] : 0;
+        $nueva = $i < strlen($e['tramos']) ? (int) $e['tramos'][$i] : 0;
+        $vieja = $i < strlen($vistaprevia) && ctype_digit($vistaprevia[$i]) ? (int) $vistaprevia[$i] : 0;
+        $suma .= (string) min(9, $base + max(0, $nueva - $vieja));
+        $memoria .= (string) max($nueva, $vieja);
+    }
+    $segundos = ($fila && isset($fila['segundos']) ? (int) $fila['segundos'] : 0) + max(0, (int) $e['segundos'] - $segprevios);
+    unset($sesiones[$clave]);
+    $sesiones[$clave] = ['t' => rtrim($memoria, '0'), 'g' => max((int) $e['segundos'], $segprevios)];
+    $sesiones = array_slice($sesiones, -4, null, true);
+    $duracion = (int) $e['duracion'] > 0 ? (int) $e['duracion'] : ($fila && isset($fila['duracion']) ? (int) $fila['duracion'] : 0);
+    return ['tramos' => $suma, 'segundos' => $segundos, 'duracion' => $duracion, 'sesiones' => json_encode($sesiones)];
+}
+
+/**
+ * Guarda los tramos vistos que llegaron con el avance (progress.php). Una fila por alumno,
+ * video y día; el día, el del alumno (ivplayer_vistas_dia contra hoy en su zona horaria).
+ * No escribe si no hay nada nuevo (los reenvíos).
+ *
+ * @param int $ivplayerid
+ * @param int $userid
+ * @param mixed $crudo el campo `vistas`
+ */
+function ivplayer_vistas_guardar(int $ivplayerid, int $userid, $crudo): void {
+    global $DB;
+    $hoy = (int) (new DateTime('now', core_date::get_user_timezone_object()))->format('Ymd');
+    foreach (ivplayer_vistas_leer($crudo, $hoy) as $e) {
+        $clave = ['ivplayerid' => $ivplayerid, 'userid' => $userid, 'dia' => $e['dia']];
+        $fila = $DB->get_record('ivplayer_vistas', $clave);
+        $c = ivplayer_vistas_combinar($fila ? (array) $fila : null, $e);
+        if ($fila) {
+            if ($c['tramos'] === (string) $fila->tramos && $c['segundos'] === (int) $fila->segundos
+                    && $c['duracion'] === (int) $fila->duracion && $c['sesiones'] === (string) $fila->sesiones) {
+                continue;
+            }
+            $DB->update_record('ivplayer_vistas', (object) (['id' => $fila->id, 'timemodified' => time()] + $c));
+        } else {
+            $DB->insert_record('ivplayer_vistas', (object) ($clave + $c + ['timemodified' => time()]));
+        }
+    }
+}
+
+/**
+ * Las respuestas del toque de fin de lección ("¿Cómo te resultó esta lección?"), en el
+ * orden en que se muestran. Las tres primeras hablan de dificultad y las dos últimas de
+ * utilidad (el tablero las lee como dos números). Los textos, en lang (pulso_<código>) y
+ * en el reproductor. Pura.
+ *
+ * @return string[]
+ */
+function ivplayer_pulso_opciones(): array {
+    return ['bien', 'costo', 'perdi', 'poco', 'nada'];
+}
+
+/**
+ * La respuesta que manda el reproductor a pulso.php, si es una de las opciones; si no, null.
+ * Pura.
+ *
+ * @param mixed $respuesta
+ * @return string|null
+ */
+function ivplayer_pulso_valida($respuesta): ?string {
+    return is_string($respuesta) && in_array($respuesta, ivplayer_pulso_opciones(), true) ? $respuesta : null;
+}
+
+/**
+ * La fila de ivplayer_answers después de una respuesta (answer.php). La primera vez guarda
+ * también el primer intento (firstanswer, firstcorrect, timefirst) y attempts = 1; las
+ * siguientes cambian la última respuesta y suman un intento. Las filas de antes de la
+ * 1.5.0 tienen el primer intento y los intentos en NULL (desconocidos) y así quedan: no
+ * se inventan. Pura.
+ *
+ * @param stdClass|null $previa la fila que había, o null
+ * @param string $answer
+ * @param bool $correct
+ * @param int $ahora
+ * @return stdClass los campos a guardar (con id si había fila)
+ */
+function ivplayer_respuesta_a_guardar(?stdClass $previa, string $answer, bool $correct, int $ahora): stdClass {
+    if ($previa) {
+        $r = (object) ['id' => $previa->id, 'answer' => $answer, 'correct' => $correct ? 1 : 0, 'timemodified' => $ahora];
+        $r->attempts = isset($previa->attempts) ? (int) $previa->attempts + 1 : null;
+        return $r;
+    }
+    return (object) [
+        'answer' => $answer, 'correct' => $correct ? 1 : 0, 'timemodified' => $ahora,
+        'firstanswer' => $answer, 'firstcorrect' => $correct ? 1 : 0, 'attempts' => 1, 'timefirst' => $ahora,
+    ];
 }

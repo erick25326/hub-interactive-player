@@ -22,25 +22,47 @@ class backup_ivplayer_activity_structure_step extends backup_activity_structure_
             'userid', 'completed', 'progress', 'timemodified',
         ]);
 
+        // El primer intento (1.5.0) viaja con la respuesta: en las de antes, vacío.
         $answers = new backup_nested_element('answers');
         $answer = new backup_nested_element('answer', ['id'], [
             'userid', 'interactionid', 'answer', 'correct', 'timemodified',
+            'firstanswer', 'firstcorrect', 'attempts', 'timefirst',
+        ]);
+
+        // Tramos vistos por día y toque de fin de lección (1.5.0), con los datos de usuario.
+        // `sesiones` no viaja: sólo sirve para no sumar dos veces un reenvío de esa carga.
+        $vistas = new backup_nested_element('vistas');
+        $vista = new backup_nested_element('vista', ['id'], [
+            'userid', 'dia', 'tramos', 'duracion', 'segundos', 'timemodified',
+        ]);
+
+        $pulsos = new backup_nested_element('pulsos');
+        $pulso = new backup_nested_element('pulso', ['id'], [
+            'userid', 'respuesta', 'timecreated', 'timemodified',
         ]);
 
         $ivplayer->add_child($progresses);
         $progresses->add_child($progress);
         $ivplayer->add_child($answers);
         $answers->add_child($answer);
+        $ivplayer->add_child($vistas);
+        $vistas->add_child($vista);
+        $ivplayer->add_child($pulsos);
+        $pulsos->add_child($pulso);
 
         $ivplayer->set_source_table('ivplayer', ['id' => backup::VAR_ACTIVITYID]);
 
         if ($userinfo) {
             $progress->set_source_table('ivplayer_progress', ['ivplayerid' => backup::VAR_PARENTID]);
             $answer->set_source_table('ivplayer_answers', ['ivplayerid' => backup::VAR_PARENTID]);
+            $vista->set_source_table('ivplayer_vistas', ['ivplayerid' => backup::VAR_PARENTID]);
+            $pulso->set_source_table('ivplayer_pulso', ['ivplayerid' => backup::VAR_PARENTID]);
         }
 
         $progress->annotate_ids('user', 'userid');
         $answer->annotate_ids('user', 'userid');
+        $vista->annotate_ids('user', 'userid');
+        $pulso->annotate_ids('user', 'userid');
 
         return $this->prepare_activity_structure($ivplayer);
     }

@@ -99,6 +99,31 @@ $string['privacy:metadata:ivplayer_answers:interactionid'] = 'The interaction th
 $string['privacy:metadata:ivplayer_answers:answer'] = 'The answer the user gave.';
 $string['privacy:metadata:ivplayer_answers:correct'] = 'Whether the answer was correct.';
 $string['privacy:metadata:ivplayer_answers:timemodified'] = 'When the answer was last updated.';
+$string['privacy:metadata:ivplayer_answers:firstanswer'] = 'The first answer the user gave (from 1.5.0; empty on earlier answers).';
+$string['privacy:metadata:ivplayer_answers:firstcorrect'] = 'Whether the first answer was correct.';
+$string['privacy:metadata:ivplayer_answers:attempts'] = 'How many times the user answered the interaction.';
+$string['privacy:metadata:ivplayer_answers:timefirst'] = 'When the user first answered the interaction.';
+$string['privacy:metadata:ivplayer_vistas'] = 'Which 5-second segments of the video the user watched each day, and how many times (retention curve).';
+$string['privacy:metadata:ivplayer_vistas:userid'] = 'The ID of the user who watched.';
+$string['privacy:metadata:ivplayer_vistas:dia'] = 'The day (the user\'s local date).';
+$string['privacy:metadata:ivplayer_vistas:tramos'] = 'How many times each 5-second segment was watched that day.';
+$string['privacy:metadata:ivplayer_vistas:duracion'] = 'The video duration reported by the player.';
+$string['privacy:metadata:ivplayer_vistas:segundos'] = 'Seconds of video watched that day.';
+$string['privacy:metadata:ivplayer_vistas:sesiones'] = 'Technical record of the last page loads, so a resent save is not counted twice.';
+$string['privacy:metadata:ivplayer_vistas:timemodified'] = 'When the record was last updated.';
+$string['privacy:metadata:ivplayer_pulso'] = 'The answer to "How did this lesson go for you?" at the end of the video.';
+$string['privacy:metadata:ivplayer_pulso:userid'] = 'The ID of the user who answered.';
+$string['privacy:metadata:ivplayer_pulso:respuesta'] = 'The option the user chose.';
+$string['privacy:metadata:ivplayer_pulso:timecreated'] = 'When the user first answered.';
+$string['privacy:metadata:ivplayer_pulso:timemodified'] = 'When the user last changed the answer.';
+
+// End-of-lesson check (1.5.0). The player shows these in Spanish; here for exports and reports.
+$string['pulso_pregunta'] = 'How did this lesson go for you?';
+$string['pulso_bien'] = 'I followed it well';
+$string['pulso_costo'] = 'It was a bit hard';
+$string['pulso_perdi'] = 'I got lost';
+$string['pulso_poco'] = 'I felt it did not give me much';
+$string['pulso_nada'] = 'I felt it gave me nothing';
 
 // Labels: interactive glossary or on screen (1.4.0).
 $string['etiquetas'] = 'Labels';

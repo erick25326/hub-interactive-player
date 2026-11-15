@@ -8,7 +8,7 @@ import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, 
 import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGuardarAvanceYa, moodleGetSavedProgress, moodleReportAnswer, isScormAvailable } from "./scorm.js";
 // El candado de preguntas y el parser de subtítulos son puros y viven aparte para
 // poder probarlos sin navegador (tests/unit). Acá sólo se llaman.
-import { debeFrenar, tiempoAGuardar, esTickPropio, pendienteARetomar } from "./candado.js";
+import { debeFrenar, tiempoAGuardar, esTickPropio, pendienteARetomar, hotspotEnVentana } from "./candado.js";
 import { parseVTT } from "./subtitulos.js";
 // La config por defecto (sin video) y la de window.PLAYER_CONFIG: ver configuracion.js.
 import { getConfig, hayVideo } from "./configuracion.js";
@@ -20,8 +20,25 @@ import { terminosVisibles, terminosCruzados, hayTerminos, marcadores, retomarAlC
 import { crearSonidos, vibracionPosible } from "./sonidos.js";
 // La tarjeta de fin del video (la próxima lección del campus y "Volver a ver"): lo puro.
 import { leerBarraDelTema, destinoDeFin, leccionCompletada, textosDeFin } from "./finVideo.js";
+// Los tramos vistos (la curva de retención, 1.5.0): lo puro. Viajan con el avance a progress.php.
+import { crearVistas, registrarTick, entradasParaEnviar, diaDe } from "./vistas.js";
 
 // parseVTT y textoDeCue (subtítulos VTT/SRT) viven en subtitulos.js.
+
+// El id de esta carga de la lección para los tramos vistos: 16 letras y números al azar.
+// El servidor lo usa para no sumar dos veces el mismo envío (ver src/vistas.js).
+function idDeSesion() {
+  const abc = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let r = "";
+  try {
+    const b = new Uint8Array(16);
+    crypto.getRandomValues(b);
+    for (const x of b) r += abc[x % 36];
+  } catch (e) {
+    for (let i = 0; i < 16; i++) r += abc[Math.floor(Math.random() * 36)];
+  }
+  return r;
+}
 
 // Icons
 const PlayIcon = () => <svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>;
@@ -439,6 +456,16 @@ function Reproductor() {
   const cuesRef=useRef(cues); cuesRef.current=cues;
   const subsOnRef=useRef(subsOn); subsOnRef.current=subsOn;
   const [speed, setSpeed] = useState(1);
+  const speedRef = useRef(1); speedRef.current = speed;
+  // Los tramos vistos de esta carga de la lección (src/vistas.js). Sólo en el campus (con
+  // progress.php): ni la demo de la web, ni el configurador, ni SCORM los juntan.
+  const vistasRef = useRef(null);
+  if (vistasRef.current === null) {
+    let v = false;
+    try { if (window.MOODLE_CONTEXT && window.MOODLE_CONTEXT.progressUrl) v = crearVistas(idDeSesion()); } catch (e) {}
+    vistasRef.current = v;
+  }
+  const vistasParaEnviar = () => (vistasRef.current ? entradasParaEnviar(vistasRef.current) : null);
   // Menú de Ajustes (engranaje): null | 'principal' | 'velocidad' | 'calidad'. El
   // ref acompaña al estado porque lo leen manejadores de toque y de teclado que
   // no se vuelven a crear en cada render.
@@ -693,6 +720,18 @@ function Reproductor() {
       // principio (el seek aterrizado o el play desde 0), o 1 s de tope.
       if(resetHastaRef.current){ if(d.seconds>1&&Date.now()<resetHastaRef.current) return; resetHastaRef.current=0; }
       if(d.duration>0)finRef.current=d.duration;currentTimeRef.current=d.seconds;setCurrent(d.seconds);
+      // Tramos vistos: cuenta reproduciendo, sin un salto pedido en vuelo, sin una pregunta
+      // abierta y con la pestaña a la vista, o transmitiendo (se mira en la TV aunque el
+      // celular esté bloqueado). Este manejador es el del motor ACTIVO: el <video>, Vimeo o
+      // la TV (Chromecast y el modo app), así que en la TV cuenta igual.
+      const vs=vistasRef.current;
+      if(vs){
+        const transmitiendo=!!p.esTV||tvRef.current?.estado==='conectado';
+        const visible=typeof document==='undefined'||document.visibilityState!=='hidden';
+        registrarTick(vs,{ t:d.seconds, reloj:performance.now(), velocidad:speedRef.current, dia:diaDe(new Date()),
+          duracion:d.duration>0?d.duration:(finRef.current<Infinity?finRef.current:0),
+          cuenta:playingRef.current&&seekTargetRef.current==null&&!activeIARef.current&&(visible||transmitiendo) });
+      }
     });
     // La duración puede llegar después de ready() (iOS sin metadata hasta el
     // primer toque, o un HLS que todavía no la conoce). Vimeo también la emite.
@@ -899,7 +938,7 @@ function Reproductor() {
       if(ia.type==="label") continue; // Labels don't pause the video.
       if(completed.has(ia.id)||triggered.current.has(ia.id)) continue;
       if(ia.type==="hotspot"){
-        if(currentTime>=ia.time&&currentTime<=ia.time+(ia.duration||8)){ mostrar(ia); return; }
+        if(hotspotEnVentana(ia,currentTime,finRef.current)){ mostrar(ia); return; }
       } else if(debeFrenar(ia.time,prev,t,finRef.current)){ mostrar(ia); return; }
     }
     // senalFin: alTerminar pide la pasada contra el fin aunque el tiempo no haya cambiado
@@ -1247,14 +1286,14 @@ function Reproductor() {
     try{
       localStorage.setItem(`iv_progress_${vimeoData.id}`,JSON.stringify(snapshot));
     }catch(e){}
-    moodleSaveProgress({completed:snapshot.completed,currentTime:tGuardar});
+    moodleSaveProgress({completed:snapshot.completed,currentTime:tGuardar},false,vistasParaEnviar());
     scormSetTime(tVideo);
   },[completed,currentTime,ready,vimeoData.id,videoError,activeIA]);
 
   // Final progress save when leaving the page (sendBeacon survives unload)
   useEffect(()=>{
     if(!ready||videoError) return;
-    const onUnload=()=>moodleSaveProgress({completed:[...completed],currentTime:tiempoAGuardar(tiempoDelAvance(currentTime),activeIA,finRef.current,interactions,completed)},true);
+    const onUnload=()=>moodleSaveProgress({completed:[...completed],currentTime:tiempoAGuardar(tiempoDelAvance(currentTime),activeIA,finRef.current,interactions,completed)},true,vistasParaEnviar());
     window.addEventListener("pagehide",onUnload);
     return()=>window.removeEventListener("pagehide",onUnload);
   },[ready,completed,currentTime,videoError,activeIA]);
@@ -1282,7 +1321,7 @@ function Reproductor() {
     setRespaldando(true);
     const avance=avanceListo?{completed:[...completed],currentTime:tiempoAGuardar(tiempoDelAvance(currentTimeRef.current),activeIA,finRef.current,interactions,completed)}:null;
     // Con tope: si el guardado tarda, queda en la cola (la carga siguiente lo manda).
-    const guardado=avance?Promise.race([moodleGuardarAvanceYa(avance).catch(()=>false),new Promise(r=>setTimeout(()=>r(false),GUARDAR_AVANCE_MS))]):Promise.resolve(true);
+    const guardado=avance?Promise.race([moodleGuardarAvanceYa(avance,vistasParaEnviar()).catch(()=>false),new Promise(r=>setTimeout(()=>r(false),GUARDAR_AVANCE_MS))]):Promise.resolve(true);
     const aviso=pedirRespaldo({url:ctx.respaldoUrl,cmid:ctx.cmid,sesskey:ctx.sesskey,...datosDelError(e,causa)});
     Promise.all([guardado,aviso]).then(([,r])=>{
       if(r.ok){ window.location.replace(urlDeRespaldo(window.location.href)); return; }
@@ -2035,7 +2074,7 @@ function Reproductor() {
   useEffect(()=>{
     if(!tv||tv.estado!=='conectado'||!activeIA||seekTargetRef.current!=null) return;
     const desde=Math.min(activeIA.time,finRef.current-0.05);
-    const hasta=activeIA.type==='hotspot'?activeIA.time+(activeIA.duration||8):desde+1.5;
+    const hasta=activeIA.type==='hotspot'?desde+(activeIA.duration||8):desde+1.5;
     if(currentTime>=desde-1.5&&currentTime<=hasta) return;
     seekTo(desde);
     playerRef.current?.pause();
@@ -2411,7 +2450,7 @@ function Reproductor() {
     triggered.current=new Set();
     setVideoEnded(false);
     terminoRef.current=false; // reiniciar es volver a ver el video, como un seek
-    moodleSaveProgress({completed:[],currentTime:0});
+    moodleSaveProgress({completed:[],currentTime:0},false,vistasParaEnviar());
     // El tiempo del componente pasa a 0 ya, sin esperar el timeupdate del seek:
     // si se quedaba en el fin, las interacciones del final volvían a vencer.
     currentTimeRef.current=0; prevTimeRef.current=0; setCurrent(0);

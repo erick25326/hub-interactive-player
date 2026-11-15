@@ -118,5 +118,62 @@ function xmldb_ivplayer_upgrade($oldversion) {
         upgrade_mod_savepoint(true, 2026101904, 'ivplayer');
     }
 
+    if ($oldversion < 2026111500) {
+        // Tablero de aprendizaje (1.5.0): lo que se empieza a guardar el día que se instala.
+        // Mismas columnas que install.xml: tests/php/correr.php los compara.
+        // (1c) El primer intento de cada pregunta. Las respuestas que ya existen quedan con
+        // las cuatro en NULL: el primer intento y cuántos hubo son desconocidos y no se
+        // inventan (ivplayer_respuesta_a_guardar no los completa después).
+        $table = new xmldb_table('ivplayer_answers');
+        $fields = [
+            new xmldb_field('firstanswer', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'timemodified'),
+            new xmldb_field('firstcorrect', XMLDB_TYPE_INTEGER, '1', null, null, null, null, 'firstanswer'),
+            new xmldb_field('attempts', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'firstcorrect'),
+            new xmldb_field('timefirst', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'attempts'),
+        ];
+        foreach ($fields as $field) {
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
+
+        // (1a) Los tramos vistos (la curva de retención): una fila por alumno, video y día.
+        $table = new xmldb_table('ivplayer_vistas');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('ivplayerid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('dia', XMLDB_TYPE_INTEGER, '8', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('tramos', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $table->add_field('duracion', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('segundos', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('sesiones', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('ivplayerid', XMLDB_KEY_FOREIGN, ['ivplayerid'], 'ivplayer', ['id']);
+        $table->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+        $table->add_key('ivplayerid-userid-dia', XMLDB_KEY_UNIQUE, ['ivplayerid', 'userid', 'dia']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        // (1b) El toque de fin de lección: una respuesta por alumno y video.
+        $table = new xmldb_table('ivplayer_pulso');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('ivplayerid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('respuesta', XMLDB_TYPE_CHAR, '16', null, XMLDB_NOTNULL, null, '');
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('ivplayerid', XMLDB_KEY_FOREIGN, ['ivplayerid'], 'ivplayer', ['id']);
+        $table->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+        $table->add_key('ivplayerid-userid', XMLDB_KEY_UNIQUE, ['ivplayerid', 'userid']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        upgrade_mod_savepoint(true, 2026111500, 'ivplayer');
+    }
+
     return true;
 }

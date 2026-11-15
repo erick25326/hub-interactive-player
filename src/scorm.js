@@ -89,6 +89,8 @@ export function scormInit() {
    estanca en 60 s. Un piloto puede estar 40 minutos sin señal.
    ───────────────────────────────────────────────────────────────────────── */
 
+import { juntarEntradas } from './vistas.js';
+
 const COLA_KEY = 'iv_cola_moodle_v1';
 const MAX_EVENTOS = 500;
 const MAX_INTENTOS = 8;
@@ -307,19 +309,37 @@ export function scormSetComplete() {
 }
 
 /**
+ * El envío del avance de una lección. `vistas` (1.5.0, los tramos vistos: src/vistas.js)
+ * va en su propio campo: `data` sigue siendo {completed, currentTime}, de lo que depende
+ * retomar el video. Como la cola guarda UN envío por lección y el nuevo reemplaza al
+ * pendiente, las entradas del pendiente que no son de esta sesión y día viajan con el nuevo
+ * (juntarEntradas): si no, lo que vio otra carga y no llegó se perdía. Son absolutas, así
+ * que mandarlas de más no suma dos veces (el servidor resta lo que ya tenía).
+ */
+function envioDeAvance(ctx, progress, vistas) {
+  const anterior = cola.progreso[String(ctx.cmid)];
+  const juntas = juntarEntradas(anterior && Array.isArray(anterior.vistas) ? anterior.vistas : [], vistas || []);
+  const campos = { cmid: ctx.cmid, data: JSON.stringify(progress) };
+  if (juntas.length) campos.vistas = JSON.stringify(juntas);
+  return { url: ctx.progressUrl, campos, guardadoEn: Date.now(), vistas: juntas };
+}
+
+/**
  * Save per-user progress to Moodle (plugin mode). No-op outside Moodle.
  * @param {{completed: string[], currentTime: number}} progress
  * @param {boolean} useBeacon - use sendBeacon (page is unloading)
+ * @param {Array|null} [vistas] - los tramos vistos de esta carga (entradasParaEnviar)
  */
-export function moodleSaveProgress(progress, useBeacon = false) {
+export function moodleSaveProgress(progress, useBeacon = false, vistas = null) {
   const ctx = window.MOODLE_CONTEXT;
   if (!ctx || !ctx.progressUrl) return;
-  const campos = { cmid: ctx.cmid, data: JSON.stringify(progress) };
+  const envio = envioDeAvance(ctx, progress, vistas);
+  const { campos } = envio;
 
   // Se encola SIEMPRE, también en el camino del beacon: `sendBeacon` devolviendo
   // true sólo dice que el navegador lo aceptó para mandarlo, no que haya
   // llegado. Si llegó, el reenvío escribe el mismo valor y no molesta a nadie.
-  encolarProgreso(ctx.cmid, { url: ctx.progressUrl, campos, guardadoEn: Date.now() });
+  encolarProgreso(ctx.cmid, envio);
 
   if (useBeacon && navigator.sendBeacon) {
     const data = new FormData();
@@ -338,11 +358,11 @@ export function moodleSaveProgress(progress, useBeacon = false) {
  * @param {{completed: string[], currentTime: number}} progress
  * @returns {Promise<boolean>}
  */
-export async function moodleGuardarAvanceYa(progress) {
+export async function moodleGuardarAvanceYa(progress, vistas = null) {
   const ctx = typeof window !== 'undefined' ? window.MOODLE_CONTEXT : null;
   if (!ctx || !ctx.progressUrl) return false;
   const clave = String(ctx.cmid);
-  const envio = { url: ctx.progressUrl, campos: { cmid: ctx.cmid, data: JSON.stringify(progress) }, guardadoEn: Date.now() };
+  const envio = envioDeAvance(ctx, progress, vistas);
   // A la cola primero: es el avance más nuevo de esta lección y reemplaza a uno anterior
   // que esperaba su reintento (que si no podía llegar DESPUÉS y pisarlo).
   cola.progreso[clave] = envio;
