@@ -5,7 +5,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  debeFrenar, tiempoAGuardar, esTickPropio, pendienteARetomar,
+  debeFrenar, tiempoAGuardar, esTickPropio, pendienteARetomar, hotspotEnVentana,
   SEEK_MIN, ANTES_SEEK, DESPUES, SALTO_CRUCE, PROPIO_TOLERANCIA,
 } from '../../src/candado.js';
 import { MC, NOTA, VF, HS, ETIQUETA, mulberry32 } from './apoyo/simulador.mjs';
@@ -212,6 +212,33 @@ describe('pendienteARetomar (la decisión de la guardia de saltos externos)', ()
     // final no está "a la vista" y hay que volver a él, al último cuadro mostrable.
     const r = pendienteARetomar({ interactions: [HS('h', 78.7)], completed: new Set(), triggered: new Set(), prev: 70, t: 78.72, currentTime: 0, fin: 78.72 });
     assert.deepEqual(id(r), { id: 'h', vuelta: 78.72 - 0.05 });
+  });
+});
+
+describe('hotspotEnVentana: los puntos para tocar, acotados al fin', () => {
+  test('uno en el medio del video: desde su tiempo y durante 8 s (o los que diga)', () => {
+    assert.equal(hotspotEnVentana(HS('h', 30), 29.9, 120), false);
+    assert.equal(hotspotEnVentana(HS('h', 30), 30, 120), true);
+    assert.equal(hotspotEnVentana(HS('h', 30), 38, 120), true);
+    assert.equal(hotspotEnVentana(HS('h', 30), 38.1, 120), false);
+    assert.equal(hotspotEnVentana(HS('h', 30, 3), 33.1, 120), false);
+  });
+
+  test('uno pasado el fin (79 s en un video de 78,72) aparece con el último segundo', () => {
+    // alTerminar deja el estado en el fin: antes 78,72 < 79 y el hotspot quedaba pendiente
+    // para siempre (la lección no se completaba).
+    assert.equal(hotspotEnVentana(HS('h', 79), 78.72, 78.72), true);
+    assert.equal(hotspotEnVentana(HS('h', 79), 78.5, 78.72), false);
+  });
+
+  test('uno justo en el fin (255 s en un video de 255,3, como la lección 2.1 del curso 6) no cambia', () => {
+    assert.equal(hotspotEnVentana(HS('h', 255), 255.3, 255.3), true);
+    assert.equal(hotspotEnVentana(HS('h', 255), 254.9, 255.3), false);
+  });
+
+  test('sin fin conocido, como antes', () => {
+    assert.equal(hotspotEnVentana(HS('h', 79), 78.72), false);
+    assert.equal(hotspotEnVentana(HS('h', 79), 79), true);
   });
 });
 

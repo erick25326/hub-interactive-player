@@ -14,7 +14,7 @@
 //   jitter, y los comandos (play, pausa, salto) tardan en aplicarse: la "pausa lenta"
 //   de Vimeo en un celular es justo lo que hacía saltear la segunda pregunta pegada.
 // Todo con reloj simulado y azar con semilla: cada corrida es reproducible.
-import { debeFrenar, esTickPropio, pendienteARetomar, tiempoAGuardar } from '../../../src/candado.js';
+import { debeFrenar, esTickPropio, pendienteARetomar, tiempoAGuardar, hotspotEnVentana } from '../../../src/candado.js';
 
 export function mulberry32(a) {
   return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -144,7 +144,7 @@ export function crearSimulador(op) {
       if (ia.type === 'label') continue;
       if (C.completed.has(ia.id) || C.triggered.has(ia.id)) continue;
       if (ia.type === 'hotspot') {
-        if (C.currentTime >= ia.time && C.currentTime <= ia.time + (ia.duration || 8)) { mostrar(ia, false); return; }
+        if (hotspotEnVentana(ia, C.currentTime, C.fin)) { mostrar(ia, false); return; }
       } else if (debeFrenar(ia.time, prev, t, C.fin)) { mostrar(ia, false); return; }
     }
   }

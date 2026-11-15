@@ -49,6 +49,22 @@ export function debeFrenar(tiempo, prev, t, fin = Infinity) {
 }
 
 /**
+ * ¿Un hotspot (puntos para tocar) está en su ventana? Se muestra desde su tiempo y durante
+ * `duration` (8 s por defecto), mirando el tiempo del ESTADO (currentTime), no el tick.
+ *
+ * 🔴 Acotado al fin real, igual que debeFrenar con las otras: un hotspot puesto en el
+ * último instante o pasado el fin (el configurador guarda segundos enteros y Vimeo informa
+ * 79 s para un video de 78,72) no aparecía nunca. El video terminaba con él pendiente, la
+ * tarjeta decía "Terminaste el video" y la lección no se completaba (complete.php sale sólo
+ * con todo respondido). Ahora aparece con el último segundo. Uno que entra entero antes del
+ * fin no cambia.
+ */
+export function hotspotEnVentana(ia, currentTime, fin = Infinity) {
+  const desde = Math.min(ia.time, fin - 0.05);
+  return currentTime >= desde && currentTime <= desde + (ia.duration || 8);
+}
+
+/**
  * Qué tiempo guardar como avance. Con una pregunta abierta se guarda SU tiempo
  * (acotado al fin real), no dónde está el video: a 2× con el pause lento queda
  * más de 0,8 s después, y una pregunta del final queda abierta con el video ya
@@ -118,7 +134,7 @@ export function pendienteARetomar({ interactions, completed, triggered, prev, t,
   const saltada = cruzadas[0];
   if (!saltada) return null;
   const laFrenaElBucle = saltada.type === "hotspot"
-    ? currentTime >= saltada.time && currentTime <= saltada.time + (saltada.duration || 8)
+    ? hotspotEnVentana(saltada, currentTime, fin)
     : debeFrenar(saltada.time, prev, t, fin);
   if (cruzadas.length === 1 && laFrenaElBucle) return null;
   return { ia: saltada, vuelta: Math.max(0, Math.min(saltada.time, fin - 0.05)) };
