@@ -860,15 +860,29 @@ Qué se guarda y cómo se lee: README ("Lo que se guarda para el tablero de apre
 - `ivplayer_respuesta_a_guardar`: las respuestas de antes de la 1.5.0 tienen el primer intento en
   NULL y así quedan (no se inventa). Sin el upgrade corrido, insert/update_record descartan las
   columnas que no existen: answer.php sigue andando.
-- El toque (`pulso.php`, `ivplayer_pulso`) ya guarda; la pregunta en la tarjeta de fin espera el
-  OK del mockup. Sus textos están en lang (`pulso_*`) y tienen que ser los de Erick.
+- El toque (`pulso.php`, `ivplayer_pulso`): hasta una opción de cada grupo (dificultad y
+  utilidad), decisión de Erick del 15-nov-2026. El reproductor manda SIEMPRE lo marcado en los dos
+  grupos ('' = nada), no la opción tocada: un envío repetido o fuera de orden deja lo último. Los
+  textos son de Erick (`PULSO_GRUPOS` en finVideo.js y `pulso_*` en lang) y los códigos son los de
+  `ivplayer_pulso_opciones` (fin-video.test.mjs compara los dos).
+- La duda (`comentario.php`, `ivplayer_comentarios`): primero se guarda y después se avisa, dentro
+  de un try (sin correo, la duda igual queda). El mismo texto del mismo alumno en la lección dentro
+  de la hora no se repite (la cola reintenta si se perdió la respuesta). El aviso va a los admins
+  del sitio y a quien tenga `mod/ivplayer:recibircomentarios` (sin rol por defecto); si el permiso
+  todavía no existe (upgrade sin correr), igual les llega a los admins.
+- 🔴 **Celular parado**: la tarjeta con el toque no entra en el 16:9. El reproductor manda
+  `ivplayer-alto` con `fin` (nunca en pantalla completa) y view.php agranda el iframe a 540 px; el
+  contenedor pasa a ocupar el iframe entero (`.iv-container.fin-alto`, como `.vivo`). Sin esa
+  clase el contenedor se quedaba en 16:9 en el medio del iframe agrandado y la tarjeta no entraba.
+  Los altos de la tarjeta se miden en `escenarios/toque.mjs` (que entre entera, cinco renglones).
 - Un hotspot puesto en el fin o pasado el fin aparece con el último segundo (`hotspotEnVentana`,
   acotado al fin como `debeFrenar`). Antes quedaba pendiente para siempre y la lección no se
   completaba. Si se toca la ventana del hotspot, tocar también el simulador.
 - Pruebas: `tests/unit/vistas.test.mjs`, `tests/php/correr.php` (las funciones puras, el paso del
   upgrade contra install.xml campo por campo), `tests/unit/lib-php.test.mjs` (huellas y cableado) y
   `tests/navegador/escenarios/vistas.mjs` (de corrido, saltos, pestaña oculta y TV, contra el
-  progress.php de mentira).
+  progress.php de mentira) y `escenarios/toque.mjs` (la pregunta, los dos grupos, la duda con
+  Escape y Enviar, fuera del campus y el celular parado, con pulso=1 en la página de mentira).
 
 ## Brand
 - Colors: #0162F5 (primary), #14CCF7 (secondary), #84F4BE (accent), #062E60 (dark)

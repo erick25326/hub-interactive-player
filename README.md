@@ -452,7 +452,8 @@ lo que no se puede reconstruir hacia atrás empieza a guardarse el día que se i
 | Tabla | Una fila por | Qué tiene |
 | --- | --- | --- |
 | `ivplayer_vistas` | alumno, video y día | `dia` (AAAAMMDD, la fecha local del alumno), `tramos` (una cifra por tramo de 5 s: cuántas veces se entró a ese tramo reproduciendo ese día, tope 9), `duracion` y `segundos` (segundos de video vistos ese día, sin los saltos) y `sesiones` (interno, ver abajo) |
-| `ivplayer_pulso` | alumno y video | `respuesta`: `bien`, `costo`, `perdi`, `poco` o `nada` ("¿Cómo te resultó esta lección?"), con `timecreated` y `timemodified` |
+| `ivplayer_pulso` | alumno y video | "¿Cómo te resultó esta lección?": `dificultad` (`bien`, `costo` o `perdi`) y `utilidad` (`poco` o `nada`), cada una NULL si no marcó nada de ese grupo, con `timecreated` y `timemodified` |
+| `ivplayer_comentarios` | mensaje | `texto` (la duda o comentario, hasta 1000 caracteres) y `timecreated` |
 | `ivplayer_answers` (columnas nuevas) | alumno y pregunta | `firstanswer`, `firstcorrect`, `attempts`, `timefirst`. Las respuestas de antes de la 1.5.0 quedan en NULL: desconocidas |
 
 ### Los tramos vistos (la curva de retención)
@@ -475,14 +476,30 @@ lo que no se puede reconstruir hacia atrás empieza a guardarse el día que se i
 - **Cómo se verifica en el campus**: mirar un video con una cuenta de alumno de prueba y leer
   `SELECT dia, tramos, segundos FROM mdl_ivplayer_vistas WHERE userid = <id> ORDER BY id DESC`.
 
-### El toque de fin de lección
+### El toque de fin de lección y la duda
 
-"¿Cómo te resultó esta lección?" en la tarjeta de fin, con cinco opciones (decisión de Erick,
-15-nov-2026: los textos y el orden no se cambian). Se guarda con `pulso.php` (los mismos chequeos
-que `answer.php`), una por alumno y video, y se puede cambiar. `player.php` manda `pulsoUrl` y
-`pulsoGuardado` en `MOODLE_CONTEXT`: sólo el campus la muestra. **La pregunta todavía no se ve**:
-espera el OK del mockup (`hub-education-web/docs/mockup-toque-fin-leccion.html`); el servidor ya
-la guarda.
+Diseño aprobado por Erick el 15-nov-2026: `hub-education-web/docs/mockup-toque-fin-leccion.html`.
+
+- **La pregunta**: "¿Cómo te resultó esta lección?" en la tarjeta de fin, arriba de "Siguiente
+  lección", con cinco opciones (los textos y el orden son de Erick: no se cambian) en dos grupos.
+  Se marca **hasta una de cada grupo**: cómo siguió la lección (La seguí bien, Me costó un poco,
+  Me perdí) y si le aportó (Sentí que no me aportó mucho, Sentí que no me aportó nada). Tocar otra
+  del mismo grupo la cambia y tocar la marcada la saca. Se guarda al tocar (`pulso.php`, con lo
+  marcado en los dos grupos), una fila por alumno y video. No frena: sin tocar nada, todo sigue
+  igual.
+- **La duda**: "Dejar una duda o comentario" abre un campo en la misma tarjeta (Escape o
+  Cancelar vuelven sin mandar). Al enviar, `comentario.php` la guarda en `ivplayer_comentarios` y
+  avisa por las notificaciones de Moodle (proveedor `comentario`, por mail y en la campanita) a
+  los administradores del sitio y a quien tenga `mod/ivplayer:recibircomentarios` (no viene con
+  ningún rol: se le da a un profesor si tiene que recibir las de su curso). El mail sale con
+  "responder a" el alumno: se le contesta respondiendo el mail. El alumno ve "Recibimos tu mensaje.
+  Te respondemos por mail."
+- **Sólo en el campus**: `player.php` manda `pulsoUrl`, `pulsoGuardado` y `comentarioUrl` en
+  `MOODLE_CONTEXT`. La demo de la web, el configurador y los SCORM muestran la tarjeta de siempre.
+- **Celular parado**: las cinco opciones no entran en el 16:9 (375 × 211). Mientras está la
+  tarjeta, el reproductor manda `ivplayer-alto` con `fin` y `view.php` le da 540 px de alto al
+  iframe (como con el glosario en vivo transmitiendo); al cerrarla vuelve. Una opción por renglón.
+  Con un `view.php` anterior a la 1.5.0, la tarjeta se achica para entrar en el 16:9.
 
 ### El primer intento
 
