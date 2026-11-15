@@ -245,6 +245,11 @@ export function registrar(entorno) {
         assert.ok(m.dentro && m.tocable, `la tarjeta tiene que verse entera y tocarse en la pantalla completa: ${JSON.stringify(m)}`);
         assert.equal((await tarjeta()).foco, 'Siguiente lección →');
         // Espías: se anota en el localStorage del sitio (lo lee la página de destino).
+        // El pedido a la madre se anota al MANDARLO (se envuelve el postMessage de la madre,
+        // que el reproductor llama como window.parent.postMessage), no al llegar: el
+        // reproductor lo manda y en la misma línea siguiente navega, y el evento 'message'
+        // es una tarea aparte que, en una máquina lenta (CI), a veces pierde contra la
+        // navegación y la prueba fallaba sin que nada estuviera roto.
         await p.ev(`(() => {
           localStorage.removeItem('ivp-fs'); const anotar = (que) => localStorage.setItem('ivp-fs', (localStorage.getItem('ivp-fs') || '') + que + ';');
           const W = document.querySelector('iframe').contentWindow;
@@ -252,7 +257,11 @@ export function registrar(entorno) {
             const orig = d.exitFullscreen && d.exitFullscreen.bind(d);
             d.exitFullscreen = () => { anotar('exit-' + quien); return orig ? orig() : Promise.resolve(); };
           }
-          addEventListener('message', (e) => { if (e.data && e.data.type === 'ivplayer-fullscreen' && e.data.action === 'exit') anotar('msg-exit'); });
+          const postOrig = window.postMessage;
+          window.postMessage = function (data, ...resto) {
+            if (data && data.type === 'ivplayer-fullscreen' && data.action === 'exit') anotar('msg-exit');
+            return postOrig.call(window, data, ...resto);
+          };
           return true;
         })()`);
         await p.clic('.iv-fin-ir');
