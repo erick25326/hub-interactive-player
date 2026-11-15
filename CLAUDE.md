@@ -837,6 +837,39 @@ Lo puro, `src/finVideo.js`; el resto, "Tarjeta de fin" en el componente.
   salir de la pantalla completa, el avance en el fin, sin el foco y sin retomar la carga
   de hls.js: cada uno lo agarra una prueba.
 
+## Tablero de aprendizaje (1.5.0): tramos vistos, toque de fin y primer intento — trampas
+Qué se guarda y cómo se lee: README ("Lo que se guarda para el tablero de aprendizaje").
+- 🔴 **`data` de progress.php no cambia de forma** (`{completed, currentTime}`): retomar el video
+  depende de eso. Los tramos van en su propio campo, `vistas`, y se guardan DESPUÉS del avance y
+  dentro de un try: si fallan (la tabla todavía no existe porque no corrió el upgrade), el avance
+  ya quedó.
+- 🔴 **Los tramos viajan ABSOLUTOS por carga de la lección**, no "lo nuevo desde el último envío":
+  la cola reemplaza el envío pendiente de la lección, el beacon llega además del reenvío y un POST
+  sin respuesta se reintenta. El servidor resta lo último de esa carga (`sesiones`, las últimas
+  cuatro, con la memoria por tramo en el MÁXIMO visto: un envío viejo que llega tarde no la
+  achica). Si se pasa a deltas, se cuenta dos veces.
+- `encolarProgreso` junta las entradas del envío pendiente que son de otra carga o día
+  (`juntarEntradas`): si no, lo que vio una carga y no llegó se perdía al abrir otra.
+- "Cuenta" se arma en el manejador de timeupdate del motor ACTIVO (el mismo para el `<video>`,
+  Vimeo y la TV): reproduciendo, sin salto pedido en vuelo, sin pregunta abierta y con la pestaña
+  a la vista o transmitiendo. "De corrido" se mide contra el reloj (no un umbral fijo): con el
+  celular bloqueado transmitiendo los ticks se espacian y la TV sigue. Un paso atrás de hasta
+  1,5 s es ruido del estimador de la TV y se descarta.
+- El día es el LOCAL del alumno (lo manda el reproductor); el servidor lo acepta entre 14 días
+  antes y 1 después de hoy (un envío que esperó en la cola sin señal es del día en que se vio).
+- `ivplayer_respuesta_a_guardar`: las respuestas de antes de la 1.5.0 tienen el primer intento en
+  NULL y así quedan (no se inventa). Sin el upgrade corrido, insert/update_record descartan las
+  columnas que no existen: answer.php sigue andando.
+- El toque (`pulso.php`, `ivplayer_pulso`) ya guarda; la pregunta en la tarjeta de fin espera el
+  OK del mockup. Sus textos están en lang (`pulso_*`) y tienen que ser los de Erick.
+- Un hotspot puesto en el fin o pasado el fin aparece con el último segundo (`hotspotEnVentana`,
+  acotado al fin como `debeFrenar`). Antes quedaba pendiente para siempre y la lección no se
+  completaba. Si se toca la ventana del hotspot, tocar también el simulador.
+- Pruebas: `tests/unit/vistas.test.mjs`, `tests/php/correr.php` (las funciones puras, el paso del
+  upgrade contra install.xml campo por campo), `tests/unit/lib-php.test.mjs` (huellas y cableado) y
+  `tests/navegador/escenarios/vistas.mjs` (de corrido, saltos, pestaña oculta y TV, contra el
+  progress.php de mentira).
+
 ## Brand
 - Colors: #0162F5 (primary), #14CCF7 (secondary), #84F4BE (accent), #062E60 (dark)
 - Fonts: Changa (headings), Work Sans (body)

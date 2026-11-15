@@ -443,6 +443,53 @@ terminado (botón, botón grande, espacio) es volver a empezar.
   y sale en la próxima lección con el reproductor (como cualquier envío que falla). La
   lección del campus puede verse sin completar unos segundos.
 
+## Lo que se guarda para el tablero de aprendizaje (1.5.0)
+
+Etapa 1 del plan del tablero de aprendizaje (`hub-education-web/docs/plan-tablero-aprendizaje.md`):
+lo que no se puede reconstruir hacia atrás empieza a guardarse el día que se instala. El tablero
+(Etapa 2, en `local_hubcampus`) lee estas tablas: los nombres son el contrato.
+
+| Tabla | Una fila por | Qué tiene |
+| --- | --- | --- |
+| `ivplayer_vistas` | alumno, video y día | `dia` (AAAAMMDD, la fecha local del alumno), `tramos` (una cifra por tramo de 5 s: cuántas veces se entró a ese tramo reproduciendo ese día, tope 9), `duracion` y `segundos` (segundos de video vistos ese día, sin los saltos) y `sesiones` (interno, ver abajo) |
+| `ivplayer_pulso` | alumno y video | `respuesta`: `bien`, `costo`, `perdi`, `poco` o `nada` ("¿Cómo te resultó esta lección?"), con `timecreated` y `timemodified` |
+| `ivplayer_answers` (columnas nuevas) | alumno y pregunta | `firstanswer`, `firstcorrect`, `attempts`, `timefirst`. Las respuestas de antes de la 1.5.0 quedan en NULL: desconocidas |
+
+### Los tramos vistos (la curva de retención)
+
+- **Qué cuenta**: mientras se reproduce de corrido, cada tramo de 5 s en el que se entra suma 1.
+  Retroceder y volver a mirar suma otra vez; una pausa y retomar en el mismo tramo, no; un salto
+  no suma lo que saltea (el tramo donde aterriza cuenta si desde ahí se sigue). Con la pestaña
+  oculta no cuenta; transmitiendo a la TV sí, aunque el celular esté bloqueado. Lo puro está en
+  `src/vistas.js`.
+- **Cómo viaja**: con el guardado de avance de siempre (`progress.php`), en un campo aparte,
+  `vistas`. El avance (`data` = `{completed, currentTime}`) no cambió: de él depende retomar.
+- **Por qué no se cuenta dos veces**: lo que manda el reproductor es absoluto para esa carga de la
+  lección (todo lo que vio desde que la abrió, ese día) y el servidor suma sólo la diferencia con
+  lo último que recibió de esa misma carga, que la fila recuerda en `sesiones` (las últimas
+  cuatro). Así el beacon de `pagehide` más el reenvío de la cola, o un POST cuya respuesta se
+  perdió, no inflan la cuenta.
+- **Cómo se lee** (para el tablero): de los que empezaron un video, cuántos vieron cada tramo
+  (el tramo con una cifra mayor que 0 en cualquier día del período); qué tramos se vuelven a ver
+  (cifras de 2 o más); cuánto del video ve cada uno; entre dos fechas, `dia BETWEEN …`.
+- **Cómo se verifica en el campus**: mirar un video con una cuenta de alumno de prueba y leer
+  `SELECT dia, tramos, segundos FROM mdl_ivplayer_vistas WHERE userid = <id> ORDER BY id DESC`.
+
+### El toque de fin de lección
+
+"¿Cómo te resultó esta lección?" en la tarjeta de fin, con cinco opciones (decisión de Erick,
+15-nov-2026: los textos y el orden no se cambian). Se guarda con `pulso.php` (los mismos chequeos
+que `answer.php`), una por alumno y video, y se puede cambiar. `player.php` manda `pulsoUrl` y
+`pulsoGuardado` en `MOODLE_CONTEXT`: sólo el campus la muestra. **La pregunta todavía no se ve**:
+espera el OK del mockup (`hub-education-web/docs/mockup-toque-fin-leccion.html`); el servidor ya
+la guarda.
+
+### El primer intento
+
+`answer.php` sigue guardando la última respuesta (la nota sale de ella) y desde la 1.5.0 la
+primera vez guarda también el primer intento, y cuenta los intentos. Un reenvío de la cola cuya
+respuesta se perdió puede sumar un intento de más.
+
 ## Vistas en el log del campus (evento de vista)
 
 Hasta la 1.3.3, `view.php` marcaba el "visto" de la finalización pero no disparaba
