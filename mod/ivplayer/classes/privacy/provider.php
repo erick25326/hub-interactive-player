@@ -5,8 +5,9 @@
  * El plugin guarda datos personales por usuario en ivplayer_progress
  * (progreso/completado del video), ivplayer_answers (respuestas a las
  * interacciones, con el primer intento desde la 1.5.0), ivplayer_vistas (los
- * tramos del video vistos por día, 1.5.0) e ivplayer_pulso (el toque de fin de
- * lección, 1.5.0). Este provider los declara y permite exportarlos/borrarlos
+ * tramos del video vistos por día, 1.5.0), ivplayer_pulso (el toque de fin de
+ * lección, 1.5.0) e ivplayer_comentarios (las dudas que deja al terminar una lección, 1.5.0;
+ * el aviso que le llega al equipo es una notificación de Moodle, que declara core_message). Este provider los declara y permite exportarlos/borrarlos
  * ante un pedido de datos (GDPR / Ley 25.326 AR).
  *
  * Bunny Stream (1.3.0) no cambia nada acá: el GUID (ivplayer.videourl) es
@@ -75,10 +76,17 @@ class provider implements
 
         $collection->add_database_table('ivplayer_pulso', [
             'userid'       => 'privacy:metadata:ivplayer_pulso:userid',
-            'respuesta'    => 'privacy:metadata:ivplayer_pulso:respuesta',
+            'dificultad'   => 'privacy:metadata:ivplayer_pulso:dificultad',
+            'utilidad'     => 'privacy:metadata:ivplayer_pulso:utilidad',
             'timecreated'  => 'privacy:metadata:ivplayer_pulso:timecreated',
             'timemodified' => 'privacy:metadata:ivplayer_pulso:timemodified',
         ], 'privacy:metadata:ivplayer_pulso');
+
+        $collection->add_database_table('ivplayer_comentarios', [
+            'userid'      => 'privacy:metadata:ivplayer_comentarios:userid',
+            'texto'       => 'privacy:metadata:ivplayer_comentarios:texto',
+            'timecreated' => 'privacy:metadata:ivplayer_comentarios:timecreated',
+        ], 'privacy:metadata:ivplayer_comentarios');
 
         return $collection;
     }
@@ -110,7 +118,7 @@ class provider implements
 
         // Las tablas de la 1.5.0, aparte: un LEFT JOIN más por tabla multiplicaba las filas
         // (una por día en ivplayer_vistas).
-        foreach (['ivplayer_vistas', 'ivplayer_pulso'] as $tabla) {
+        foreach (['ivplayer_vistas', 'ivplayer_pulso', 'ivplayer_comentarios'] as $tabla) {
             $sql = "SELECT ctx.id
                       FROM {context} ctx
                       JOIN {course_modules} cm ON cm.id = ctx.instanceid AND ctx.contextlevel = :modlevel
@@ -158,7 +166,7 @@ class provider implements
                  WHERE ctx.id = :contextid";
         $userlist->add_from_sql('userid', $sql, $params);
 
-        foreach (['ivplayer_vistas', 'ivplayer_pulso'] as $tabla) {
+        foreach (['ivplayer_vistas', 'ivplayer_pulso', 'ivplayer_comentarios'] as $tabla) {
             $sql = "SELECT t.userid
                       FROM {{$tabla}} t
                       JOIN {ivplayer} iv ON iv.id = t.ivplayerid
@@ -235,10 +243,19 @@ class provider implements
             $pulso = $DB->get_record('ivplayer_pulso', ['ivplayerid' => $cm->instance, 'userid' => $userid]);
             if ($pulso) {
                 $data->pulso = (object) [
-                    'respuesta'    => get_string('pulso_' . $pulso->respuesta, 'ivplayer'),
+                    'dificultad'   => $pulso->dificultad ? get_string('pulso_' . $pulso->dificultad, 'ivplayer') : null,
+                    'utilidad'     => $pulso->utilidad ? get_string('pulso_' . $pulso->utilidad, 'ivplayer') : null,
                     'timecreated'  => transform::datetime($pulso->timecreated),
                     'timemodified' => transform::datetime($pulso->timemodified),
                 ];
+            }
+
+            // Las dudas o comentarios que dejó al terminar la lección (1.5.0).
+            $comentarios = $DB->get_records('ivplayer_comentarios', ['ivplayerid' => $cm->instance, 'userid' => $userid], 'timecreated');
+            if ($comentarios) {
+                $data->comentarios = array_values(array_map(function ($c) {
+                    return (object) ['texto' => $c->texto, 'timecreated' => transform::datetime($c->timecreated)];
+                }, $comentarios));
             }
 
             writer::with_context($context)->export_data([], $data);
@@ -265,6 +282,7 @@ class provider implements
         $DB->delete_records('ivplayer_answers', ['ivplayerid' => $cm->instance]);
         $DB->delete_records('ivplayer_vistas', ['ivplayerid' => $cm->instance]);
         $DB->delete_records('ivplayer_pulso', ['ivplayerid' => $cm->instance]);
+        $DB->delete_records('ivplayer_comentarios', ['ivplayerid' => $cm->instance]);
     }
 
     /**
@@ -289,6 +307,7 @@ class provider implements
             $DB->delete_records('ivplayer_answers', ['ivplayerid' => $cm->instance, 'userid' => $userid]);
             $DB->delete_records('ivplayer_vistas', ['ivplayerid' => $cm->instance, 'userid' => $userid]);
             $DB->delete_records('ivplayer_pulso', ['ivplayerid' => $cm->instance, 'userid' => $userid]);
+            $DB->delete_records('ivplayer_comentarios', ['ivplayerid' => $cm->instance, 'userid' => $userid]);
         }
     }
 
@@ -321,5 +340,6 @@ class provider implements
         $DB->delete_records_select('ivplayer_answers', "ivplayerid = :ivplayerid AND userid {$insql}", $params);
         $DB->delete_records_select('ivplayer_vistas', "ivplayerid = :ivplayerid AND userid {$insql}", $params);
         $DB->delete_records_select('ivplayer_pulso', "ivplayerid = :ivplayerid AND userid {$insql}", $params);
+        $DB->delete_records_select('ivplayer_comentarios', "ivplayerid = :ivplayerid AND userid {$insql}", $params);
     }
 }

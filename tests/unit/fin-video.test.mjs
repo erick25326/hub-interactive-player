@@ -159,3 +159,56 @@ describe('el componente', () => {
     assert.ok(disparo > 0 && tarjeta > disparo, `disparo ${disparo}, tarjeta ${tarjeta}`);
   });
 });
+
+describe('el toque de fin de lección (1.5.0)', async () => {
+  const { PULSO_PREGUNTA, PULSO_GRUPOS, pulsoGuardado, alternarPulso, comentarioParaEnviar, COMENTARIO_MAX, TEXTOS_COMENTARIO } = await import('../../src/finVideo.js');
+  const VACIO = { dificultad: null, utilidad: null };
+
+  test('la pregunta y las cinco opciones: los textos y el orden de Erick, en dos grupos', () => {
+    assert.equal(PULSO_PREGUNTA, '¿Cómo te resultó esta lección?');
+    assert.deepEqual(PULSO_GRUPOS.map((g) => [g.clave, g.opciones]), [
+      ['dificultad', [['bien', 'La seguí bien'], ['costo', 'Me costó un poco'], ['perdi', 'Me perdí']]],
+      ['utilidad', [['poco', 'Sentí que no me aportó mucho'], ['nada', 'Sentí que no me aportó nada']]],
+    ]);
+  });
+
+  test('los mismos códigos que el servidor (ivplayer_pulso_opciones en lib.php)', () => {
+    const lib = readFileSync(new URL('../../mod/ivplayer/lib.php', import.meta.url), 'utf8');
+    const m = /function ivplayer_pulso_opciones\(\): array \{\s*return (\[.*?\]);/s.exec(lib);
+    assert.ok(m, 'no encontré ivplayer_pulso_opciones');
+    assert.equal(m[1], "['dificultad' => ['bien', 'costo', 'perdi'], 'utilidad' => ['poco', 'nada']]");
+  });
+
+  test('hasta una de cada grupo: tocar otra la cambia, tocar la marcada la saca', () => {
+    let e = alternarPulso(VACIO, 'dificultad', 'costo');
+    assert.deepEqual(e, { dificultad: 'costo', utilidad: null });
+    e = alternarPulso(e, 'utilidad', 'poco');
+    assert.deepEqual(e, { dificultad: 'costo', utilidad: 'poco' });
+    e = alternarPulso(e, 'dificultad', 'perdi');
+    assert.deepEqual(e, { dificultad: 'perdi', utilidad: 'poco' });
+    e = alternarPulso(e, 'utilidad', 'poco');
+    assert.deepEqual(e, { dificultad: 'perdi', utilidad: null });
+  });
+
+  test('una opción de otro grupo o desconocida no cambia nada', () => {
+    const e = { dificultad: 'bien', utilidad: null };
+    assert.equal(alternarPulso(e, 'dificultad', 'nada'), e);
+    assert.equal(alternarPulso(e, 'otra', 'bien'), e);
+  });
+
+  test('lo guardado: sólo códigos válidos de su grupo', () => {
+    assert.deepEqual(pulsoGuardado({ dificultad: 'perdi', utilidad: 'nada' }), { dificultad: 'perdi', utilidad: 'nada' });
+    assert.deepEqual(pulsoGuardado({ dificultad: 'nada', utilidad: 'x' }), VACIO);
+    assert.deepEqual(pulsoGuardado(null), VACIO);
+    assert.deepEqual(pulsoGuardado('bien'), VACIO);
+  });
+
+  test('el comentario: sin espacios en las puntas, hasta 1000, vacío no se manda', () => {
+    assert.equal(comentarioParaEnviar('  ¿Y el downlink?  '), '¿Y el downlink?');
+    assert.equal(comentarioParaEnviar(' \n '), null);
+    assert.equal(comentarioParaEnviar(undefined), null);
+    assert.equal(comentarioParaEnviar('x'.repeat(1500)).length, COMENTARIO_MAX);
+    assert.equal(TEXTOS_COMENTARIO.enlace, 'Dejar una duda o comentario');
+    assert.equal(TEXTOS_COMENTARIO.enviado, 'Recibimos tu mensaje. Te respondemos por mail.');
+  });
+});

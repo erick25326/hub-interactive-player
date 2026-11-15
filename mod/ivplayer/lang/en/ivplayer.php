@@ -113,7 +113,12 @@ $string['privacy:metadata:ivplayer_vistas:sesiones'] = 'Technical record of the 
 $string['privacy:metadata:ivplayer_vistas:timemodified'] = 'When the record was last updated.';
 $string['privacy:metadata:ivplayer_pulso'] = 'The answer to "How did this lesson go for you?" at the end of the video.';
 $string['privacy:metadata:ivplayer_pulso:userid'] = 'The ID of the user who answered.';
-$string['privacy:metadata:ivplayer_pulso:respuesta'] = 'The option the user chose.';
+$string['privacy:metadata:ivplayer_pulso:dificultad'] = 'How the user followed the lesson, if chosen.';
+$string['privacy:metadata:ivplayer_pulso:utilidad'] = 'Whether the user felt the lesson did not give them much, if chosen.';
+$string['privacy:metadata:ivplayer_comentarios'] = 'Questions or comments the user leaves when finishing a lesson.';
+$string['privacy:metadata:ivplayer_comentarios:userid'] = 'The ID of the user who wrote it.';
+$string['privacy:metadata:ivplayer_comentarios:texto'] = 'What the user wrote.';
+$string['privacy:metadata:ivplayer_comentarios:timecreated'] = 'When it was sent.';
 $string['privacy:metadata:ivplayer_pulso:timecreated'] = 'When the user first answered.';
 $string['privacy:metadata:ivplayer_pulso:timemodified'] = 'When the user last changed the answer.';
 
@@ -124,6 +129,10 @@ $string['pulso_costo'] = 'It was a bit hard';
 $string['pulso_perdi'] = 'I got lost';
 $string['pulso_poco'] = 'I felt it did not give me much';
 $string['pulso_nada'] = 'I felt it gave me nothing';
+
+// Questions or comments when finishing a lesson (1.5.0).
+$string['ivplayer:recibircomentarios'] = 'Receive the notice of questions and comments students leave when finishing a lesson';
+$string['messageprovider:comentario'] = 'Student questions and comments when finishing a lesson';
 
 // Labels: interactive glossary or on screen (1.4.0).
 $string['etiquetas'] = 'Labels';

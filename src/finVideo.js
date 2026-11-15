@@ -101,3 +101,52 @@ export function textosDeFin({ completada, destino }) {
     principal: destino ? (destino.ultima ? "Volver al curso" : "Siguiente lección") : null,
   };
 }
+
+// ─── El toque de fin de lección (1.5.0, plan del tablero de aprendizaje) ───────────────
+// "¿Cómo te resultó esta lección?" arriba de los botones, sólo en el campus (con pulsoUrl
+// en MOODLE_CONTEXT). Las cinco opciones con los textos y el orden que decidió Erick
+// (15-nov-2026: no cambiarlos), en dos grupos: se marca hasta una de cada uno. Tocar otra
+// del mismo grupo la cambia; tocar la marcada la saca. Se guarda al tocar (pulso.php). Los
+// mismos códigos en el servidor: ivplayer_pulso_opciones (lib.php).
+export const PULSO_PREGUNTA = "¿Cómo te resultó esta lección?";
+export const PULSO_GRUPOS = [
+  { clave: "dificultad", nombre: "Cómo seguiste la lección",
+    opciones: [["bien", "La seguí bien"], ["costo", "Me costó un poco"], ["perdi", "Me perdí"]] },
+  { clave: "utilidad", nombre: "Si te aportó",
+    opciones: [["poco", "Sentí que no me aportó mucho"], ["nada", "Sentí que no me aportó nada"]] },
+];
+
+/** Lo que ya había marcado (MOODLE_CONTEXT.pulsoGuardado), con sólo códigos válidos. */
+export function pulsoGuardado(g) {
+  const r = { dificultad: null, utilidad: null };
+  if (!g || typeof g !== "object") return r;
+  for (const { clave, opciones } of PULSO_GRUPOS) if (opciones.some(([c]) => c === g[clave])) r[clave] = g[clave];
+  return r;
+}
+
+/** Tocar una opción: la marca (y desmarca la otra de su grupo) o, si ya estaba, la saca. */
+export function alternarPulso(estado, clave, codigo) {
+  const grupo = PULSO_GRUPOS.find((g) => g.clave === clave);
+  if (!grupo || !grupo.opciones.some(([c]) => c === codigo)) return estado;
+  return { ...estado, [clave]: estado[clave] === codigo ? null : codigo };
+}
+
+// "Dejar una duda o comentario": un campo en la misma tarjeta (comentario.php lo guarda y
+// le avisa al equipo por mail). Sólo en el campus (comentarioUrl en MOODLE_CONTEXT).
+export const COMENTARIO_MAX = 1000;
+export const TEXTOS_COMENTARIO = {
+  enlace: "Dejar una duda o comentario",
+  etiqueta: "Tu duda o comentario sobre esta lección",
+  ayuda: "Escribí acá",
+  aclara: "Te respondemos por mail.",
+  enviar: "Enviar",
+  cancelar: "Cancelar",
+  enviado: "Recibimos tu mensaje. Te respondemos por mail.",
+  gracias: "Gracias",
+};
+
+/** El texto a mandar, sin espacios en las puntas y hasta COMENTARIO_MAX; null si queda vacío. */
+export function comentarioParaEnviar(texto) {
+  const t = String(texto == null ? "" : texto).trim();
+  return t ? t.slice(0, COMENTARIO_MAX) : null;
+}

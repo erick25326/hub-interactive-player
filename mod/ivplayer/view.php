@@ -61,6 +61,16 @@ echo $OUTPUT->header();
         height: 75dvh;
         max-height: 640px;
     }
+    /* La tarjeta de fin con "¿Cómo te resultó esta lección?" (1.5.0; el reproductor lo pide
+       con "ivplayer-alto", fin): sus cinco opciones no entran en el 16:9 del celular parado.
+       Mientras está, el reproductor crece; al cerrarla vuelve. Opción A del mockup que
+       aprobó Erick (hub-education-web/docs/mockup-toque-fin-leccion.html). */
+    .ivplayer-frame-wrap.ivplayer-fin:not(.ivplayer-css-fs):not(:fullscreen) .ivplayer-frame {
+        aspect-ratio: auto;
+        height: 540px;
+        max-height: 85vh;
+        max-height: 85dvh;
+    }
 }
 /* Native fullscreen (Android/desktop) */
 .ivplayer-frame-wrap:fullscreen,
@@ -174,11 +184,13 @@ echo $OUTPUT->header();
         notifyIframe(isFSNow);
     }
 
-    // El reproductor avisa si está mostrando el glosario en vivo (transmitiendo a la TV).
+    // El reproductor avisa si está mostrando el glosario en vivo (transmitiendo a la TV) o la
+    // tarjeta de fin con el toque (1.5.0): con el celular parado, más alto.
     window.addEventListener('message', function(e) {
         if (!e.data || e.data.type !== 'ivplayer-alto') return;
         if (!frame || e.source !== frame.contentWindow || !wrap) return;
         wrap.classList.toggle('ivplayer-tv', !!e.data.tv);
+        wrap.classList.toggle('ivplayer-fin', !!e.data.fin);
     });
 
     function notifyIframe(isFS) {

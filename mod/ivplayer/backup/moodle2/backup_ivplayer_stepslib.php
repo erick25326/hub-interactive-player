@@ -38,7 +38,12 @@ class backup_ivplayer_activity_structure_step extends backup_activity_structure_
 
         $pulsos = new backup_nested_element('pulsos');
         $pulso = new backup_nested_element('pulso', ['id'], [
-            'userid', 'respuesta', 'timecreated', 'timemodified',
+            'userid', 'dificultad', 'utilidad', 'timecreated', 'timemodified',
+        ]);
+
+        $comentarios = new backup_nested_element('comentarios');
+        $comentario = new backup_nested_element('comentario', ['id'], [
+            'userid', 'texto', 'timecreated',
         ]);
 
         $ivplayer->add_child($progresses);
@@ -49,6 +54,8 @@ class backup_ivplayer_activity_structure_step extends backup_activity_structure_
         $vistas->add_child($vista);
         $ivplayer->add_child($pulsos);
         $pulsos->add_child($pulso);
+        $ivplayer->add_child($comentarios);
+        $comentarios->add_child($comentario);
 
         $ivplayer->set_source_table('ivplayer', ['id' => backup::VAR_ACTIVITYID]);
 
@@ -57,12 +64,14 @@ class backup_ivplayer_activity_structure_step extends backup_activity_structure_
             $answer->set_source_table('ivplayer_answers', ['ivplayerid' => backup::VAR_PARENTID]);
             $vista->set_source_table('ivplayer_vistas', ['ivplayerid' => backup::VAR_PARENTID]);
             $pulso->set_source_table('ivplayer_pulso', ['ivplayerid' => backup::VAR_PARENTID]);
+            $comentario->set_source_table('ivplayer_comentarios', ['ivplayerid' => backup::VAR_PARENTID]);
         }
 
         $progress->annotate_ids('user', 'userid');
         $answer->annotate_ids('user', 'userid');
         $vista->annotate_ids('user', 'userid');
         $pulso->annotate_ids('user', 'userid');
+        $comentario->annotate_ids('user', 'userid');
 
         return $this->prepare_activity_structure($ivplayer);
     }

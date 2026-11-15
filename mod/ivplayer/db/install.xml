@@ -80,12 +80,13 @@
         <KEY NAME="ivplayerid-userid-dia" TYPE="unique" FIELDS="ivplayerid, userid, dia"/>
       </KEYS>
     </TABLE>
-    <TABLE NAME="ivplayer_pulso" COMMENT="End-of-lesson check: how the lesson went, one answer per user and video (1.5.0)">
+    <TABLE NAME="ivplayer_pulso" COMMENT="End-of-lesson check: how the lesson went, one row per user and video, up to one option per group (1.5.0)">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="ivplayerid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
         <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
-        <FIELD NAME="respuesta" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="" COMMENT="bien, costo, perdi, poco or nada (ivplayer_pulso_opciones)"/>
+        <FIELD NAME="dificultad" TYPE="char" LENGTH="16" NOTNULL="false" COMMENT="bien, costo or perdi (how the lesson went); NULL: none chosen"/>
+        <FIELD NAME="utilidad" TYPE="char" LENGTH="16" NOTNULL="false" COMMENT="poco or nada (it did not give much / anything); NULL: none chosen"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
       </FIELDS>
@@ -94,6 +95,20 @@
         <KEY NAME="ivplayerid" TYPE="foreign" FIELDS="ivplayerid" REFTABLE="ivplayer" REFFIELDS="id"/>
         <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
         <KEY NAME="ivplayerid-userid" TYPE="unique" FIELDS="ivplayerid, userid"/>
+      </KEYS>
+    </TABLE>
+    <TABLE NAME="ivplayer_comentarios" COMMENT="Questions or comments students leave on the end-of-lesson card (1.5.0)">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="ivplayerid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="texto" TYPE="text" NOTNULL="true"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="ivplayerid" TYPE="foreign" FIELDS="ivplayerid" REFTABLE="ivplayer" REFFIELDS="id"/>
+        <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
       </KEYS>
     </TABLE>
   </TABLES>

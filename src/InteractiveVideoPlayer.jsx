@@ -5,7 +5,7 @@ import { Renovador, recargarParaReintentar } from "./firma.js";
 // La red de seguridad (Vimeo si el CDN de Bunny falla): la decisión es pura y vive aparte.
 import { decidirRespaldo, datosDelError, pedirRespaldo, urlDeRespaldo, yaEsRespaldo, GUARDAR_AVANCE_MS } from "./respaldo.js";
 import { cuandoHayaTV, cargarCast, contextoCast, observarCast, nombreDelEquipo, mismoVideo, CastPlayer, castPosible, infoApp, pareceApp } from "./cast.js";
-import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGuardarAvanceYa, moodleGetSavedProgress, moodleReportAnswer, isScormAvailable } from "./scorm.js";
+import { scormInit, scormSetComplete, scormSetTime, scormFinish, scormReportInteraction, moodleSaveProgress, moodleGuardarAvanceYa, moodleGetSavedProgress, moodleReportAnswer, moodleReportarPulso, moodleEnviarComentario, isScormAvailable } from "./scorm.js";
 // El candado de preguntas y el parser de subtítulos son puros y viven aparte para
 // poder probarlos sin navegador (tests/unit). Acá sólo se llaman.
 import { debeFrenar, tiempoAGuardar, esTickPropio, pendienteARetomar, hotspotEnVentana } from "./candado.js";
@@ -19,7 +19,7 @@ import { ticsEntre, olvidarTics, cuentaRegresiva, textoCuenta, queSeViene, comoA
 import { terminosVisibles, terminosCruzados, hayTerminos, marcadores, retomarAlCerrar, TOAST_MS, ENTRADA_MS } from "./glosario.js";
 import { crearSonidos, vibracionPosible } from "./sonidos.js";
 // La tarjeta de fin del video (la próxima lección del campus y "Volver a ver"): lo puro.
-import { leerBarraDelTema, destinoDeFin, leccionCompletada, textosDeFin } from "./finVideo.js";
+import { leerBarraDelTema, destinoDeFin, leccionCompletada, textosDeFin, PULSO_PREGUNTA, PULSO_GRUPOS, pulsoGuardado, alternarPulso, COMENTARIO_MAX, TEXTOS_COMENTARIO, comentarioParaEnviar } from "./finVideo.js";
 // Los tramos vistos (la curva de retención, 1.5.0): lo puro. Viajan con el avance a progress.php.
 import { crearVistas, registrarTick, entradasParaEnviar, diaDe } from "./vistas.js";
 
@@ -506,6 +506,21 @@ function Reproductor() {
   const finPrincipalRef = useRef(null);
   const [avisoFin, setAvisoFin] = useState('');   // para el lector de pantalla, si el foco no se pudo mover
   const idFin = useId();
+  // El toque de fin de lección y "Dejar una duda o comentario" (1.5.0, src/finVideo.js): sólo
+  // en el campus, que manda pulsoUrl y comentarioUrl en MOODLE_CONTEXT (no la demo de la
+  // web, ni el configurador, ni SCORM). Lo marcado arranca con lo que ya había elegido.
+  const finCampus = useMemo(() => {
+    const c = window.MOODLE_CONTEXT || null;
+    return { pulso: !!(c && c.pulsoUrl), comentario: !!(c && c.comentarioUrl) };
+  }, []);
+  const [pulso, setPulso] = useState(() => pulsoGuardado(window.MOODLE_CONTEXT && window.MOODLE_CONTEXT.pulsoGuardado));
+  const [graciasPulso, setGraciasPulso] = useState(false);
+  const [escribiendo, setEscribiendo] = useState(false);   // la tarjeta muestra el campo de la duda
+  const escribiendoRef = useRef(false); escribiendoRef.current = escribiendo;
+  const [textoComentario, setTextoComentario] = useState('');
+  const [comentarioEnviado, setComentarioEnviado] = useState(false);
+  const comentarioRef = useRef(null);
+  const enlaceComentarioRef = useRef(null);
   const [buffering, setBuffering] = useState(false);
   // Error que no se puede recuperar (token vencido, sin conexión, formato). Con
   // Vimeo lo mostraba su propio iframe; con el <video> propio, si no lo dibujamos
@@ -1200,7 +1215,7 @@ function Reproductor() {
       // La tarjeta de fin: Escape la cierra (el video queda en el final) y el resto de las
       // teclas son de sus botones (Tab, Enter, espacio).
       if(tarjetaFinRef.current){
-        if(e.key==='Escape'){ e.preventDefault(); cerrarTarjetaFinRef.current(true); }
+        if(e.key==='Escape'){ e.preventDefault(); if(escribiendoRef.current) cancelarComentarioRef.current(); else cerrarTarjetaFinRef.current(true); }
         return;
       }
       if(activeIA) return;
@@ -1531,10 +1546,15 @@ function Reproductor() {
   // definición abierta quedaba en ~95 px (Erick, 20-oct-2026). Mientras se ve el glosario
   // en vivo se le pide a la página (view.php) que lo haga más alto; al cortar, vuelve. La
   // página sólo lo cambia en pantallas angostas paradas.
+  // 🔴 Lo mismo con la tarjeta de fin en el campus (1.5.0, opción A del mockup que aprobó
+  // Erick): la pregunta y sus cinco opciones no entran en 375×211, así que mientras está la
+  // tarjeta la página agranda el reproductor (`fin`) y al cerrarla vuelve al 16:9.
+  // En pantalla completa ya entra: no se pide nada.
+  const finAlto=!!tarjetaFin&&!activeIA&&finCampus.pulso&&!isFS&&!fakeFS;
   useEffect(()=>{
     if(window===window.parent) return;
-    try{ window.parent.postMessage({type:'ivplayer-alto',tv:!!vivo},location.origin); }catch(e){}
-  },[vivo]);
+    try{ window.parent.postMessage({type:'ivplayer-alto',tv:!!vivo,fin:finAlto},location.origin); }catch(e){}
+  },[vivo,finAlto]);
   // El término que se abre, a la vista en la lista (en el iframe con el celular parado la
   // lista mide ~100 px): a mano y no con scrollIntoView, que desplaza la página del campus.
   useEffect(()=>{
@@ -2365,6 +2385,8 @@ function Reproductor() {
       registra:!!(ctx&&ctx.completeUrl)||isScormAvailable(), yaCompletada:!!(ctx&&ctx.alreadyCompleted) });
     const destino=destinoDeFin(leerBarraDelTema(window));
     const t={ completada, destino };
+    // Cada vez que aparece, el toque y la duda arrancan de cero (lo marcado queda: se guardó).
+    setEscribiendo(false); setComentarioEnviado(false); setGraciasPulso(false);
     // La tarjeta tapa todo, como una pregunta: el menú se cierra debajo (y un término
     // abierto se pliega sin retomar: ver el efecto de tarjetaFin).
     setTarjetaFin(t);
@@ -2379,6 +2401,7 @@ function Reproductor() {
   const cerrarTarjetaFin=(devolverFoco)=>{
     devolverFocoFinRef.current=!!devolverFoco||focoEnTarjetaFin();
     setTarjetaFin(null);
+    setEscribiendo(false);
     setAvisoFin('');
   };
   const cerrarTarjetaFinRef=useRef(cerrarTarjetaFin);
@@ -2429,6 +2452,32 @@ function Reproductor() {
     if(fakeFS&&window.parent!==window){ try{ window.parent.postMessage({type:'ivplayer-fullscreen',action:'exit'},'*'); }catch(e){} }
     try{ (arriba||window).location.assign(d.url); }catch(e){}
   };
+  // El toque: se guarda al tocar, con lo marcado en los dos grupos (alternarPulso).
+  const tocarPulso=(clave,codigo)=>{
+    const n=alternarPulso(pulso,clave,codigo);
+    if(n===pulso) return;
+    setPulso(n);
+    setGraciasPulso(!!(n.dificultad||n.utilidad));
+    moodleReportarPulso(n);
+  };
+  // La duda o comentario: un campo en la misma tarjeta. Enviar la deja en la cola (sale aunque
+  // no haya señal) y vuelve a la tarjeta con "Recibimos tu mensaje"; Cancelar o Escape
+  // vuelven sin mandar (lo escrito queda hasta la próxima vez que se abra).
+  const abrirComentario=()=>{ setEscribiendo(true); };
+  const cancelarComentario=()=>{ setEscribiendo(false); setTimeout(()=>{ try{ enlaceComentarioRef.current?.focus({preventScroll:true}); }catch(e){} },0); };
+  const cancelarComentarioRef=useRef(cancelarComentario); cancelarComentarioRef.current=cancelarComentario;
+  const enviarComentario=()=>{
+    const t=comentarioParaEnviar(textoComentario);
+    if(!t){ try{ comentarioRef.current?.focus({preventScroll:true}); }catch(e){} return; }
+    moodleEnviarComentario(t);
+    setTextoComentario('');
+    setComentarioEnviado(true);
+    setEscribiendo(false);
+    setAvisoFin(TEXTOS_COMENTARIO.enviado);
+    setTimeout(()=>{ try{ finPrincipalRef.current?.focus({preventScroll:true}); }catch(e){} },0);
+  };
+  useEffect(()=>{ if(escribiendo){ try{ comentarioRef.current?.focus({preventScroll:true}); }catch(e){} } },[escribiendo]);
+
   // Foco al botón principal al aparecer (o a "Volver a ver", si es el único), como las
   // preguntas: sólo si el reproductor tiene el foco (no se le roba a quien escribe en la
   // página de arriba, la búsqueda de la transcripción); si no, se avisa.
@@ -2481,7 +2530,7 @@ function Reproductor() {
           {completed.size>0&&<button className="iv-reset-btn-top" onClick={resetProgress}>Reiniciar</button>}
         </span>
       </div>
-      <div ref={containerRef} className={`iv-container ${vivo?'vivo':''}`}
+      <div ref={containerRef} className={`iv-container ${vivo?'vivo':''} ${finAlto?'fin-alto':''}`}
         onMouseMove={resetCtrl} onTouchStart={resetCtrl}>
 
         <div ref={vimeoRef} className="iv-vimeo-wrap"/>
@@ -2587,11 +2636,37 @@ function Reproductor() {
             de la TV (transmitiendo, el celular es el que la muestra). Nunca junto con una
             pregunta. Sin barra del tema arriba, sólo "Volver a ver". */}
         {txFin&&!activeIA&&<div className="iv-fin-capa"><div className="iv-overlay-backdrop iv-fin-fondo">
-          <div className={`iv-card iv-fin ${tarjetaFin.completada?'completada':''}`} role="dialog" aria-modal="true"
+          <div className={`iv-card iv-fin ${tarjetaFin.completada?'completada':''} ${finCampus.pulso?'con-pulso':''}`} role="dialog" aria-modal="true"
             aria-labelledby={`${idFin}-titulo`} aria-describedby={txFin.siguiente?`${idFin}-siguiente`:undefined}>
             <button className="iv-fin-cerrar" onClick={()=>cerrarTarjetaFin(true)} aria-label="Cerrar"><CloseIcon/></button>
             <p id={`${idFin}-titulo`} className="iv-fin-titulo">{tarjetaFin.completada&&<CheckIcon/>}<span>{txFin.titulo}</span></p>
+            {escribiendo?<div className="iv-fin-comentario">
+              <label htmlFor={`${idFin}-comentario`}>{TEXTOS_COMENTARIO.etiqueta}</label>
+              <textarea id={`${idFin}-comentario`} ref={comentarioRef} rows={4} maxLength={COMENTARIO_MAX} value={textoComentario}
+                placeholder={TEXTOS_COMENTARIO.ayuda} onChange={e=>setTextoComentario(e.target.value)}/>
+              <p className="iv-fin-aclara">{TEXTOS_COMENTARIO.aclara}</p>
+              <div className="iv-fin-botones">
+                <button className="iv-btn-primary iv-fin-ir" onClick={enviarComentario}>{TEXTOS_COMENTARIO.enviar}</button>
+                <button className="iv-fin-ver" onClick={cancelarComentario}>{TEXTOS_COMENTARIO.cancelar}</button>
+              </div>
+            </div>:<>
             {txFin.siguiente&&<p id={`${idFin}-siguiente`} className="iv-fin-siguiente">Siguiente: <strong>{txFin.siguiente}</strong></p>}
+            {finCampus.pulso&&<div className="iv-fin-pulso">
+              <p id={`${idFin}-pulso`} className="iv-fin-pregunta">{PULSO_PREGUNTA}</p>
+              <div className="iv-fin-opciones" role="group" aria-labelledby={`${idFin}-pulso`}>
+                {PULSO_GRUPOS.map(g=><div key={g.clave} className="iv-fin-grupo" role="group" aria-label={g.nombre}>
+                  {g.opciones.map(([codigo,texto])=>{ const on=pulso[g.clave]===codigo; return (
+                    <button key={codigo} type="button" role="checkbox" aria-checked={on} className={`iv-fin-op ${on?'on':''}`}
+                      onClick={()=>tocarPulso(g.clave,codigo)}><CheckIcon/><span>{texto}</span></button>); })}
+                </div>)}
+              </div>
+              <div className="iv-fin-pie">
+                {finCampus.comentario&&(comentarioEnviado
+                  ?<span className="iv-fin-enviado">{TEXTOS_COMENTARIO.enviado}</span>
+                  :<button type="button" ref={enlaceComentarioRef} className="iv-fin-comentar" onClick={abrirComentario}>{TEXTOS_COMENTARIO.enlace}</button>)}
+                <span className="iv-fin-gracias" aria-live="polite">{graciasPulso?TEXTOS_COMENTARIO.gracias:''}</span>
+              </div>
+            </div>}
             <div className="iv-fin-botones">
               {txFin.principal&&<button ref={finPrincipalRef} className="iv-btn-primary iv-fin-ir" onClick={irAlDestino}>
                 {txFin.principal}{!tarjetaFin.destino.ultima&&<span aria-hidden="true"> →</span>}
@@ -2600,6 +2675,7 @@ function Reproductor() {
                 <ReplayIcon/><span>Volver a ver</span>
               </button>
             </div>
+            </>}
           </div>
         </div></div>}
         <div className="iv-sr" role="status" aria-live="polite">{avisoFin}</div>

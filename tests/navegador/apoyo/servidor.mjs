@@ -233,7 +233,7 @@ export async function crearServidor({ html, video }) {
   const subs = { emitidas: new Map(), pedidos: [], n: 0 };
   // La tarjeta de fin: lo que recibió el complete.php de mentira y a dónde se navegó desde
   // la barra del tema (incluido el paso por togglecompletion.php).
-  const fin = { completados: [], navegacion: [] };
+  const fin = { completados: [], navegacion: [], pulsos: [], comentarios: [] };
   function emitirSubs(expires, origen) {
     const s = `sub-prueba-${++subs.n}`;
     subs.emitidas.set(s, expires);
@@ -359,6 +359,13 @@ export async function crearServidor({ html, video }) {
     if (q.get('appCastPublicada') === '1') contexto = { ...(contexto || {}), appCastPublicada: true };
     // Lo de Moodle para la finalización y el avance (player.php siempre los pone).
     if (q.get('completar') === '1') contexto = { ...(contexto || {}), cmid: CMID_PRUEBA, sesskey: SESSKEY_PRUEBA, completeUrl: `${origen}/completar`, progressUrl: `${origen}/progreso` };
+    // El toque de fin y la duda (1.5.0): pulso=1 (lo que manda player.php en el campus);
+    // pulsoGuardado=<json>, lo que ya había marcado.
+    if (q.get('pulso') === '1') {
+      let guardado = null;
+      try { guardado = JSON.parse(q.get('pulsoGuardado') || 'null'); } catch {}
+      contexto = { ...(contexto || {}), cmid: CMID_PRUEBA, sesskey: SESSKEY_PRUEBA, pulsoUrl: `${origen}/pulso`, pulsoGuardado: guardado, comentarioUrl: `${origen}/comentario` };
+    }
     let antes = `<script>${AYUDANTE}</script>\n`;
     if (q.get('webview') === '1') antes += `<script>${scriptWebview(q)}</script>\n`;
     if (['fake', 'mudo'].includes(q.get('app')) && q.get('plataforma') !== 'ios') antes += `<script>${PUENTE_IFRAME}</script>\n`;
@@ -388,7 +395,8 @@ export async function crearServidor({ html, video }) {
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${app}
 <style>html,body{margin:0;background:#222}iframe{border:0;width:${ancho};aspect-ratio:16/9;display:block}
 iframe.css-fs{position:fixed;inset:0;width:100vw;height:100vh;aspect-ratio:auto;z-index:9}
-@media (max-width:700px) and (orientation:portrait){iframe.tv:not(.css-fs){aspect-ratio:auto;height:75vh;max-height:640px}}</style></head>
+@media (max-width:700px) and (orientation:portrait){iframe.tv:not(.css-fs){aspect-ratio:auto;height:75vh;max-height:640px}
+iframe.fin:not(.css-fs){aspect-ratio:auto;height:540px;max-height:85vh}}</style></head>
 <body><iframe src="/player.html?${q.toString().replace(/"/g, '&quot;')}" title="Reproductor" allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe>
 ${lnav}
 <script>
@@ -404,6 +412,7 @@ ${lnav}
   addEventListener('message', (e) => {
     if (e.source !== f.contentWindow || !e.data || e.data.type !== 'ivplayer-alto') return;
     f.classList.toggle('tv', !!e.data.tv);
+    f.classList.toggle('fin', !!e.data.fin);
   });
 </script></body></html>`;
   }
@@ -526,6 +535,18 @@ ${lnav}
     res.end(JSON.stringify({ success: !!data }));
   }
 
+  // pulso.php y comentario.php de mentira (1.5.0): anotan cada pedido en srv.fin.pulsos y
+  // srv.fin.comentarios y contestan { success: true }, como los de verdad.
+  async function responderTarjeta(cual, req, res) {
+    const trozos = [];
+    for await (const t of req) trozos.push(t);
+    let campos = {};
+    try { campos = Object.fromEntries(await new Response(Buffer.concat(trozos), { headers: { 'content-type': req.headers['content-type'] || '' } }).formData()); } catch {}
+    (cual === 'pulso' ? fin.pulsos : fin.comentarios).push({ ms: Date.now(), ...campos });
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ success: true }));
+  }
+
   // complete.php de mentira (scorm.js manda FormData: cmid + sesskey). Contesta como el de
   // verdad, { success: true }: si no, la cola lo reintentaría.
   async function responderCompletar(req, res) {
@@ -564,6 +585,7 @@ ${lnav}
       if (u.pathname === '/marco.html') { cargas.marco++; return pagina(paginaMarco(new URLSearchParams(u.searchParams), origen)); }
       // La tarjeta de fin: complete.php y a dónde lleva la barra del tema.
       if (u.pathname === '/completar') return await responderCompletar(req, res);
+      if (u.pathname === '/pulso' || u.pathname === '/comentario') return await responderTarjeta(u.pathname.slice(1), req, res);
       if (u.pathname === '/mod/ivplayer/view.php' || u.pathname === '/course/view.php') {
         fin.navegacion.push({ ms: Date.now(), ruta: u.pathname + u.search });
         return pagina(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Destino</title></head><body><p id="destino">${u.pathname}</p></body></html>`);

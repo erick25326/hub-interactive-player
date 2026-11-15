@@ -16,6 +16,7 @@ class restore_ivplayer_activity_structure_step extends restore_activity_structur
             $paths[] = new restore_path_element('ivplayer_answer', '/activity/ivplayer/answers/answer');
             $paths[] = new restore_path_element('ivplayer_vista', '/activity/ivplayer/vistas/vista');
             $paths[] = new restore_path_element('ivplayer_pulso', '/activity/ivplayer/pulsos/pulso');
+            $paths[] = new restore_path_element('ivplayer_comentario', '/activity/ivplayer/comentarios/comentario');
         }
 
         return $this->prepare_activity_structure($paths);
@@ -84,13 +85,30 @@ class restore_ivplayer_activity_structure_step extends restore_activity_structur
         $data = (object)$data;
         $data->ivplayerid = $this->get_new_parentid('ivplayer');
         $data->userid = $this->get_mappingid('user', $data->userid);
-        if (!$data->userid || ivplayer_pulso_valida($data->respuesta ?? null) === null) {
+        $pulso = $data->userid ? ivplayer_pulso_leer($data->dificultad ?? null, $data->utilidad ?? null) : null;
+        if ($pulso === null) {
             return;
         }
+        $data->dificultad = $pulso['dificultad'];
+        $data->utilidad = $pulso['utilidad'];
         if ($DB->record_exists('ivplayer_pulso', ['ivplayerid' => $data->ivplayerid, 'userid' => $data->userid])) {
             return;
         }
         $DB->insert_record('ivplayer_pulso', $data);
+    }
+
+    // Las dudas o comentarios de la tarjeta de fin (1.5.0). Al restaurar no se avisa a nadie.
+    protected function process_ivplayer_comentario($data) {
+        global $DB;
+
+        $data = (object)$data;
+        $data->ivplayerid = $this->get_new_parentid('ivplayer');
+        $data->userid = $this->get_mappingid('user', $data->userid);
+        $data->texto = ivplayer_comentario_limpio($data->texto ?? null);
+        if (!$data->userid || $data->texto === null) {
+            return;
+        }
+        $DB->insert_record('ivplayer_comentarios', $data);
     }
 
     protected function after_execute() {

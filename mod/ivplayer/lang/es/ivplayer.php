@@ -113,7 +113,12 @@ $string['privacy:metadata:ivplayer_vistas:sesiones'] = 'Registro técnico de las
 $string['privacy:metadata:ivplayer_vistas:timemodified'] = 'Cuándo se actualizó el registro por última vez.';
 $string['privacy:metadata:ivplayer_pulso'] = 'La respuesta a "¿Cómo te resultó esta lección?" al terminar el video.';
 $string['privacy:metadata:ivplayer_pulso:userid'] = 'El ID del usuario que respondió.';
-$string['privacy:metadata:ivplayer_pulso:respuesta'] = 'La opción que eligió el usuario.';
+$string['privacy:metadata:ivplayer_pulso:dificultad'] = 'Cómo siguió la lección, si lo marcó.';
+$string['privacy:metadata:ivplayer_pulso:utilidad'] = 'Si sintió que la lección no le aportó, si lo marcó.';
+$string['privacy:metadata:ivplayer_comentarios'] = 'Las dudas o comentarios que deja el usuario al terminar una lección.';
+$string['privacy:metadata:ivplayer_comentarios:userid'] = 'El ID del usuario que escribió.';
+$string['privacy:metadata:ivplayer_comentarios:texto'] = 'Lo que escribió.';
+$string['privacy:metadata:ivplayer_comentarios:timecreated'] = 'Cuándo lo envió.';
 $string['privacy:metadata:ivplayer_pulso:timecreated'] = 'Cuándo respondió por primera vez.';
 $string['privacy:metadata:ivplayer_pulso:timemodified'] = 'Cuándo cambió la respuesta por última vez.';
 
@@ -125,6 +130,10 @@ $string['pulso_costo'] = 'Me costó un poco';
 $string['pulso_perdi'] = 'Me perdí';
 $string['pulso_poco'] = 'Sentí que no me aportó mucho';
 $string['pulso_nada'] = 'Sentí que no me aportó nada';
+
+// Dudas o comentarios al terminar una lección (1.5.0).
+$string['ivplayer:recibircomentarios'] = 'Recibir el aviso de las dudas y comentarios que dejan los alumnos al terminar una lección';
+$string['messageprovider:comentario'] = 'Dudas y comentarios de los alumnos al terminar una lección';
 
 // Etiquetas: glosario interactivo o en pantalla (1.4.0).
 $string['etiquetas'] = 'Etiquetas';

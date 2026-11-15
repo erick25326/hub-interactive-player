@@ -1,9 +1,11 @@
 <?php
 /**
  * AJAX endpoint: el toque de fin de lección (1.5.0). "¿Cómo te resultó esta lección?" con
- * cinco respuestas (ivplayer_pulso_opciones): una por alumno y video, que se puede cambiar.
- * Los mismos chequeos que answer.php: sesskey, sesión, acceso a la actividad y permiso de
- * verla. No toca la nota ni la finalización.
+ * hasta una opción de cada grupo (ivplayer_pulso_opciones): cómo siguió la lección
+ * (`dificultad`) y si le aportó (`utilidad`). El reproductor manda siempre lo marcado en los
+ * dos ('' = nada), así un envío repetido o fuera de orden deja lo último. Una fila por alumno
+ * y video, que se puede cambiar. Los mismos chequeos que answer.php: sesskey, sesión, acceso
+ * a la actividad y permiso de verla. No toca la nota ni la finalización.
  *
  * @package    mod_ivplayer
  * @copyright  Hub Education
@@ -14,7 +16,8 @@ require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/lib.php');
 
 $cmid = required_param('cmid', PARAM_INT);
-$respuesta = required_param('respuesta', PARAM_ALPHA);
+$dificultad = optional_param('dificultad', '', PARAM_ALPHA);
+$utilidad = optional_param('utilidad', '', PARAM_ALPHA);
 
 require_sesskey();
 
@@ -28,8 +31,8 @@ require_capability('mod/ivplayer:view', $context);
 
 header('Content-Type: application/json; charset=utf-8');
 
-$respuesta = ivplayer_pulso_valida($respuesta);
-if ($respuesta === null) {
+$pulso = ivplayer_pulso_leer($dificultad, $utilidad);
+if ($pulso === null) {
     echo json_encode(['success' => false, 'error' => 'Unknown answer']);
     exit;
 }
@@ -37,8 +40,9 @@ if ($respuesta === null) {
 $ahora = time();
 $record = $DB->get_record('ivplayer_pulso', ['ivplayerid' => $ivplayer->id, 'userid' => $USER->id]);
 if ($record) {
-    if ($record->respuesta !== $respuesta) {
-        $record->respuesta = $respuesta;
+    if ($record->dificultad !== $pulso['dificultad'] || $record->utilidad !== $pulso['utilidad']) {
+        $record->dificultad = $pulso['dificultad'];
+        $record->utilidad = $pulso['utilidad'];
         $record->timemodified = $ahora;
         $DB->update_record('ivplayer_pulso', $record);
     }
@@ -46,10 +50,11 @@ if ($record) {
     $DB->insert_record('ivplayer_pulso', (object) [
         'ivplayerid' => $ivplayer->id,
         'userid' => $USER->id,
-        'respuesta' => $respuesta,
+        'dificultad' => $pulso['dificultad'],
+        'utilidad' => $pulso['utilidad'],
         'timecreated' => $ahora,
         'timemodified' => $ahora,
     ]);
 }
 
-echo json_encode(['success' => true, 'respuesta' => $respuesta]);
+echo json_encode(['success' => true] + $pulso);

@@ -92,6 +92,7 @@ function ivplayer_delete_instance($id) {
     $DB->delete_records('ivplayer_progress', ['ivplayerid' => $id]);
     $DB->delete_records('ivplayer_vistas', ['ivplayerid' => $id]);
     $DB->delete_records('ivplayer_pulso', ['ivplayerid' => $id]);
+    $DB->delete_records('ivplayer_comentarios', ['ivplayerid' => $id]);
     $DB->delete_records('ivplayer', ['id' => $id]);
     return true;
 }
@@ -1477,26 +1478,141 @@ function ivplayer_vistas_guardar(int $ivplayerid, int $userid, $crudo): void {
 }
 
 /**
- * Las respuestas del toque de fin de lección ("¿Cómo te resultó esta lección?"), en el
- * orden en que se muestran. Las tres primeras hablan de dificultad y las dos últimas de
- * utilidad (el tablero las lee como dos números). Los textos, en lang (pulso_<código>) y
- * en el reproductor. Pura.
+ * Las opciones del toque de fin de lección ("¿Cómo te resultó esta lección?"), en el orden
+ * en que se muestran y en dos grupos: cómo siguió la lección (dificultad) y si le aportó
+ * (utilidad). Se marca hasta una de cada grupo (decisión de Erick, 15-nov-2026): así no
+ * quedan respuestas que se contradicen y el tablero lee dos números por lección. Los
+ * textos, en lang (pulso_<código>) y en el reproductor (src/finVideo.js). Pura.
  *
- * @return string[]
+ * @return array ['dificultad' => string[], 'utilidad' => string[]]
  */
 function ivplayer_pulso_opciones(): array {
-    return ['bien', 'costo', 'perdi', 'poco', 'nada'];
+    return ['dificultad' => ['bien', 'costo', 'perdi'], 'utilidad' => ['poco', 'nada']];
 }
 
 /**
- * La respuesta que manda el reproductor a pulso.php, si es una de las opciones; si no, null.
- * Pura.
+ * Lo que manda el reproductor a pulso.php: lo marcado en cada grupo ('' = nada). Devuelve
+ * ['dificultad' => código|null, 'utilidad' => código|null], o null si un valor no es de su
+ * grupo (se rechaza entero). Pura.
  *
- * @param mixed $respuesta
+ * @param mixed $dificultad
+ * @param mixed $utilidad
+ * @return array|null
+ */
+function ivplayer_pulso_leer($dificultad, $utilidad): ?array {
+    $opciones = ivplayer_pulso_opciones();
+    $r = [];
+    foreach (['dificultad' => $dificultad, 'utilidad' => $utilidad] as $grupo => $valor) {
+        if ($valor === null || $valor === '') {
+            $r[$grupo] = null;
+        } else if (is_string($valor) && in_array($valor, $opciones[$grupo], true)) {
+            $r[$grupo] = $valor;
+        } else {
+            return null;
+        }
+    }
+    return $r;
+}
+
+/**
+ * La duda o comentario que escribe el alumno en la tarjeta de fin (comentario.php), lista
+ * para guardar: sin espacios de más en las puntas, sin caracteres de control (salvo los
+ * saltos de línea), con saltos de línea normalizados y hasta 1000 caracteres. null si queda
+ * vacía. Pura.
+ *
+ * @param mixed $texto
  * @return string|null
  */
-function ivplayer_pulso_valida($respuesta): ?string {
-    return is_string($respuesta) && in_array($respuesta, ivplayer_pulso_opciones(), true) ? $respuesta : null;
+function ivplayer_comentario_limpio($texto): ?string {
+    if (!is_string($texto)) {
+        return null;
+    }
+    $texto = str_replace(["\r\n", "\r"], "\n", $texto);
+    $texto = preg_replace('/[\x00-\x08\x0B-\x1F\x7F]/u', '', $texto);
+    if ($texto === null) {
+        return null;
+    }
+    $texto = preg_replace("/\n{3,}/", "\n\n", trim($texto));
+    if ($texto === '') {
+        return null;
+    }
+    return mb_strlen($texto, 'UTF-8') > 1000 ? rtrim(mb_substr($texto, 0, 1000, 'UTF-8')) : $texto;
+}
+
+/**
+ * Los textos del aviso que le llega al equipo cuando un alumno deja una duda o comentario
+ * (comentario.php, ivplayer_comentario_avisar). Texto plano: el mail sale con "responder a"
+ * el alumno, así se le contesta respondiendo el mail. Pura.
+ *
+ * @param array $d alumno, email, curso, leccion, texto, url
+ * @return array ['asunto' => string, 'cuerpo' => string, 'corto' => string]
+ */
+function ivplayer_comentario_textos(array $d): array {
+    $asunto = 'Duda o comentario en "' . $d['leccion'] . '" (' . $d['curso'] . ')';
+    $cuerpo = $d['alumno'] . ' (' . $d['email'] . ') dejó una duda o comentario al terminar la lección "'
+        . $d['leccion'] . '" del curso "' . $d['curso'] . '":' . "\n\n" . $d['texto'] . "\n\n"
+        . 'Para responderle, respondé este mail: le llega a ' . $d['email'] . ".\n" . 'La lección: ' . $d['url'] . "\n";
+    $corto = $d['alumno'] . ' dejó una duda en "' . $d['leccion'] . '"';
+    return ['asunto' => $asunto, 'cuerpo' => $cuerpo, 'corto' => $corto];
+}
+
+/**
+ * Avisa a quien responde las dudas: los administradores del sitio y quien tenga
+ * mod/ivplayer:recibircomentarios en la lección (por defecto, nadie más: el permiso no viene
+ * con ningún rol). Por las notificaciones de Moodle (proveedor "comentario", db/messages.php):
+ * llega por mail y a la campanita, y cada uno lo puede apagar en sus preferencias. Si no se
+ * puede avisar, la duda igual quedó guardada.
+ *
+ * @param stdClass $ivplayer
+ * @param stdClass $course
+ * @param stdClass $cm
+ * @param context_module $context
+ * @param stdClass $alumno
+ * @param string $texto
+ * @return int a cuántos se les mandó
+ */
+function ivplayer_comentario_avisar(stdClass $ivplayer, stdClass $course, stdClass $cm, context_module $context, stdClass $alumno, string $texto): int {
+    $destinos = [];
+    foreach (get_admins() as $u) {
+        $destinos[$u->id] = $u;
+    }
+    try {
+        foreach (get_users_by_capability($context, 'mod/ivplayer:recibircomentarios') as $u) {
+            $destinos[$u->id] = $u;
+        }
+    } catch (\Throwable $e) {
+        // El permiso es de la 1.5.0: sin el upgrade corrido no existe. Les llega a los admins.
+        debugging('mod_ivplayer: sin mod/ivplayer:recibircomentarios todavía', DEBUG_DEVELOPER);
+    }
+    unset($destinos[$alumno->id]);
+    $url = (new moodle_url('/mod/ivplayer/view.php', ['id' => $cm->id]))->out(false);
+    $t = ivplayer_comentario_textos([
+        'alumno' => fullname($alumno), 'email' => $alumno->email, 'curso' => format_string($course->fullname),
+        'leccion' => format_string($ivplayer->name), 'texto' => $texto, 'url' => $url,
+    ]);
+    $n = 0;
+    foreach ($destinos as $destino) {
+        $m = new \core\message\message();
+        $m->component = 'mod_ivplayer';
+        $m->name = 'comentario';
+        $m->userfrom = $alumno;
+        $m->userto = $destino;
+        $m->subject = $t['asunto'];
+        $m->fullmessage = $t['cuerpo'];
+        $m->fullmessageformat = FORMAT_PLAIN;
+        $m->fullmessagehtml = '';
+        $m->smallmessage = $t['corto'];
+        $m->notification = 1;
+        $m->contexturl = $url;
+        $m->contexturlname = format_string($ivplayer->name);
+        $m->courseid = $course->id;
+        $m->replyto = $alumno->email;
+        $m->replytoname = fullname($alumno);
+        if (message_send($m)) {
+            $n++;
+        }
+    }
+    return $n;
 }
 
 /**

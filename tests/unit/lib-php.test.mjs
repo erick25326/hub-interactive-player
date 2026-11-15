@@ -380,8 +380,10 @@ test('tablero (1.5.0): las funciones puras no cambiaron sin la prueba PHP, y tod
     ivplayer_vistas_dia: 'e5025daa87227649',
     ivplayer_vistas_leer: '4e4afc6d3f0772b7',
     ivplayer_vistas_combinar: '180986bcac038911',
-    ivplayer_pulso_opciones: '42c86d01c6847814',
-    ivplayer_pulso_valida: '92ec00623526ea70',
+    ivplayer_pulso_opciones: '9ab6deb42123eb6e',
+    ivplayer_pulso_leer: '9a3dec913baf67ac',
+    ivplayer_comentario_limpio: '7ecc367ca5e39247',
+    ivplayer_comentario_textos: '74ffbc69949be9b3',
     ivplayer_respuesta_a_guardar: '46b84d5757bbbc00',
   };
   const src = leerLib();
@@ -395,7 +397,8 @@ test('tablero (1.5.0): las funciones puras no cambiaron sin la prueba PHP, y tod
   const xml = leer('db/install.xml');
   for (const [tabla, campos] of Object.entries({
     ivplayer_vistas: ['ivplayerid', 'userid', 'dia', 'tramos', 'duracion', 'segundos', 'sesiones', 'timemodified'],
-    ivplayer_pulso: ['ivplayerid', 'userid', 'respuesta', 'timecreated', 'timemodified'],
+    ivplayer_pulso: ['ivplayerid', 'userid', 'dificultad', 'utilidad', 'timecreated', 'timemodified'],
+    ivplayer_comentarios: ['ivplayerid', 'userid', 'texto', 'timecreated'],
   })) {
     const m = new RegExp(`<TABLE NAME="${tabla}"[\\s\\S]*?</TABLE>`).exec(xml);
     assert.ok(m, `falta la tabla ${tabla} en install.xml`);
@@ -417,16 +420,33 @@ test('tablero (1.5.0): las funciones puras no cambiaron sin la prueba PHP, y tod
   assert.ok(progress.indexOf('ivplayer_vistas_guardar(') > progress.lastIndexOf("$DB->insert_record('ivplayer_progress'"), 'los tramos, DESPUÉS del avance');
   assert.match(leer('answer.php'), /\$fila = ivplayer_respuesta_a_guardar\(\$record \?: null, \$answer, \$correct, time\(\)\);/);
   const pulso = leer('pulso.php');
-  for (const r of [/require_sesskey\(\);/, /require_login\(\$course, true, \$cm\);/, /require_capability\('mod\/ivplayer:view', \$context\);/, /ivplayer_pulso_valida\(\$respuesta\)/]) {
+  for (const r of [/require_sesskey\(\);/, /require_login\(\$course, true, \$cm\);/, /require_capability\('mod\/ivplayer:view', \$context\);/, /ivplayer_pulso_leer\(\$dificultad, \$utilidad\)/]) {
     assert.match(pulso, r, 'pulso.php con los mismos chequeos que answer.php');
   }
+  // Las dudas o comentarios: comentario.php con los mismos chequeos, el texto limpio, sin
+  // repetir un reenvío de la cola, y el aviso por las notificaciones de Moodle sin que su
+  // falla pierda la duda.
+  const comentario = leer('comentario.php');
+  for (const r of [/require_sesskey\(\);/, /require_login\(\$course, true, \$cm\);/, /require_capability\('mod\/ivplayer:view', \$context\);/,
+    /\$texto = ivplayer_comentario_limpio\(\$texto\);/, /\$repetido = \$DB->record_exists_select\('ivplayer_comentarios'/,
+    /try \{\s*ivplayer_comentario_avisar\(/]) {
+    assert.match(comentario, r, `comentario.php: ${r}`);
+  }
+  assert.ok(comentario.indexOf("insert_record('ivplayer_comentarios'") < comentario.indexOf('ivplayer_comentario_avisar('), 'primero se guarda, después se avisa');
+  assert.match(leer('db/messages.php'), /'comentario' => \[\s*'defaults' => \[/);
+  const acceso = leer('db/access.php');
+  assert.match(acceso, /'mod\/ivplayer:recibircomentarios' => \[[\s\S]*?'archetypes' => \[\],/, 'el permiso de recibir las dudas no viene con ningún rol');
+  const lib = leer('lib.php');
+  assert.match(lib, /foreach \(get_admins\(\) as \$u\)/, 'el aviso les llega a los admins del sitio');
+  assert.match(lib, /\$m->replyto = \$alumno->email;/, 'se le responde al alumno respondiendo el mail');
   const player = leer('player.php');
   const iContexto = player.indexOf('$contexto = ['), iPulso = player.indexOf("'pulsoUrl'"), iJson = player.indexOf('$moodlecontext = json_encode($contexto');
   assert.ok(iContexto > 0 && iPulso > iContexto && iJson > iPulso, 'pulsoUrl va en MOODLE_CONTEXT: sólo en el campus');
   assert.match(player, /'pulsoGuardado' => \$pulsoguardado,/);
+  assert.ok(player.indexOf("'comentarioUrl'") > iContexto && player.indexOf("'comentarioUrl'") < iJson, 'comentarioUrl va en MOODLE_CONTEXT');
   // Privacidad, borrado de la actividad y respaldo.
   const privacy = leer('classes/privacy/provider.php');
-  for (const t of ['ivplayer_vistas', 'ivplayer_pulso']) {
+  for (const t of ['ivplayer_vistas', 'ivplayer_pulso', 'ivplayer_comentarios']) {
     assert.match(privacy, new RegExp(`add_database_table\\('${t}'`), `${t} declarada en la privacidad`);
     assert.ok((privacy.match(new RegExp(`delete_records(?:_select)?\\('${t}'`, 'g')) || []).length >= 3, `${t}: se borra en los tres casos`);
     assert.match(leer('lib.php'), new RegExp(`delete_records\\('${t}', \\['ivplayerid' => \\$id\\]\\);`), `${t}: se borra con la actividad`);
@@ -435,9 +455,11 @@ test('tablero (1.5.0): las funciones puras no cambiaron sin la prueba PHP, y tod
   assert.match(bk, /'firstanswer', 'firstcorrect', 'attempts', 'timefirst'/);
   assert.match(bk, /\$vista->set_source_table\('ivplayer_vistas'/);
   assert.match(bk, /\$pulso->set_source_table\('ivplayer_pulso'/);
+  assert.match(bk, /\$comentario->set_source_table\('ivplayer_comentarios'/);
   const rs = leer('backup/moodle2/restore_ivplayer_stepslib.php');
   assert.match(rs, /protected function process_ivplayer_vista\(/);
   assert.match(rs, /protected function process_ivplayer_pulso\(/);
+  assert.match(rs, /protected function process_ivplayer_comentario\(/);
   // Los textos del toque: los de Erick, en el orden de ivplayer_pulso_opciones.
   const es = leer('lang/es/ivplayer.php');
   const textos = { pulso_pregunta: '¿Cómo te resultó esta lección?', pulso_bien: 'La seguí bien', pulso_costo: 'Me costó un poco',
@@ -446,7 +468,8 @@ test('tablero (1.5.0): las funciones puras no cambiaron sin la prueba PHP, y tod
   const en = leer('lang/en/ivplayer.php');
   for (const k of Object.keys(textos)) assert.ok(en.includes(`$string['${k}'] = '`), `falta ${k} en lang/en`);
   for (const idioma of [es, en]) {
-    for (const k of ['ivplayer_vistas', 'ivplayer_pulso', 'ivplayer_answers:firstanswer', 'ivplayer_vistas:sesiones']) {
+    for (const k of ['ivplayer:recibircomentarios', 'messageprovider:comentario']) assert.ok(idioma.includes(`$string['${k}'] = '`), `falta ${k}`);
+    for (const k of ['ivplayer_vistas', 'ivplayer_pulso', 'ivplayer_pulso:dificultad', 'ivplayer_comentarios', 'ivplayer_answers:firstanswer', 'ivplayer_vistas:sesiones']) {
       assert.ok(idioma.includes(`$string['privacy:metadata:${k}'] = '`), `falta privacy:metadata:${k}`);
     }
   }

@@ -396,6 +396,38 @@ export function moodleReportAnswer(interactionId, answer) {
 }
 
 /**
+ * El toque de fin de lección (1.5.0): lo marcado en los dos grupos ('' = nada). Siempre el
+ * estado entero: un envío repetido o fuera de orden deja lo último. Por la cola de eventos,
+ * como una respuesta. No-op fuera del campus (sin pulsoUrl).
+ * @param {{dificultad: string|null, utilidad: string|null}} pulso
+ */
+export function moodleReportarPulso(pulso) {
+  const ctx = window.MOODLE_CONTEXT;
+  if (!ctx || !ctx.pulsoUrl) return;
+  encolarEvento({
+    id: `pulso-${ctx.cmid}-${Date.now()}`,
+    url: ctx.pulsoUrl,
+    campos: { cmid: ctx.cmid, dificultad: (pulso && pulso.dificultad) || '', utilidad: (pulso && pulso.utilidad) || '' },
+  });
+}
+
+/**
+ * La duda o comentario de la tarjeta de fin (1.5.0): comentario.php la guarda y le avisa al
+ * equipo por mail. Por la cola de eventos: sin señal, sale cuando vuelva (el servidor no
+ * guarda dos veces el mismo texto dentro de la hora). No-op fuera del campus.
+ * @param {string} texto
+ */
+export function moodleEnviarComentario(texto) {
+  const ctx = window.MOODLE_CONTEXT;
+  if (!ctx || !ctx.comentarioUrl) return;
+  encolarEvento({
+    id: `comentario-${ctx.cmid}-${Date.now()}`,
+    url: ctx.comentarioUrl,
+    campos: { cmid: ctx.cmid, texto: String(texto) },
+  });
+}
+
+/**
  * Returns the saved progress injected by Moodle, or null.
  */
 export function moodleGetSavedProgress() {

@@ -156,18 +156,34 @@ function xmldb_ivplayer_upgrade($oldversion) {
             $dbman->create_table($table);
         }
 
-        // (1b) El toque de fin de lección: una respuesta por alumno y video.
+        // (1b) El toque de fin de lección: una fila por alumno y video, con hasta una opción
+        // de cada grupo (dificultad y utilidad).
         $table = new xmldb_table('ivplayer_pulso');
         $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
         $table->add_field('ivplayerid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
         $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
-        $table->add_field('respuesta', XMLDB_TYPE_CHAR, '16', null, XMLDB_NOTNULL, null, '');
+        $table->add_field('dificultad', XMLDB_TYPE_CHAR, '16', null, null, null, null);
+        $table->add_field('utilidad', XMLDB_TYPE_CHAR, '16', null, null, null, null);
         $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
         $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
         $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
         $table->add_key('ivplayerid', XMLDB_KEY_FOREIGN, ['ivplayerid'], 'ivplayer', ['id']);
         $table->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
         $table->add_key('ivplayerid-userid', XMLDB_KEY_UNIQUE, ['ivplayerid', 'userid']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        // (1b) Las dudas o comentarios que se dejan en la tarjeta de fin: una fila por mensaje.
+        $table = new xmldb_table('ivplayer_comentarios');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('ivplayerid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('texto', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('ivplayerid', XMLDB_KEY_FOREIGN, ['ivplayerid'], 'ivplayer', ['id']);
+        $table->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
         if (!$dbman->table_exists($table)) {
             $dbman->create_table($table);
         }

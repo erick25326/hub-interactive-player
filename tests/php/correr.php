@@ -89,7 +89,9 @@ $funciones = [
     'ivplayer_vistas_leer',
     'ivplayer_vistas_combinar',
     'ivplayer_pulso_opciones',
-    'ivplayer_pulso_valida',
+    'ivplayer_pulso_leer',
+    'ivplayer_comentario_limpio',
+    'ivplayer_comentario_textos',
     'ivplayer_respuesta_a_guardar',
 ];
 
@@ -911,11 +913,33 @@ chequear('vistas_combinar: una fila con basura en tramos o sesiones no rompe', $
     ['tramos' => '1x', 'segundos' => '2', 'duracion' => '5', 'sesiones' => '[1,2'], $e('sesionEEEE', $hoy, '11', 1, 0))), ['21', 3, 5]);
 seccion('tramos vistos (1.5.0): ivplayer_vistas_dia, ivplayer_vistas_leer e ivplayer_vistas_combinar');
 
-chequear('pulso: las cinco, en el orden en que se muestran', ivplayer_pulso_opciones(), ['bien', 'costo', 'perdi', 'poco', 'nada']);
-chequear('pulso: cada una vale tal cual', array_map('ivplayer_pulso_valida', ivplayer_pulso_opciones()), ivplayer_pulso_opciones());
-chequear('pulso: otra cosa, no', [ivplayer_pulso_valida('BIEN'), ivplayer_pulso_valida(''), ivplayer_pulso_valida(null),
-    ivplayer_pulso_valida(['bien']), ivplayer_pulso_valida('bien ')], [null, null, null, null, null]);
-seccion('toque de fin de lección (1.5.0): ivplayer_pulso_opciones e ivplayer_pulso_valida');
+chequear('pulso: las cinco, en dos grupos y en el orden en que se muestran', ivplayer_pulso_opciones(),
+    ['dificultad' => ['bien', 'costo', 'perdi'], 'utilidad' => ['poco', 'nada']]);
+chequear('pulso: una de cada grupo', ivplayer_pulso_leer('costo', 'poco'), ['dificultad' => 'costo', 'utilidad' => 'poco']);
+chequear('pulso: una sola, o ninguna (se sacó lo marcado)', [ivplayer_pulso_leer('perdi', ''), ivplayer_pulso_leer('', 'nada'),
+    ivplayer_pulso_leer('', ''), ivplayer_pulso_leer(null, null)], [['dificultad' => 'perdi', 'utilidad' => null],
+    ['dificultad' => null, 'utilidad' => 'nada'], ['dificultad' => null, 'utilidad' => null], ['dificultad' => null, 'utilidad' => null]]);
+chequear('pulso: una del otro grupo o desconocida rechaza todo', [ivplayer_pulso_leer('poco', ''), ivplayer_pulso_leer('', 'bien'),
+    ivplayer_pulso_leer('BIEN', ''), ivplayer_pulso_leer('bien', 'x'), ivplayer_pulso_leer(['bien'], ''), ivplayer_pulso_leer('bien ', '')],
+    [null, null, null, null, null, null]);
+seccion('toque de fin de lección (1.5.0): ivplayer_pulso_opciones e ivplayer_pulso_leer');
+
+chequear('comentario: sin espacios en las puntas', ivplayer_comentario_limpio("  ¿El downlink se corta?  \n"), '¿El downlink se corta?');
+chequear('comentario: vacío o sólo espacios, nada', [ivplayer_comentario_limpio(''), ivplayer_comentario_limpio(" \n\t "), ivplayer_comentario_limpio(null),
+    ivplayer_comentario_limpio(['x'])], [null, null, null, null]);
+chequear('comentario: saltos de línea normalizados y como mucho uno en blanco; sin caracteres de control',
+    ivplayer_comentario_limpio("uno\r\ndos\r\n\r\n\r\n\r\ntres\x07"), "uno\ndos\n\ntres");
+chequear('comentario: hasta 1000 caracteres (letras con tilde cuentan una)', mb_strlen((string) ivplayer_comentario_limpio(str_repeat('á', 1200)), 'UTF-8'), 1000);
+$t = ivplayer_comentario_textos(['alumno' => 'Ana Pérez', 'email' => 'ana@ejemplo.test', 'curso' => 'Introducción al vuelo',
+    'leccion' => '2.1 Elementos de un drone', 'texto' => "¿El control llega\nsi se corta el video?", 'url' => 'https://campus.ejemplo.test/mod/ivplayer/view.php?id=267']);
+chequear('comentario: el asunto nombra la lección y el curso', $t['asunto'], 'Duda o comentario en "2.1 Elementos de un drone" (Introducción al vuelo)');
+chequear('comentario: el cuerpo trae quién, dónde, el texto tal cual, cómo responder y el enlace', [
+    strpos($t['cuerpo'], 'Ana Pérez (ana@ejemplo.test) dejó una duda o comentario') === 0,
+    strpos($t['cuerpo'], "¿El control llega\nsi se corta el video?") !== false,
+    strpos($t['cuerpo'], 'respondé este mail: le llega a ana@ejemplo.test') !== false,
+    strpos($t['cuerpo'], 'https://campus.ejemplo.test/mod/ivplayer/view.php?id=267') !== false], [true, true, true, true]);
+chequear('comentario: el aviso corto', $t['corto'], 'Ana Pérez dejó una duda en "2.1 Elementos de un drone"');
+seccion('dudas o comentarios (1.5.0): ivplayer_comentario_limpio e ivplayer_comentario_textos');
 
 $r = ivplayer_respuesta_a_guardar(null, 'b', false, 1000);
 chequear('respuesta: la primera guarda también el primer intento y un intento', (array) $r,
@@ -1036,8 +1060,8 @@ seccion('etiquetas y secreto de los subtítulos: los pasos del upgrade, install.
 // mismo tipo, largo, nulidad y valor por defecto, en el mismo orden.
 $r15 = $upgrade(2026101904);
 $creadas = array_column($DB->dbman->creadas, 0);
-chequear('upgrade desde 2026101904: crea ivplayer_vistas e ivplayer_pulso', $creadas, ['ivplayer_vistas', 'ivplayer_pulso']);
-$upgrade(2026101904, $existen15, null, ['ivplayer_vistas', 'ivplayer_pulso']);
+chequear('upgrade desde 2026101904: crea ivplayer_vistas, ivplayer_pulso e ivplayer_comentarios', $creadas, ['ivplayer_vistas', 'ivplayer_pulso', 'ivplayer_comentarios']);
+$upgrade(2026101904, $existen15, null, ['ivplayer_vistas', 'ivplayer_pulso', 'ivplayer_comentarios']);
 chequear('upgrade cortado a la mitad (tablas y columnas ya están): no duplica nada y marca igual',
     [$DB->dbman->creadas, $DB->dbman->agregados, $GLOBALS['ivp_savepoints']], [[], [], [$paso15]]);
 // [nombre, tipo, largo, no nula, por defecto] de un campo del upgrade y de install.xml.

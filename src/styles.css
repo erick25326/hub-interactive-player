@@ -1656,10 +1656,117 @@ html, body { margin: 0; padding: 0; background: #000; }
   .iv-fin-ver { padding: 7px 12px; font-size: 13px; }
 }
 
+/* ─── EL TOQUE DE FIN DE LECCIÓN Y LA DUDA (1.5.0) ───────────────────────────
+   Sólo en el campus (pulsoUrl y comentarioUrl en MOODLE_CONTEXT). El diseño es el del
+   mockup aprobado por Erick (hub-education-web/docs/mockup-toque-fin-leccion.html): en la
+   compu un renglón por grupo; angosto (el celular parado, con el reproductor agrandado por
+   view.php), una opción por renglón; bajo (sin agrandar), todo más chico. */
+.iv-fin.con-pulso { max-width: 520px; }
+/* Mientras la página agranda el iframe por la tarjeta (finAlto, "ivplayer-alto" con fin), el
+   reproductor lo ocupa entero, como con el glosario en vivo: si no, se queda en el 16:9 del
+   medio y la tarjeta no entra. Con el iframe de siempre (16:9) no cambia nada. */
+.iv-wrapper.embedded .iv-container.fin-alto { width: 100%; height: 100%; aspect-ratio: auto; }
+.iv-fin-pulso { margin: 0 0 16px; padding-top: 14px; border-top: 1px solid #E2E8F0; }
+.iv-fin-titulo + .iv-fin-pulso { margin-top: 10px; }
+.iv-fin-pregunta { margin: 0 0 9px; font-size: 14px; font-weight: 600; line-height: 1.3; color: #062E60; }
+.iv-fin-opciones { display: flex; flex-direction: column; gap: 6px; }
+.iv-fin-grupo { display: flex; flex-wrap: wrap; gap: 6px; }
+.iv-fin-op {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1.5px solid #E2E8F0;
+  background: #fff;
+  color: #062E60;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.iv-fin-op:hover { border-color: #94A3B8; }
+.iv-fin-op svg { display: none; flex-shrink: 0; width: 15px; height: 15px; margin-left: -3px; }
+.iv-fin-op.on { background: #EAF2FF; border-color: #0162F5; font-weight: 600; }
+.iv-fin-op.on svg { display: block; color: #0162F5; }
+.iv-fin-op:focus-visible, .iv-fin-comentar:focus-visible, .iv-fin-comentario textarea:focus-visible { outline: 3px solid #14CCF7; outline-offset: 2px; }
+/* Un solo renglón: el enlace de la duda y, al marcar algo, "Gracias". */
+.iv-fin-pie { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 9px; min-height: 18px; }
+.iv-fin-comentar {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #0162F5;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.iv-fin-enviado { font-size: 13px; color: #475569; }
+.iv-fin-gracias { font-size: 12px; color: #64748B; white-space: nowrap; }
+/* El campo de la duda, en la misma tarjeta. */
+.iv-fin-comentario label { display: block; margin: 10px 0 8px; font-size: 14px; font-weight: 600; color: #062E60; }
+.iv-fin-comentario textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 96px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1.5px solid #CBD5E1;
+  border-radius: 10px;
+  background: #fff;
+  color: #062E60;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.iv-fin-aclara { margin: 6px 0 14px; font-size: 12.5px; line-height: 1.35; color: #64748B; }
+/* Angosto (el celular parado con el reproductor agrandado): una opción por renglón, todo el
+   ancho para tocar, con un círculo que se llena al marcarla. */
+@container ivfin (max-width: 479px) {
+  .iv-fin-fondo:has(.con-pulso) { padding: 12px; }
+  .iv-fin.con-pulso { padding: 18px 16px 16px; max-height: 100%; }
+  .iv-fin-opciones { gap: 10px; }
+  .iv-fin-grupo { flex-direction: column; align-items: stretch; gap: 4px; }
+  .iv-fin-op { justify-content: flex-start; border-radius: 10px; min-height: 34px; font-size: 13.5px; }
+  .iv-fin-op svg {
+    display: block; box-sizing: border-box; width: 16px; height: 16px; margin: 0 2px 0 -2px; padding: 1px;
+    border: 1.5px solid #CBD5E1; border-radius: 50%; color: transparent;
+  }
+  .iv-fin-op.on svg { color: #fff; background: #0162F5; border-color: #0162F5; }
+}
+/* Bajo (el reproductor sin agrandar: la página de la lección de antes de la 1.5.0, o la
+   app): sin "Siguiente: …" (el botón ya lo dice) y opciones chicas. Va DESPUÉS de la de
+   angosto: a 375 × 211 valen las dos y gana ésta. */
+@container ivfin (max-height: 300px) {
+  .iv-fin.con-pulso { padding: 8px 10px; }
+  .iv-fin.con-pulso .iv-fin-siguiente { display: none; }
+  .iv-fin-titulo + .iv-fin-pulso { margin-top: 4px; }
+  .iv-fin-pulso { margin: 4px 0 6px; padding-top: 5px; }
+  .iv-fin-pregunta { font-size: 12.5px; margin-bottom: 5px; }
+  .iv-fin-opciones { gap: 4px; }
+  .iv-fin-grupo { flex-direction: row; align-items: center; gap: 4px; }
+  .iv-fin-op { min-height: 26px; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; }
+  .iv-fin-op svg { display: none; }
+  .iv-fin-op.on svg { display: block; width: 13px; height: 13px; margin: 0 0 0 -2px; padding: 0; border: 0; background: none; color: #0162F5; }
+  .iv-fin-pie { margin-top: 4px; }
+  .iv-fin-gracias { display: none; }
+  .iv-fin-comentario textarea { min-height: 52px; }
+  .iv-fin-aclara { margin: 4px 0 6px; }
+}
+
 /* Movimiento reducido: sin latidos ni animaciones de entrada en lo nuevo. */
 @media (prefers-reduced-motion: reduce) {
   .iv-cuenta, .iv-cuenta-num, .iv-gv-fila.entra, .iv-gv-toast { animation: none; }
   .iv-fin-fondo, .iv-fin { animation: none; }
-  .iv-fin-ver, .iv-btn-primary.iv-fin-ir { transition: none; }
+  .iv-fin-ver, .iv-btn-primary.iv-fin-ir, .iv-fin-op { transition: none; }
   .iv-gv-fila, .iv-gv-chev { transition: none; }
 }

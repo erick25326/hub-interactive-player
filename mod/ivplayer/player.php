@@ -152,12 +152,12 @@ if ($progressrec && !empty($progressrec->progress)) {
     $savedprogress = json_decode($progressrec->progress, true);
 }
 
-// La respuesta del toque de fin que ya dio (1.5.0), o null. Sin el upgrade corrido la tabla
-// no existe: la lección se abre igual.
+// Lo que ya marcó en el toque de fin (1.5.0): ['dificultad' => …, 'utilidad' => …], o null.
+// Sin el upgrade corrido la tabla no existe: la lección se abre igual.
 $pulsoguardado = null;
 try {
-    $pulsoguardado = ivplayer_pulso_valida($DB->get_field('ivplayer_pulso', 'respuesta',
-        ['ivplayerid' => $ivplayer->id, 'userid' => $USER->id]));
+    $p = $DB->get_record('ivplayer_pulso', ['ivplayerid' => $ivplayer->id, 'userid' => $USER->id], 'dificultad, utilidad');
+    $pulsoguardado = $p ? ivplayer_pulso_leer($p->dificultad, $p->utilidad) : null;
 } catch (\dml_exception $e) {
     $pulsoguardado = null;
 }
@@ -173,6 +173,7 @@ $contexto = [
     // SCORM no lo tienen y no muestran la pregunta.
     'pulsoUrl' => (new moodle_url('/mod/ivplayer/pulso.php'))->out(false),
     'pulsoGuardado' => $pulsoguardado,
+    'comentarioUrl' => (new moodle_url('/mod/ivplayer/comentario.php'))->out(false),
     'savedProgress' => $savedprogress,
     'alreadyCompleted' => $progressrec ? (bool)$progressrec->completed : false,
     // Casilla del sitio: la app con Chromecast ya está en Play (decide si el reproductor
